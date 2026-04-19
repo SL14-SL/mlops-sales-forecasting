@@ -1,0 +1,35 @@
+# Core Data Science
+pandas==2.3.3
+pyarrow==22.0.0
+scikit-learn==1.8.0
+xgboost==3.1.3
+gcsfs==2026.2.0
+evidently==0.7.20
+pytest==9.0.2
+pandera==0.29.0
+
+
+# MLOps & Tracking
+mlflow==3.9.0
+mlflow-skinny==3.9.0
+mlflow-tracing==3.9.0
+
+
+# API & Server
+fastapi==0.128.6
+uvicorn==0.40.0
+
+google-cloud-bigquery-storage
+
+# Monitoring & Math
+scipy==1.17.0
+
+
+# Orchestration & GCP
+prefect==3.6.17
+google-cloud-bigquery
+google-cloud-storage
+google-cloud-aiplatform
+pyarrow
+db-dtypes
+python-dotenv

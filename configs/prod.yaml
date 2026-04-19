@@ -1,0 +1,39 @@
+environment: prod
+project_name: mlops-sales-forecasting
+random_seed: 42
+
+model:
+  registry_name: ${MODEL_REGISTRY_NAME:-mlops-sales-forecasting}
+
+tracking:
+  mlflow_tracking_uri: ${MLFLOW_TRACKING_URI}
+
+services:
+  prefect_api_url: ${PREFECT_API_URL}
+  mlflow_ui_url: ${MLFLOW_UI_URL}
+
+api:
+  url: ${PREDICTION_API_URL}
+
+orchestration:
+  deployment_name: auto-retrain
+  work_pool: ${PREFECT_WORK_POOL:-prod-pool}
+  retrain_cron: "0 3 * * *"
+
+paths:
+  raw_data: gs://${GCP_BUCKET_NAME}/data/raw
+  validated_data: gs://${GCP_BUCKET_NAME}/data/validation
+  features: gs://${GCP_BUCKET_NAME}/data/features
+  splits: gs://${GCP_BUCKET_NAME}/data/splits
+  models: gs://${GCP_BUCKET_NAME}/models
+  predictions: gs://${GCP_BUCKET_NAME}/monitoring/predictions
+  monitoring: gs://${GCP_BUCKET_NAME}/monitoring/history
+  versioning: gs://${GCP_BUCKET_NAME}/data/versioning
+
+costs:
+  training:
+    enabled: true
+    currency: EUR
+    estimated_hourly_rate: 1.20
+  scenarios:
+    drift_triggered_runs_per_month: 8

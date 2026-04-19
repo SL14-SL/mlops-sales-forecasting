@@ -1,0 +1,40 @@
+environment: dev
+project_name: sales-forecasting-mlops
+random_seed: 42
+
+model:
+  registry_name: sales-forecasting-model-dev
+
+tracking:
+  mlflow_tracking_uri: http://127.0.0.1:5000
+
+services:
+  prefect_api_url: http://127.0.0.1:4200/api
+  mlflow_ui_url: http://127.0.0.1:5000
+
+api:
+  url: http://127.0.0.1:8000/predict
+
+orchestration:
+  deployment_name: auto-retrain
+  work_pool: local-pool
+  retrain_cron: "0 3 * * *"
+
+paths:
+  raw_data: data/raw
+  validated_data: data/validation
+  features: data/features
+  splits: data/splits
+  models: models
+  predictions: data/predictions
+  monitoring: data/monitoring
+  versioning: data/versioning
+
+costs:
+  training:
+    enabled: true
+    currency: EUR
+    estimated_hourly_rate: 0.35
+  scenarios: 
+    drift_triggered_runs_per_month: 8
+

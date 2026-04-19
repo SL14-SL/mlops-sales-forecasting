@@ -1,0 +1,67 @@
+project:
+  name: mlops-sales-forecasting
+  domain: forecasting
+  schema_version: v1
+
+model:
+  type: xgboost
+  params:
+    n_estimators: 300
+    max_depth: 8
+    learning_rate: 0.05
+    subsample: 0.8
+    tree_method: hist
+    enable_categorical: true
+
+data:
+  target_column: Sales
+  known_targets: 
+    - Sales
+    - Customers
+  time_column: Date
+  id_columns:
+    - Store
+  primary_keys:
+    - Store
+    - Date
+
+  feature_sources:
+    train:
+      path: train.parquet
+    store:
+      path: store.parquet
+      merge_on:
+        - Store
+      how: left
+
+training:
+  validation_strategy: holdout
+  test_size: 0.2
+  target_transformation: log1p
+
+metrics:
+  primary: rmse
+  evaluate_on_original_scale: true
+
+features:
+  enabled_steps:
+    - sort
+    - temporal
+    - lags
+    - competition
+    - promo
+    - cast_categoricals
+    - drop_technical
+    - drop_configured
+
+  lag_features:
+    lags: [1,7,14,28]
+    rolling_windows: [7,14,28]
+
+  technical_drop_columns:
+    - CompetitionOpenSinceMonth
+    - CompetitionOpenSinceYear
+    - Promo2SinceWeek
+    - Promo2SinceYear
+
+  drop_columns: []

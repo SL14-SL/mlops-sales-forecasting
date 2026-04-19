@@ -1,0 +1,39 @@
+feature_drift:
+  enabled: true
+
+  numeric_features:
+    - Customers
+
+  categorical_features:
+    - Promo
+    - Store
+
+  min_samples: 50
+  p_value_threshold: 0.01
+  stat_threshold: 0.10
+
+data_quality:
+  enabled: true
+  persist_history: false
+
+  categorical_reference_features:
+    - Promo
+    - Store
+
+serving:
+  enabled: true
+  metrics_endpoint_enabled: true
+  summary_endpoint_enabled: true
+
+  summary_window_seconds: 900
+
+  track_paths:
+    - /predict
+    - /health
+
+  ignored_paths:
+    - /metrics
+    - /monitoring/summary
+    - /docs
+    - /openapi.json
+    - /redoc

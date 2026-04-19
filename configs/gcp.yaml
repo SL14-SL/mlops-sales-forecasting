@@ -1,0 +1,28 @@
+gcp:
+  project_id: ${GCP_PROJECT_ID}
+  region: ${GCP_REGION:-europe-west1}
+
+  gcs:
+    bucket_name: ${GCP_BUCKET_NAME}
+
+  artifact_registry:
+    repository: ${GCP_ARTIFACT_REPO_NAME:-mlops-repo}
+    image_prefix: ${GCP_ARTIFACT_REPO}
+
+  cloud_run:
+    services:
+      prediction_api:
+        service_name: prediction-api
+        image_name: mlops-api
+        dockerfile: Dockerfile
+        cpu: "1"
+        memory: "1Gi"
+        allow_unauthenticated: true
+
+      mlflow:
+        service_name: mlflow-server
+        image_name: mlflow
+        dockerfile: Dockerfile.mlflow
+        cpu: "1"
+        memory: "2Gi"
+        allow_unauthenticated: true

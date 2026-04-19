@@ -1,0 +1,330 @@
+name: mlops-pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: mlops-pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+
+# -------------------------------------------------
+# 1️⃣ LINTING
+# -------------------------------------------------
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: uv sync --frozen
+
+      - name: Run Lint
+        run: uv run ruff check .
+
+# -------------------------------------------------
+# 2️⃣ TESTING
+# -------------------------------------------------
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+
+    env:
+      APP_ENV: dev
+      API_KEY: test-secret-key
+      PREFECT_API_MODE: ephemeral
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: uv sync --frozen
+
+      - name: Run Tests
+        run: |
+          unset PREFECT_API_URL
+          uv run pytest tests/ -v --junitxml=result.xml
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: result.xml
+
+# -------------------------------------------------
+# 3️⃣ TERRAFORM PLAN
+# -------------------------------------------------
+  terraform-plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan
+
+# -------------------------------------------------
+# 4️⃣ BUILD API (Build → Scan → Push)
+# -------------------------------------------------
+  build-api:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCP
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: |
+            ${{ vars.GCP_ARTIFACT_REPO }}/mlops-api:${{ github.sha }}
+            ${{ vars.GCP_ARTIFACT_REPO }}/mlops-api:latest
+            mlops-api:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: mlops-api:scan
+          format: table
+          scan-type: image
+          scanners: vuln
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Push Container
+        run: |
+          docker tag mlops-api:scan ${{ vars.GCP_ARTIFACT_REPO }}/mlops-api:${{ github.sha }}
+          docker tag mlops-api:scan ${{ vars.GCP_ARTIFACT_REPO }}/mlops-api:latest
+
+          docker push ${{ vars.GCP_ARTIFACT_REPO }}/mlops-api:${{ github.sha }}
+          docker push ${{ vars.GCP_ARTIFACT_REPO }}/mlops-api:latest
+
+# -------------------------------------------------
+# 5️⃣ DEPLOY API (CLI)
+# -------------------------------------------------
+  deploy-api:
+    needs: build-api
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    env:
+      APP_ENV: prod
+      API_KEY: ${{ secrets.API_KEY }}
+      MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_URL }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCS_BUCKET_NAME: ${{ vars.GCP_BUCKET_NAME }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy API via deployment CLI
+        run: |
+          uv run --active python -m src.deployment.cli deploy prediction_api --tag ${{ github.sha }} \
+            --service-account "${{ secrets.GCP_SA_EMAIL }}" \
+            --env-from APP_ENV \
+            --env-from API_KEY \
+            --env-from MLFLOW_TRACKING_URI \
+            --env-from GCP_PROJECT_ID \
+            --env-from GCS_BUCKET_NAME
+
+# -------------------------------------------------
+# 6️⃣ BUILD MLFLOW (Build → Scan → Push)
+# -------------------------------------------------
+  build-mlflow:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      IMAGE_NAME: "mlflow"
+      REGION: "europe-west1"
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCP
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build MLflow Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.mlflow
+          push: false
+          load: true
+          tags: |
+            ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:3.9.0
+            mlops-mlflow:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan MLflow image
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: mlops-mlflow:scan
+          scan-type: image
+          scanners: vuln
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Push MLflow Image
+        run: |
+          docker tag mlops-mlflow:scan ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:3.9.0
+          docker tag mlops-mlflow:scan ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:latest
+
+          docker push ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:3.9.0
+          docker push ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:latest
+
+# -------------------------------------------------
+# 7️⃣ DEPLOY MLFLOW (CLI)
+# -------------------------------------------------
+  deploy-mlflow:
+    needs: build-mlflow
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    env:
+      MLFLOW_BACKEND_STORE_URI: sqlite:///tmp/mlflow.db
+      MLFLOW_ARTIFACT_ROOT: gs://${{ vars.GCP_BUCKET_NAME }}/mlruns
+      MLFLOW_SERVER_ALLOWED_HOSTS: "*"
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy MLflow via deployment CLI
+        run: |
+          uv run --active python -m src.deployment.cli deploy mlflow --tag 3.9.0 \
+            --service-account "${{ secrets.GCP_SA_EMAIL }}" \
+            --env-from MLFLOW_BACKEND_STORE_URI \
+            --env-from MLFLOW_ARTIFACT_ROOT \
+            --env-from MLFLOW_SERVER_ALLOWED_HOSTS

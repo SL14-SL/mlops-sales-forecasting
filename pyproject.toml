@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sales_forecasting_mlops"
+version = "0.1.0"
+description = "Reusable MLOps template for forecasting projects"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.128.6",
+    "uvicorn==0.40.0",
+    "pandas==2.3.3",
+    "pyarrow==22.0.0",
+    "python-dotenv>=1.2.1",
+    "pandera==0.29.0",
+    "scikit-learn==1.8.0",
+    "scipy==1.17.0",
+    "xgboost==3.1.3",
+    "mlflow==3.9.0",
+    "mlflow-skinny==3.9.0",
+    "mlflow-tracing==3.9.0",
+    "prefect==3.6.17",
+    "prometheus-fastapi-instrumentator>=7.1.0",
+    # GCP-first blueprint dependencies
+    "gcsfs==2026.2.0",
+    "google-cloud-aiplatform>=1.139.0",
+    "google-cloud-bigquery>=3.40.1",
+    "google-cloud-bigquery-storage>=2.36.2",
+    "google-cloud-run>=0.15.0",
+    "google-cloud-storage>=3.9.0",
+    "db-dtypes>=1.5.0",
+    "pyasn1>=0.6.3",
+    "prometheus-client==0.23.1",
+    "pillow>=12.2.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[dependency-groups]
+dev = [
+    "pytest==9.0.2",
+    "ruff>=0.15.6",
+]

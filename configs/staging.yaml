@@ -1,0 +1,13 @@
+environment: staging
+
+mlflow_tracking_uri: "http://staging-mlflow-server:5000"
+model_registry_name: "sales-forecasting-staging"
+
+# Hier nutzt du oft schon Cloud-Pfade, aber in einem Test-Bucket
+paths:
+  raw_data: "gs://mlops-staging-bucket/data/raw"
+  models: "gs://mlops-staging-bucket/models"
+
+monitoring:
+  # Staging kann strengere Schwellenwerte haben, um Fehler früh zu finden
+  rmse_threshold: 550

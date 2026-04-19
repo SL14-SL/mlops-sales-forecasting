@@ -1,0 +1,109 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mlflowdb
+    ports:
+      - "5432:5432"
+    networks:
+      - mlops-net
+    volumes:
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
+    user: "${UID}:${GID}"
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://postgres:postgres@db:5432/mlflowdb
+      MLFLOW_ARTIFACT_ROOT: /app/mlruns
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow:5000,localhost:5000,127.0.0.1:5000
+    volumes:
+      - ./mlruns:/app/mlruns
+    networks:
+      - mlops-net
+    depends_on:
+      db:
+        condition: service_healthy
+
+  prefect:
+    image: prefecthq/prefect:3.6.17-python3.12
+    ports:
+      - "4200:4200"
+    environment:
+      PREFECT_SERVER_API_HOST: 0.0.0.0
+      PREFECT_API_URL: http://127.0.0.1:4200/api
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://postgres:postgres@db:5432/prefectdb
+    volumes:
+      - ./prefect_data:/root/.prefect
+    command: prefect server start
+    networks:
+      - mlops-net
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: .
+    user: "${UID}:${GID}"
+    ports:
+      - "8000:8080"
+    environment:
+      PYTHONPATH: /app
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      UV_CACHE_DIR: /tmp/.uv_cache
+      PYTHONPYCACHEPREFIX: /tmp/pycache
+      UV_NO_SYNC: "1"
+      API_KEY: ${API_KEY}
+    volumes:
+      - ./src:/app/src
+      - ./configs:/app/configs
+      - ./flows:/app/flows
+      - ./mlruns:/app/mlruns
+      - ./data:/app/data
+      - ./models:/app/models
+    networks:
+      - mlops-net
+    depends_on:
+      mlflow:
+        condition: service_started
+      prefect:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: forecasting-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+    networks:
+      - mlops-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: forecasting-grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - mlops-net
+
+networks:
+  mlops-net:
+    driver: bridge

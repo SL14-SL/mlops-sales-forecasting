@@ -1,0 +1,4 @@
+# infrastructure/terraform.tfvars
+project_id = "your-project-id"
+region     = ""
+github_repo = "your-github-repo"

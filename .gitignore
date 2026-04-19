@@ -1,0 +1,96 @@
+# =========================
+# Python / Virtual Environments
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+
+.env
+
+
+# =========================
+# Jupyter Notebooks
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# Build / Packaging
+# =========================
+*.egg-info/
+build/
+dist/
+
+# =========================
+# OS / System files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Project-specific temp / attic
+# =========================
+_attic/
+prefect_data/
+
+# =========================
+# Data & Artifacts (MLOps)
+# =========================
+# Ignore all data by default
+*.csv
+*.parquet
+
+# Allow example/sample data
+!store_cloud.csv
+
+# Windows zone identifier files
+*:Zone.Identifier
+
+# Logs & reports
+logs/
+*.log
+*.html
+
+# Runtime artifacts
+mlruns/
+models/
+results/
+
+# =========================
+# MLflow
+# =========================
+*.db
+
+# =========================
+# Terraform
+# =========================
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+*.backup
+
+# Keep example variable files
+!example.tfvars
+
+# =========================
+# Secrets / Credentials
+# =========================
+*.json
+
+# =========================
+# Misc project files (optional)
+# =========================
+diagnose.py
+generate_documentation_all_code.py
+complete_project_code.md
+last_retrain.txt

@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+
+.env 
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Data (Avoid bloating the image with raw/interim data)
+data/raw/
+data/features/
+data/predictions/
+data/batch/
+data/splits/
+
+# Local MLflow (unless you want to bake the current DB into the image)
+# If you plan to mount the db as a volume, ignore it here:
+mlflow.db
+mlruns/
+
+# macOS/Windows noise
+.DS_Store
+Thumbs.db
+
+# Files
+diagnose.py
+generate_documentation_all_code.py
+complete_project_code.md
+
+# Package-Metadata
+*.egg-info/
+build/
+dist/
+.eggs/
