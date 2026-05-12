@@ -147,7 +147,7 @@ resource "google_cloud_run_v2_service" "prediction_api" {
 # --- Workload Identity Federation ---
 
 resource "google_iam_workload_identity_pool" "github_pool" {
-  workload_identity_pool_id = "github-pool-v2"
+  workload_identity_pool_id = "github-pool-forecasting"
   display_name              = "GitHub Actions Pool V2"
   description               = "Identity pool for GitHub Actions automation"
 
@@ -156,7 +156,7 @@ resource "google_iam_workload_identity_pool" "github_pool" {
 
 resource "google_iam_workload_identity_pool_provider" "github_provider" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.github_pool.workload_identity_pool_id
-  workload_identity_pool_provider_id = "github-provider-v2"
+  workload_identity_pool_provider_id = "github-provider-forecasting"
 
   attribute_mapping = {
     "google.subject"       = "assertion.sub"
