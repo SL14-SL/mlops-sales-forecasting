@@ -6,15 +6,15 @@ model:
   registry_name: sales-forecasting-model-dev
 
 tracking:
-  mlflow_tracking_uri: http://127.0.0.1:5000
+  mlflow_tracking_uri: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
 
 services:
-  prefect_api_url: http://127.0.0.1:4200/api
-  mlflow_ui_url: http://127.0.0.1:5000
+  prefect_api_url: ${PREFECT_API_URL:-http://prefect:4200/api}
+  mlflow_ui_url: ${MLFLOW_UI_URL:-http://mlflow:5000}
 
 api:
-  url: http://127.0.0.1:8000/predict
-
+  url: ${PREDICTION_API_URL:-http://api:8080/predict}
+  
 orchestration:
   deployment_name: auto-retrain
   work_pool: local-pool

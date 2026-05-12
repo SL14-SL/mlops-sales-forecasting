@@ -6,12 +6,10 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
-from mlflow import MlflowClient
 
 import gcsfs
 import mlflow
 import pandas as pd
-import xgboost as xgb
 from fastapi import FastAPI, HTTPException, Security, Depends, Response, Request
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.responses import PlainTextResponse, JSONResponse
@@ -38,7 +36,11 @@ from src.inference.adapters import (
     resolve_forecasting_store_id,
     resolve_open_flags,
 )
-
+from src.inference.model_manager import (
+    reload_serving_model as reload_model_state,
+    load_store_metadata,
+    load_store_state,
+)
 from src.data.features.build_features import preprocess_data
 
 from src.inference.forecasting_policy import (
@@ -46,7 +48,6 @@ from src.inference.forecasting_policy import (
     inject_forecasting_state_features,
     finalize_forecasting_feature_frame,
 )
-from src.inference.router import load_registry_model
 from src.utils.logger import get_logger
 
 
@@ -88,175 +89,165 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
         detail="Could not validate API Key",
     )
 
+def reload_serving_model() -> dict:
+    """
+    Reload model state and update API globals.
+    """
+    global model, model_type, target_transformation, serving_alias, model_uri
+    global serving_model_version, serving_model_run_id
 
-def resolve_tracking_uri() -> str:
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
-
-    if tracking_uri is None:
-        is_docker = os.path.exists("/.dockerenv")
-        if is_docker:
-            try:
-                mlflow_ip = socket.gethostbyname("mlflow")
-                tracking_uri = f"http://{mlflow_ip}:5000"
-            except Exception:
-                tracking_uri = "http://mlflow:5000"
-        else:
-            tracking_uri = CFG.get("mlflow_tracking_uri", "http://localhost:5000")
-
-    return tracking_uri
-
-
-def load_model_from_local_fallback(resolved_model_type: str):
-    local_model_path = MODELS_PATH / "model.ubj"
-    logger.info(f"Attempting local fallback model load from: {local_model_path}")
-
-    if not local_model_path.exists():
-        raise FileNotFoundError(f"Local fallback model not found: {local_model_path}")
-
-    if resolved_model_type == "xgboost":
-        fallback_model = xgb.XGBRegressor()
-        fallback_model.load_model(str(local_model_path))
-        return fallback_model
-
-    raise ValueError(
-        f"Local fallback is not implemented for model_type='{resolved_model_type}'"
+    state = reload_model_state(
+        model_name=MODEL_NAME,
+        cfg=CFG,
     )
 
+    model = state["model"]
+    model_type = state["model_type"]
+    target_transformation = state["target_transformation"]
+    serving_alias = state["serving_alias"]
+    model_uri = state["model_uri"]
+    serving_model_version = state["serving_model_version"]
+    serving_model_run_id = state["serving_model_run_id"]
+
+    return {
+        "model_name": MODEL_NAME,
+        "serving_alias": serving_alias,
+        "model_version": serving_model_version,
+        "model_run_id": serving_model_run_id,
+        "model_uri": model_uri,
+        "target_transformation": target_transformation,
+    }
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Handles setup and teardown of the ML model, metadata, and state snapshot.
-    Designed to be resilient: API starts even if assets are missing.
+    Handles setup and teardown of the forecasting API.
+
+    Startup responsibilities:
+    - optionally skip heavy loading in smoke-test mode
+    - load store metadata
+    - load forecasting state snapshot
+    - load current champion model from MLflow registry
+
+    The API is resilient by design:
+    - missing metadata/state/model does not crash startup
+    - readiness endpoints report degraded state
     """
     global model, store_metadata, store_state, model_type, target_transformation
     global model_uri, serving_alias, serving_model_version, serving_model_run_id
     global dq_reference_categories
 
     if os.getenv("SMOKE_TEST") == "1":
-        logger.info("Smoke test mode enabled. Skipping model and metadata startup loading.")
+        logger.info(
+            "Smoke test mode enabled. Skipping model, metadata and state startup loading."
+        )
         yield
         return
 
     try:
-        # --- 1. Load Store Metadata (Parquet) ---
-        if GCS_BUCKET and GCS_BUCKET != "None":
-            store_file = f"gs://{GCS_BUCKET}/data/validation/store.parquet"
-        else:
-            store_file = f"{VALIDATED_PATH}/store.parquet"
-
-        logger.info(f"Checking for store metadata at: {store_file}")
-
+        # -------------------------------------------------
+        # 1. Load store metadata
+        # -------------------------------------------------
         try:
-            store_metadata = pd.read_parquet(store_file)
-            store_metadata["Store"] = store_metadata["Store"].astype(int)
-            logger.info("✅ Store metadata loaded successfully.")
-        except Exception as e:
-            logger.warning(f"⚠️ Could not load store metadata: {e}. API will run in degraded mode.")
+            store_metadata = load_store_metadata(
+                validated_path=VALIDATED_PATH,
+                gcs_bucket=GCS_BUCKET,
+            )
+
+            if store_metadata is None:
+                logger.warning(
+                    "Store metadata could not be loaded. "
+                    "API will start in degraded mode."
+                )
+            else:
+                logger.info("Store metadata loaded successfully.")
+
+        except Exception as metadata_error:
+            logger.warning(
+                "Store metadata loading failed: %s. API will start in degraded mode.",
+                metadata_error,
+            )
             store_metadata = None
 
-        ref_df = initialize_data_quality_reference_cache()
-        dq_reference_categories = build_reference_category_cache(
-            ref_df,
-            categorical_reference_features=get_data_quality_settings().get(
-                "categorical_reference_features", []
-            ),
-        )
-
-        # --- 2. Load State Snapshot (JSON) ---
-        state_gcs_path = f"gs://{GCS_BUCKET}/models/latest_state.json"
-        local_state_path = MODELS_PATH / "latest_state.json"
-
-        logger.info("Attempting to load state snapshot...")
-
+        # -------------------------------------------------
+        # 2. Initialize data quality reference cache
+        # -------------------------------------------------
         try:
-            if GCS_BUCKET and GCS_BUCKET != "None":
-                fs = gcsfs.GCSFileSystem()
-                if fs.exists(state_gcs_path):
-                    with fs.open(state_gcs_path, "r") as f:
-                        store_state = json.load(f)
-                    logger.info("✅ Feature state loaded from GCS")
-                else:
-                    raise FileNotFoundError(f"State file not found on GCS: {state_gcs_path}")
-            else:
-                raise ValueError("No GCS bucket configured for state.")
-        except Exception as state_err:
-            logger.warning(f"⚠️ GCS state load failed: {state_err}. Checking local fallback...")
-            if local_state_path.exists():
-                with open(local_state_path, "r") as f:
-                    store_state = json.load(f)
-                logger.info(f"✅ Feature state loaded from LOCAL path: {local_state_path}")
-            else:
-                logger.error("❌ No state snapshot found. Using empty state.")
+            ref_df = initialize_data_quality_reference_cache()
+            dq_reference_categories = build_reference_category_cache(
+                ref_df,
+                categorical_reference_features=get_data_quality_settings().get(
+                    "categorical_reference_features", []
+                ),
+            )
+            logger.info("Data quality reference cache initialized.")
+
+        except Exception as dq_error:
+            logger.warning(
+                "Data quality reference cache initialization failed: %s. "
+                "Continuing with empty reference categories.",
+                dq_error,
+            )
+            dq_reference_categories = {}
+
+        # -------------------------------------------------
+        # 3. Load forecasting state snapshot
+        # -------------------------------------------------
+        try:
+            store_state = load_store_state(
+                models_path=MODELS_PATH,
+                gcs_bucket=GCS_BUCKET,
+            )
+
+            if store_state is None:
                 store_state = {}
 
-        # --- 3. Load Model ---
-        tracking_uri = resolve_tracking_uri()
-        mlflow.set_tracking_uri(tracking_uri)
-        logger.info(f"Using MLflow Tracking URI: {tracking_uri}")
+            logger.info("Forecasting state loaded successfully.")
 
+        except Exception as state_error:
+            logger.warning(
+                "Forecasting state loading failed: %s. Continuing with empty state.",
+                state_error,
+            )
+            store_state = {}
+
+        # -------------------------------------------------
+        # 4. Load current champion model from MLflow
+        # -------------------------------------------------
         try:
-            (
-                model,
-                model_type,
-                target_transformation,
-                serving_alias,
-                model_uri,
-            ) = load_registry_model(MODEL_NAME)
+            reload_result = reload_serving_model()
 
+            logger.info(
+                "Model loaded from MLflow registry. "
+                "alias=%s | version=%s | run_id=%s | model_type=%s | target_transformation=%s",
+                reload_result.get("serving_alias"),
+                reload_result.get("model_version"),
+                reload_result.get("model_run_id"),
+                reload_result.get("model_type"),
+                reload_result.get("target_transformation"),
+            )
+
+        except Exception as model_error:
+            logger.error(
+                "Registry model load failed: %s. API will start in degraded mode.",
+                model_error,
+            )
+            model = None
+            serving_alias = "unavailable"
+            model_uri = None
             serving_model_version = None
             serving_model_run_id = None
 
-            try:
-                if serving_alias and serving_alias != "unknown":
-                    client = MlflowClient()
-                    version = client.get_model_version_by_alias(MODEL_NAME, serving_alias)
-                    serving_model_version = str(version.version)
-                    serving_model_run_id = version.run_id
-                    logger.info(
-                        f"Resolved serving model metadata | alias={serving_alias} | "
-                        f"version={serving_model_version} | run_id={serving_model_run_id}"
-                    )
-            except Exception as metadata_error:
-                logger.warning(f"Could not resolve serving model metadata: {metadata_error}")
-
-            logger.info(
-                "✅ Model loaded from MLflow registry. "
-                f"alias={serving_alias} | "
-                f"model_type={model_type} | "
-                f"target_transformation={target_transformation}"
-            )
-
-        except Exception as model_err:
-            logger.error(f"⚠️ Registry model load failed: {model_err}")
-
-            try:
-                model = load_model_from_local_fallback(model_type)
-                serving_alias = "fallback_local"
-                model_uri = str(MODELS_PATH / 'model.ubj')
-                target_transformation = TRAIN_CFG.get("training", {}).get("target_transformation", {})
-
-                logger.warning(
-                    "⚠️ Using local fallback model because registry load failed. "
-                    f"model_type={model_type} | "
-                    f"target_transformation={target_transformation}"
-                )
-            except Exception as fallback_err:
-                logger.error(f"⚠️ Local fallback model load failed: {fallback_err}")
-                model = None
-                serving_alias = "unavailable"
-                model_uri = None
-
-        logger.info("🚀 Startup sequence finished. API listening.")
+        logger.info("Startup sequence finished. API listening.")
         yield
 
-    except Exception as critical_e:
-        logger.error(f"CRITICAL STARTUP ERROR: {critical_e}")
-        traceback.print_exc()
+    except Exception as critical_error:
+        logger.error("Critical startup error: %s", critical_error)
+        logger.error(traceback.format_exc())
         yield
+
     finally:
-        logger.info("Shutdown: Cleaning up assets.")
-
+        logger.info("Shutdown: cleaning up API assets.")
 
 app = FastAPI(title="Blueprint Demand Forecasting API", lifespan=lifespan)
 
@@ -326,16 +317,89 @@ def readyz():
     if store_metadata is None:
         raise HTTPException(status_code=503, detail="Store metadata is not loaded.")
 
+    if store_state is None:
+        raise HTTPException(status_code=503, detail="Forecasting state is not loaded.")
+
     return {
         "status": "ready",
         "model_name": MODEL_NAME,
+        "model_type": model_type,
+        "target_transformation": target_transformation,
         "serving_alias": serving_alias,
+        "model_version": serving_model_version,
+        "model_run_id": serving_model_run_id,
         "model_uri": model_uri,
+        "store_metadata_loaded": store_metadata is not None,
+        "state_loaded": store_state is not None,
+    }
+
+@app.post("/admin/reload-model")
+def reload_model(api_key: str = Depends(get_api_key)):
+    """
+    Reload the current champion forecasting model from MLflow.
+
+    Used after a new champion model version has been promoted.
+    """
+    try:
+        result = reload_serving_model()
+
+    except Exception as error:
+        logger.error("Model reload failed: %s", traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Model reload failed: {str(error)}",
+        )
+
+    return {
+        "status": "reloaded",
+        **result,
+    }
+
+@app.post("/admin/reload-serving-state")
+def reload_serving_state(api_key: str = Depends(get_api_key)):
+    """
+    Reload forecasting serving state:
+    - champion model
+    - store metadata
+    - forecasting state snapshot
+    """
+    global store_metadata, store_state
+
+    try:
+        model_result = reload_serving_model()
+
+        store_metadata = load_store_metadata(
+            validated_path=VALIDATED_PATH,
+            gcs_bucket=GCS_BUCKET,
+        )
+
+        store_state = load_store_state(
+            models_path=MODELS_PATH,
+            gcs_bucket=GCS_BUCKET,
+        )
+
+    except Exception as error:
+        logger.error("Serving state reload failed: %s", traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Serving state reload failed: {str(error)}",
+        )
+
+    return {
+        "status": "reloaded",
+        "store_metadata_loaded": store_metadata is not None,
+        "state_loaded": store_state is not None,
+        **model_result,
     }
 
 @app.get("/health")
 def health(response: Response):
-    is_healthy = model is not None and store_metadata is not None
+    is_healthy = (
+        model is not None
+        and store_metadata is not None
+        and store_state is not None
+    )
+
     if not is_healthy:
         response.status_code = 503
 
@@ -348,9 +412,10 @@ def health(response: Response):
         "target_transformation": target_transformation,
         "model_name": MODEL_NAME,
         "tracking_uri": mlflow.get_tracking_uri(),
-        "local_model_fallback_path": str(MODELS_PATH / "model.ubj"),
         "serving_alias": serving_alias,
         "model_uri": model_uri,
+        "model_version": serving_model_version,
+        "model_run_id": serving_model_run_id,
     }
 
 MAX_BATCH_ROWS = 5000

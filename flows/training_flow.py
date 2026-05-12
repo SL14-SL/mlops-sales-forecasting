@@ -1,6 +1,6 @@
 # --- STANDARD LIBRARY IMPORTS ---
 import sys
-import subprocess
+import os
 import time
 import shutil
 import logging
@@ -220,59 +220,29 @@ def task_archive_logs():
     return archived_count
 
 @task(name="Refresh API")
-def task_refresh_api():
+def task_refresh_api() -> None:
     """
-    Refresh API depending on environment.
-    - dev/local: restart docker container
-    - prod: use gcloud Cloud Run update
-    """
+    Refresh the API model after a new champion has been promoted.
 
+    Calls the API reload endpoint instead of restarting the container.
+    """
     p_logger = get_run_logger()
-    environment = ENV_CFG.get("environment", "dev")
+    cfg = load_config()
 
-    p_logger.info(f"Refreshing API in {environment} mode...")
+    api_url = cfg.get("api", {}).get("url", "http://api:8080/predict")
+    base_url = api_url.replace("/predict", "")
+    reload_url = f"{base_url}/admin/reload-model"
 
-    # -------------------------
-    # LOCAL / DEV MODE
-    # -------------------------
-    if environment in ["dev", "local"]:
-        try:
-            subprocess.run(
-                ["docker", "compose", "up", "-d", "--build", "api"],
-                check=True
-            )
-            p_logger.info("Local API restarted via docker-compose.")
-        except Exception as e:
-            p_logger.error(f"Local API restart failed: {e}")
-            raise
-        return
+    api_key = os.getenv("API_KEY")
 
-    # -------------------------
-    # PRODUCTION MODE (Cloud Run)
-    # -------------------------
-    try:
-        gcp_data = GCP_CFG.get("gcp", {})
-        region = gcp_data.get("region", "europe-west1")
-        service_name = (
-            gcp_data.get("cloud_run", {})
-            .get("services", {})
-            .get("prediction_api", {})
-            .get("service_name", "prediction-api")
-        )
-        
-        current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    response = requests.post(
+        reload_url,
+        headers={"X-API-KEY": api_key},
+        timeout=30,
+    )
 
-        subprocess.run([
-            "gcloud", "run", "services", "update", service_name,
-            "--region", region,
-            "--update-env-vars", f"LAST_MODEL_REFRESH={current_time}",
-            "--quiet"
-        ], check=True)
-
-        p_logger.info("Cloud Run refresh successful.")
-
-    except Exception as e:
-        p_logger.error(f"Cloud refresh failed: {e}")
+    response.raise_for_status()
+    p_logger.info(f"API model reload successful: {response.json()}")
 
 @task(name="Verify API Health")
 def task_verify_health():

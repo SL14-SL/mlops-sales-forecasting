@@ -46,8 +46,16 @@ def _copy_file(src: str, dst: str):
 def get_git_commit() -> str | None:
     """
     Returns the current git commit hash.
-    If git is unavailable, returns None.
+
+    Priority:
+    1. GIT_COMMIT_SHA environment variable, used in Docker/CI deployments.
+    2. Local git command fallback, useful during local development.
+    3. None if neither source is available.
     """
+    env_commit = os.getenv("GIT_COMMIT_SHA")
+    if env_commit:
+        return env_commit.strip()
+
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -59,7 +67,7 @@ def get_git_commit() -> str | None:
     except Exception as e:
         logger.warning(f"Could not determine git commit: {e}")
         return None
-
+    
 
 def get_active_config_name() -> str:
     """

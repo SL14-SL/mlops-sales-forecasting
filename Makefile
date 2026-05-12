@@ -88,10 +88,6 @@ prefect-worker: wait-prefect ## Start Prefect worker for local pool
 	@echo "👷 Starting Prefect worker for pool '$(PREFECT_POOL)'..."
 	uv run --active prefect worker start --pool $(PREFECT_POOL)
 
-auto-retrain: ## Run auto retrain flow once manually
-	@echo "🤖 Running auto retrain flow once..."
-	uv run --active python flows/auto_retrain_flow.py
-
 # --- UI Quicklinks ---
 
 ui-prefect: ## Open Prefect UI in the browser
@@ -100,17 +96,27 @@ ui-prefect: ## Open Prefect UI in the browser
 ui-mlflow: ## Open MLflow UI in the browser
 	@python3 -m webbrowser http://localhost:5000
 
+
+COMPOSE_RUN_API=docker compose exec -T \
+	-e APP_ENV=dev \
+	-e MLFLOW_TRACKING_URI=http://mlflow:5000 \
+	-e PREFECT_API_URL=http://prefect:4200/api \
+	-e PREDICTION_API_URL=http://api:8080/predict \
+	api
+
 # --- ML Pipeline Tasks ---
 
-train: ## Execute the training flow locally
-	@echo "🧠 Starting training flow..."
-	@uv run --active prefect config set PREFECT_API_URL=$(PREFECT_API_URL)
-	uv run --active python flows/training_flow.py
+train: wait-prefect ## Execute the training flow inside the API container
+	@echo "🧠 Starting training flow inside API container..."
+	$(COMPOSE_RUN_API) uv run python flows/training_flow.py
 
-train-force: wait-prefect ## Execute training with force flag
-	@echo "🧠 Starting forced training flow..."
-	@uv run --active prefect config set PREFECT_API_URL=$(PREFECT_API_URL)
-	uv run --active python flows/training_flow.py --force
+train-force: wait-prefect ## Execute forced training flow inside the API container
+	@echo "🧠 Starting forced training flow inside API container..."
+	$(COMPOSE_RUN_API) uv run python flows/training_flow.py --force
+
+auto-retrain: wait-prefect ## Run auto retrain flow once manually inside the API container
+	@echo "🤖 Running auto retrain flow once inside API container..."
+	$(COMPOSE_RUN_API) uv run python flows/auto_retrain_flow.py
 
 predict-test: ## Send a sample prediction request and format output
 	@echo "🧪 Sending test prediction request..."
@@ -119,6 +125,10 @@ predict-test: ## Send a sample prediction request and format output
 		-H "X-API-KEY: $(API_KEY)" \
 		-d '{"inputs":[{"Store":1,"DayOfWeek":1,"Date":"2026-03-08","Open":1,"Customers":500,"Promo":1,"StateHoliday":"0","SchoolHoliday":0}]}' \
 		| jq .
+
+demo-forecasting-lifecycle: wait-prefect ## Run forecasting lifecycle demo inside the API container
+	@echo "📈 Running forecasting lifecycle demo inside API container..."
+	$(COMPOSE_RUN_API) uv run --no-sync python scripts/run_performance_demo.py
 
 # --- Quality Assurance ---
 
