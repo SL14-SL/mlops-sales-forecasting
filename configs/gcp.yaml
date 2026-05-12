@@ -12,8 +12,8 @@ gcp:
   cloud_run:
     services:
       prediction_api:
-        service_name: prediction-api
-        image_name: mlops-api
+        service_name: forecasting-api
+        image_name: mlops-forecasting-api
         dockerfile: Dockerfile
         cpu: "1"
         memory: "1Gi"

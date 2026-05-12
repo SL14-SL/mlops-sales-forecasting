@@ -25,6 +25,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 4. Security: Create a non-root user
@@ -55,7 +56,7 @@ COPY --chown=mluser:mlgroup flows/ /app/flows/
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:8080/health || exit 1
+  CMD curl -f http://localhost:8080/livez || exit 1
   
 # --no-sync is CRITICAL: It tells uv NOT to re-verify or re-install the project 
 # at startup, which stops it from trying to write to the protected .venv 

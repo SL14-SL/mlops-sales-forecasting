@@ -133,6 +133,11 @@ async def lifespan(app: FastAPI):
     global model_uri, serving_alias, serving_model_version, serving_model_run_id
     global dq_reference_categories
 
+    if os.getenv("SMOKE_TEST") == "1":
+        logger.info("Smoke test mode enabled. Skipping model and metadata startup loading.")
+        yield
+        return
+
     try:
         # --- 1. Load Store Metadata (Parquet) ---
         if GCS_BUCKET and GCS_BUCKET != "None":
@@ -304,6 +309,29 @@ if SERVING_CFG.get("summary_endpoint_enabled", True):
         window_seconds = SERVING_CFG.get("summary_window_seconds", 900)
         return JSONResponse(get_summary(window_seconds=window_seconds))
     
+@app.get("/livez")
+def livez():
+    return {
+        "status": "alive",
+        "service": CFG.get("project_name", "sales-forecasting-api"),
+        "environment": CFG.get("environment", "unknown"),
+    }
+
+
+@app.get("/readyz")
+def readyz():
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model is not loaded.")
+
+    if store_metadata is None:
+        raise HTTPException(status_code=503, detail="Store metadata is not loaded.")
+
+    return {
+        "status": "ready",
+        "model_name": MODEL_NAME,
+        "serving_alias": serving_alias,
+        "model_uri": model_uri,
+    }
 
 @app.get("/health")
 def health(response: Response):

@@ -42,7 +42,7 @@ services:
       - "4200:4200"
     environment:
       PREFECT_SERVER_API_HOST: 0.0.0.0
-      PREFECT_API_URL: http://127.0.0.1:4200/api
+      PREFECT_API_URL: http://prefect:4200/api
       PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://postgres:postgres@db:5432/prefectdb
     volumes:
       - ./prefect_data:/root/.prefect
@@ -54,17 +54,21 @@ services:
         condition: service_healthy
 
   api:
-    build: .
-    user: "${UID}:${GID}"
     ports:
       - "8000:8080"
+      - "8501:8501"
     environment:
       PYTHONPATH: /app
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      PREFECT_API_URL: http://prefect:4200/api
+      PREFECT_HOME: /tmp/prefect
+      PREFECT_PROFILE: ephemeral
+      MPLCONFIGDIR: /tmp/matplotlib
       UV_CACHE_DIR: /tmp/.uv_cache
       PYTHONPYCACHEPREFIX: /tmp/pycache
       UV_NO_SYNC: "1"
       API_KEY: ${API_KEY}
+      GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-local}
     volumes:
       - ./src:/app/src
       - ./configs:/app/configs
@@ -72,6 +76,7 @@ services:
       - ./mlruns:/app/mlruns
       - ./data:/app/data
       - ./models:/app/models
+      - ./scripts:/app/scripts
     networks:
       - mlops-net
     depends_on:
