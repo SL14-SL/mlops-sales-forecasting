@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import os
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,19 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _expand_env_vars(value: Any) -> Any:
+    if isinstance(value, str):
+        return os.path.expandvars(value)
+
+    if isinstance(value, dict):
+        return {key: _expand_env_vars(item) for key, item in value.items()}
+
+    if isinstance(value, list):
+        return [_expand_env_vars(item) for item in value]
+
+    return value
+
+
 def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise DeploymentConfigError(f"Config file not found: {path}")
@@ -25,7 +38,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise DeploymentConfigError(f"Invalid YAML structure in: {path}")
 
-    return data
+    return _expand_env_vars(data)
 
 
 def load_gcp_config(config_path: str | None = None) -> dict[str, Any]:
