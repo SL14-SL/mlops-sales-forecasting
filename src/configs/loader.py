@@ -1,6 +1,7 @@
+import glob
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -31,12 +32,13 @@ def _resolve_env_placeholders(value: Any) -> Any:
     Leaves unresolved placeholders unchanged if no env var/default is available.
     """
     if isinstance(value, dict):
-        return {k: _resolve_env_placeholders(v) for k, v in value.items()}
+        return {key: _resolve_env_placeholders(item) for key, item in value.items()}
 
     if isinstance(value, list):
-        return [_resolve_env_placeholders(v) for v in value]
+        return [_resolve_env_placeholders(item) for item in value]
 
     if isinstance(value, str):
+
         def replace(match: re.Match[str]) -> str:
             var_name = match.group(1)
             default = match.group(2)
@@ -77,8 +79,8 @@ def _load_yaml(config_path: Path) -> dict[str, Any]:
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    with config_path.open("r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+    with config_path.open("r", encoding="utf-8") as file:
+        config = yaml.safe_load(file) or {}
 
     if not isinstance(config, dict):
         raise ValueError(f"Config file must contain a YAML mapping: {config_path}")
@@ -127,7 +129,6 @@ def _inject_runtime_env(config: dict[str, Any]) -> None:
         if prefect_api_url:
             os.environ.setdefault("PREFECT_API_URL", str(prefect_api_url))
 
-    # Support both nested and legacy placement
     tracking = config.get("tracking", {})
     mlflow_tracking_uri = None
 
@@ -139,7 +140,6 @@ def _inject_runtime_env(config: dict[str, Any]) -> None:
 
     if mlflow_tracking_uri and "MLFLOW_TRACKING_URI" not in os.environ:
         os.environ["MLFLOW_TRACKING_URI"] = str(mlflow_tracking_uri)
-
 
 
 def load_config(config_name: str | None = None) -> dict[str, Any]:
@@ -159,7 +159,6 @@ def load_config(config_name: str | None = None) -> dict[str, Any]:
     config = _resolve_env_placeholders(config)
     config = _override_gcs_bucket_paths(config)
 
-    # Ensure environment is visible in runtime config when omitted
     config.setdefault("environment", env)
 
     _inject_runtime_env(config)
@@ -184,19 +183,50 @@ def get_path(name: str, config_name: str | None = None) -> str:
     return str(paths[name])
 
 
+def join_uri(base: str, *parts: str) -> str:
+    """
+    Join local or GCS paths without breaking gs:// URIs.
+    """
+    base = str(base).rstrip("/")
+    suffix = "/".join(str(part).strip("/") for part in parts)
+
+    if not suffix:
+        return base
+
+    return f"{base}/{suffix}"
+
+
+def path_name(path: str) -> str:
+    """
+    Return file name for local or GCS paths.
+    """
+    return PurePosixPath(str(path)).name
+
+
+def path_suffix(path: str) -> str:
+    """
+    Return suffix for local or GCS paths.
+    """
+    return PurePosixPath(str(path)).suffix.lower()
+
+
+def _gcs_fs():
+    try:
+        import gcsfs
+    except ImportError as exc:
+        raise RuntimeError("gcsfs is required for gs:// path operations.") from exc
+
+    return gcsfs.GCSFileSystem()
+
+
 def file_exists(path: str) -> bool:
     """
     Check existence for local paths and gs:// paths.
     """
-    if path.startswith("gs://"):
-        try:
-            import gcsfs
-        except ImportError as exc:
-            raise RuntimeError(
-                "gcsfs is required for checking gs:// paths."
-            ) from exc
+    path = str(path)
 
-        fs = gcsfs.GCSFileSystem()
+    if path.startswith("gs://"):
+        fs = _gcs_fs()
         return fs.exists(path)
 
     return Path(path).exists()
@@ -209,7 +239,111 @@ def ensure_dir(path: str) -> None:
     Local paths are created on disk.
     gs:// paths are left untouched because bucket/prefix creation is implicit.
     """
+    path = str(path)
+
     if path.startswith("gs://"):
         return
 
     Path(path).mkdir(parents=True, exist_ok=True)
+
+
+def list_files(path_pattern: str) -> list[str]:
+    """
+    List files for local glob patterns and gs:// glob patterns.
+    """
+    path_pattern = str(path_pattern)
+
+    if path_pattern.startswith("gs://"):
+        fs = _gcs_fs()
+        files = fs.glob(path_pattern)
+
+        return sorted(
+            f"gs://{path}" if not str(path).startswith("gs://") else str(path)
+            for path in files
+        )
+
+    return sorted(glob.glob(path_pattern))
+
+
+def modified_time(path: str) -> float:
+    """
+    Return comparable modification time for local and gs:// paths.
+    """
+    path = str(path)
+
+    if path.startswith("gs://"):
+        fs = _gcs_fs()
+        info = fs.info(path)
+
+        value = (
+            info.get("updated")
+            or info.get("mtime")
+            or info.get("created")
+            or info.get("timeCreated")
+        )
+
+        if value is None:
+            return 0.0
+
+        if hasattr(value, "timestamp"):
+            return float(value.timestamp())
+
+        if isinstance(value, (int, float)):
+            return float(value)
+
+        try:
+            import pandas as pd
+
+            return float(pd.Timestamp(value).timestamp())
+        except Exception:
+            return 0.0
+
+    return Path(path).stat().st_mtime
+
+
+def remove_file(path: str) -> None:
+    """
+    Remove a local or gs:// file if it exists.
+    """
+    path = str(path)
+
+    if path.startswith("gs://"):
+        fs = _gcs_fs()
+        if fs.exists(path):
+            fs.rm(path)
+        return
+
+    local_path = Path(path)
+    if local_path.exists():
+        local_path.unlink()
+
+
+def read_text(path: str) -> str:
+    """
+    Read text from local or gs:// path.
+    """
+    path = str(path)
+
+    if path.startswith("gs://"):
+        fs = _gcs_fs()
+        with fs.open(path, "r") as file:
+            return file.read()
+
+    return Path(path).read_text(encoding="utf-8")
+
+
+def write_text(path: str, text: str) -> None:
+    """
+    Write text to local or gs:// path.
+    """
+    path = str(path)
+
+    if path.startswith("gs://"):
+        fs = _gcs_fs()
+        with fs.open(path, "w") as file:
+            file.write(text)
+        return
+
+    local_path = Path(path)
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    local_path.write_text(text, encoding="utf-8")

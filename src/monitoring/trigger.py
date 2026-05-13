@@ -1,25 +1,30 @@
 from __future__ import annotations
 
-from pathlib import Path
-
+import fsspec
 import pandas as pd
 
-from src.configs.loader import get_path
+from src.configs.loader import file_exists, get_path
+
+
+def _list_files(directory: str, pattern: str) -> list[str]:
+    glob_pattern = f"{str(directory).rstrip('/')}/{pattern}"
+    fs, fs_pattern = fsspec.core.url_to_fs(glob_pattern)
+    return [str(path) for path in fs.glob(fs_pattern)]
 
 
 def new_data_available() -> bool:
-    batch_dir = Path(get_path("raw_data")) / "new_batches"
-    if not batch_dir.exists():
-        return False
-    return any(batch_dir.glob("*.csv"))
+    batch_dir = f"{get_path('raw_data')}/new_batches"
+    return len(_list_files(batch_dir, "*.csv")) > 0
 
 
 def drift_detected() -> bool:
-    drift_file = Path(get_path("monitoring")) / "feature_drift_history.parquet"
-    if not drift_file.exists():
+    drift_file = f"{get_path('monitoring')}/feature_drift_history.parquet"
+
+    if not file_exists(drift_file):
         return False
 
     df = pd.read_parquet(drift_file)
+
     if df.empty:
         return False
 

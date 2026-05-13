@@ -156,7 +156,6 @@ train-force-prod: ## Execute forced training flow against production cloud servi
 	PREDICTION_API_URL="$(PREDICTION_API_URL)" \
 	GCP_BUCKET_NAME="$(GCP_BUCKET_NAME)" \
 	GCP_PROJECT_ID="$(GCP_PROJECT_ID)" \
-	MODEL_REGISTRY_NAME="$(MODEL_REGISTRY_NAME)" \
 	API_KEY="$(API_KEY)" \
 	uv run --active python flows/training_flow.py --force
 
@@ -170,7 +169,6 @@ demo-forecasting-lifecycle-prod: ## Run forecasting lifecycle demo against produ
 	MLFLOW_TRACKING_URI="$(MLFLOW_URL)" \
 	PREDICTION_API_URL="$(PREDICTION_API_URL)" \
 	GCP_BUCKET_NAME="$(GCP_BUCKET_NAME)" \
-	MODEL_REGISTRY_NAME="$(MODEL_REGISTRY_NAME)" \
 	GCP_PROJECT_ID="$(GCP_PROJECT_ID)" \
 	API_KEY="$(API_KEY)" \
 	uv run --active python scripts/run_performance_demo.py

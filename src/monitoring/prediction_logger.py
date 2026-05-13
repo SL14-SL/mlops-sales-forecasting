@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pandas as pd
 
-from src.configs.loader import get_path, file_exists
+from src.configs.loader import ensure_dir, file_exists, get_path, join_uri
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -18,7 +18,12 @@ PREDICTIONS = get_path("predictions")
 
 
 def _build_daily_log_path(prediction_date: str) -> str:
-    return f"{PREDICTIONS}/history/date={prediction_date}/inference_log.parquet"
+    return join_uri(
+        PREDICTIONS,
+        "history",
+        f"date={prediction_date}",
+        "inference_log.parquet",
+    )
 
 
 def log_prediction(
@@ -33,16 +38,15 @@ def log_prediction(
 ) -> None:
     """
     Log prediction data to:
-    1. stdout as structured JSON (useful for container/cloud logging)
-    2. legacy single-file Parquet history (backward compatibility)
-    3. daily partitioned Parquet history (new structure)
+    1. stdout as structured JSON
+    2. legacy single-file Parquet history
+    3. daily partitioned Parquet history
 
-    Notes:
-    - The legacy single-file log is kept temporarily so existing monitoring code
-      continues to work.
-    - The daily partitioned log is the forward-looking structure.
+    Works for both local paths and gs:// paths.
     """
     try:
+        ensure_dir(PREDICTIONS)
+
         if isinstance(input_data, pd.DataFrame):
             input_data = input_data.to_dict(orient="records")[0]
 
@@ -66,7 +70,6 @@ def log_prediction(
             "request_id": request_id,
         }
 
-        # 1) Structured stdout log for cloud/container logging
         log_entry = {
             "input": input_data,
             "prediction": prediction,
@@ -75,7 +78,6 @@ def log_prediction(
         }
         print(json.dumps(log_entry), file=sys.stdout, flush=True)
 
-        # 2) Persistent row for parquet storage
         log_data = {
             **input_data,
             "prediction": prediction,
@@ -83,8 +85,8 @@ def log_prediction(
         }
         df_new = pd.DataFrame([log_data])
 
-        # --- Legacy single-file log (keep for backward compatibility) ---
-        legacy_log_file = os.path.join(PREDICTIONS, "inference_log.parquet")
+        # Legacy single-file log for monitoring/demo compatibility
+        legacy_log_file = join_uri(PREDICTIONS, "inference_log.parquet")
 
         if file_exists(legacy_log_file):
             df_existing = pd.read_parquet(legacy_log_file)
@@ -94,7 +96,7 @@ def log_prediction(
 
         df_all.to_parquet(legacy_log_file, index=False)
 
-        # --- New daily-partitioned log ---
+        # Daily partitioned log
         daily_log_file = _build_daily_log_path(prediction_date)
 
         if file_exists(daily_log_file):

@@ -1,15 +1,25 @@
-import sys
-import subprocess
 import json
-
-from pathlib import Path
+import subprocess
+import sys
 
 import pandas as pd
 
+from src.configs.loader import (
+    ensure_dir,
+    file_exists,
+    get_path,
+    join_uri,
+    list_files,
+    modified_time,
+    path_name,
+    path_suffix,
+    read_text,
+    remove_file,
+    write_text,
+)
 from src.constants import PROJECT_ROOT
-from src.configs.loader import load_config, get_path, file_exists, ensure_dir
-from src.utils.logger import get_logger
 from src.monitoring.alerts import send_alert
+from src.utils.logger import get_logger
 
 
 # Ensure project root is importable when script is run directly
@@ -17,23 +27,22 @@ sys.path.append(str(PROJECT_ROOT))
 
 logger = get_logger(__name__)
 
-ENV_CFG = load_config()
-
-PREDICTIONS_PATH = Path(get_path("predictions"))
-RAW_DATA_PATH = Path(get_path("raw_data"))
-MONITORING_PATH = Path(get_path("monitoring"))
+PREDICTIONS_PATH = get_path("predictions")
+RAW_DATA_PATH = get_path("raw_data")
+MONITORING_PATH = get_path("monitoring")
 RESULTS_PATH = PROJECT_ROOT / "results"
 
-INFERENCE_LOG_FILE = PREDICTIONS_PATH / "inference_log.parquet"
-BATCH_DIR = RAW_DATA_PATH / "new_batches"
-CUMULATIVE_GT_FILE = MONITORING_PATH / "cumulative_ground_truth.csv"
-METRICS_OUTPUT = MONITORING_PATH / "performance_rolling.parquet"
+INFERENCE_LOG_FILE = join_uri(PREDICTIONS_PATH, "inference_log.parquet")
+BATCH_DIR = join_uri(RAW_DATA_PATH, "new_batches")
+CUMULATIVE_GT_FILE = join_uri(MONITORING_PATH, "cumulative_ground_truth.csv")
+METRICS_OUTPUT = join_uri(MONITORING_PATH, "performance_rolling.parquet")
 RESULTS_OUTPUT = RESULTS_PATH / "performance_demo_history.csv"
-LAST_RETRAIN_FILE = MONITORING_PATH / "last_retrain.txt"
+LAST_RETRAIN_FILE = join_uri(MONITORING_PATH, "last_retrain.txt")
+
 
 def run_command(command: list[str], description: str) -> tuple[str, str]:
     """
-    Runs a command from project root and captures stdout/stderr.
+    Run a command from project root and capture stdout/stderr.
 
     Returns:
         ("SUCCESS" | "ERROR" | "END_OF_POOL", full_output)
@@ -41,7 +50,7 @@ def run_command(command: list[str], description: str) -> tuple[str, str]:
     logger.info(f"--- 🚀 {description} ---")
 
     if command[0] != "uv":
-        command = ["uv", "run"] + command
+        command = ["uv", "run", "--active"] + command
 
     process = subprocess.Popen(
         command,
@@ -71,37 +80,26 @@ def run_command(command: list[str], description: str) -> tuple[str, str]:
     return "SUCCESS", output_str
 
 
-def find_latest_ground_truth_batch() -> Path:
+def find_latest_ground_truth_batch() -> str:
     """
-    Finds the newest ground_truth_*.csv file in the new_batches directory.
-    """
-    if not BATCH_DIR.exists():
-        raise FileNotFoundError(f"Batch directory not found: {BATCH_DIR}")
+    Find the newest ground_truth_*.csv file in the new_batches directory.
 
-    candidates = sorted(
-        BATCH_DIR.glob("ground_truth_*.csv"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    Works for both local paths and GCS paths.
+    """
+    candidates = list_files(join_uri(BATCH_DIR, "ground_truth_*.csv"))
 
     if not candidates:
         raise FileNotFoundError(f"No ground_truth_*.csv files found in: {BATCH_DIR}")
 
-    return candidates[0]
+    return max(candidates, key=modified_time)
 
 
-def build_cumulative_ground_truth(latest_batch_file: Path | None = None) -> pd.DataFrame:
+def build_cumulative_ground_truth(latest_batch_file: str | None = None) -> pd.DataFrame:
     """
     Incrementally update the cumulative ground truth table.
 
-    If a cumulative file already exists, only the newest batch is appended.
-    If not, the cumulative file is bootstrapped from the available batch files.
-
-    This avoids re-reading all historical batch files on every simulation day.
+    Works for both local paths and GCS paths.
     """
-    if not BATCH_DIR.exists():
-        raise FileNotFoundError(f"Batch directory not found: {BATCH_DIR}")
-
     def _normalize(df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
 
@@ -114,9 +112,8 @@ def build_cumulative_ground_truth(latest_batch_file: Path | None = None) -> pd.D
         df = df.dropna(subset=["Store", "Date"])
         return df
 
-    # Bootstrap mode: no cumulative file yet
-    if not CUMULATIVE_GT_FILE.exists():
-        batch_files = sorted(BATCH_DIR.glob("ground_truth_*.csv"))
+    if not file_exists(CUMULATIVE_GT_FILE):
+        batch_files = list_files(join_uri(BATCH_DIR, "ground_truth_*.csv"))
 
         if not batch_files:
             raise FileNotFoundError(f"No ground_truth_*.csv files found in: {BATCH_DIR}")
@@ -128,26 +125,25 @@ def build_cumulative_ground_truth(latest_batch_file: Path | None = None) -> pd.D
 
         cumulative_df = pd.concat(frames, ignore_index=True)
         cumulative_df = cumulative_df.sort_values(["Date", "Store"]).drop_duplicates(
-            subset=["Store", "Date"], keep="last"
+            subset=["Store", "Date"],
+            keep="last",
         )
 
         cumulative_df.to_csv(CUMULATIVE_GT_FILE, index=False)
+
         logger.info(
             f"🧾 Bootstrapped cumulative ground truth with {len(cumulative_df)} rows "
             f"from {len(batch_files)} batch files."
         )
         return cumulative_df
 
-    # Incremental mode: append only the latest batch
     if latest_batch_file is None:
-        latest_candidates = sorted(
-            BATCH_DIR.glob("ground_truth_*.csv"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
+        latest_candidates = list_files(join_uri(BATCH_DIR, "ground_truth_*.csv"))
+
         if not latest_candidates:
             raise FileNotFoundError(f"No ground_truth_*.csv files found in: {BATCH_DIR}")
-        latest_batch_file = latest_candidates[0]
+
+        latest_batch_file = max(latest_candidates, key=modified_time)
 
     cumulative_df = pd.read_csv(CUMULATIVE_GT_FILE)
     cumulative_df = _normalize(cumulative_df)
@@ -157,39 +153,50 @@ def build_cumulative_ground_truth(latest_batch_file: Path | None = None) -> pd.D
 
     cumulative_df = pd.concat([cumulative_df, latest_df], ignore_index=True)
     cumulative_df = cumulative_df.sort_values(["Date", "Store"]).drop_duplicates(
-        subset=["Store", "Date"], keep="last"
+        subset=["Store", "Date"],
+        keep="last",
     )
 
     cumulative_df.to_csv(CUMULATIVE_GT_FILE, index=False)
+
     logger.info(
         f"🧾 Incrementally updated cumulative ground truth with {len(cumulative_df)} rows "
-        f"using latest batch: {latest_batch_file.name}"
+        f"using latest batch: {path_name(latest_batch_file)}"
     )
 
     return cumulative_df
 
 
-def load_metrics(path: Path) -> pd.DataFrame:
-    if not path.exists():
+def load_metrics(path: str) -> pd.DataFrame:
+    """
+    Load metrics from local or GCS path.
+    """
+    if not file_exists(path):
         return pd.DataFrame()
 
-    if path.suffix.lower() == ".parquet":
+    suffix = path_suffix(path)
+
+    if suffix == ".parquet":
         return pd.read_parquet(path)
-    if path.suffix.lower() == ".csv":
+
+    if suffix == ".csv":
         return pd.read_csv(path)
 
-    raise ValueError(f"Unsupported metrics file format: {path.suffix}")
+    raise ValueError(f"Unsupported metrics file format: {suffix}")
 
-def save_metrics_table(metrics: pd.DataFrame, output_path: Path) -> None:
+
+def save_metrics_table(metrics: pd.DataFrame, output_path: str) -> None:
     """
     Save metrics as parquet or CSV depending on the file suffix.
-    """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    suffix = output_path.suffix.lower()
+    Works for both local paths and GCS paths.
+    """
+    suffix = path_suffix(output_path)
+
     if suffix == ".parquet":
         metrics.to_parquet(output_path, index=False)
         return
+
     if suffix == ".csv":
         metrics.to_csv(output_path, index=False)
         return
@@ -202,10 +209,10 @@ def prepare_latest_joined_evaluation_frame() -> pd.DataFrame:
     Load predictions and cumulative ground truth, harmonize keys,
     and return the joined evaluation dataframe.
     """
-    if not INFERENCE_LOG_FILE.exists():
+    if not file_exists(INFERENCE_LOG_FILE):
         raise FileNotFoundError(f"Predictions file not found: {INFERENCE_LOG_FILE}")
 
-    if not CUMULATIVE_GT_FILE.exists():
+    if not file_exists(CUMULATIVE_GT_FILE):
         raise FileNotFoundError(f"Ground truth file not found: {CUMULATIVE_GT_FILE}")
 
     preds = pd.read_parquet(INFERENCE_LOG_FILE)
@@ -265,8 +272,8 @@ def compute_latest_rolling_metrics_row(
     start_time = end_time - pd.Timedelta(window)
 
     window_df = working_df[
-        (working_df[time_col] > start_time) &
-        (working_df[time_col] <= end_time)
+        (working_df[time_col] > start_time)
+        & (working_df[time_col] <= end_time)
     ].copy()
 
     if len(window_df) < min_samples:
@@ -293,20 +300,20 @@ def compute_latest_rolling_metrics_row(
 
 
 def append_latest_metrics_row(
-    output_path: Path,
+    output_path: str,
     latest_row: pd.DataFrame,
 ) -> pd.DataFrame:
     """
     Append the latest rolling metrics row to the existing metrics table.
 
-    If a row with the same window_end already exists, replace it.
+    Works for both local paths and GCS paths.
     """
     if latest_row.empty:
-        if output_path.exists():
+        if file_exists(output_path):
             return load_metrics(output_path)
         return latest_row
 
-    if output_path.exists():
+    if file_exists(output_path):
         existing = load_metrics(output_path)
     else:
         existing = pd.DataFrame(columns=latest_row.columns)
@@ -324,33 +331,30 @@ def append_latest_metrics_row(
     return combined
 
 
-def _safe_timestamp_from_file(path: Path) -> pd.Timestamp | None:
-    """
-    Read a timestamp from disk and return None if the file is missing or invalid.
-    """
-    if not path.exists():
-        return None
-
-    try:
-        return pd.to_datetime(path.read_text().strip())
-    except Exception:
-        return None
-
-
 def read_last_retrain_day() -> int | None:
     """
-    Read the last retrain simulation day from disk.
+    Read the last retrain simulation day from local or GCS storage.
     """
-    if not LAST_RETRAIN_FILE.exists():
+    if not file_exists(LAST_RETRAIN_FILE):
         return None
 
     try:
-        return int(LAST_RETRAIN_FILE.read_text().strip())
+        return int(read_text(LAST_RETRAIN_FILE).strip())
     except Exception:
         return None
 
 
-def in_retrain_cooldown_by_day(current_day: int, cooldown_days: int = 14) -> tuple[bool, int | None]:
+def write_last_retrain_day(day: int) -> None:
+    """
+    Persist the last retrain simulation day to local or GCS storage.
+    """
+    write_text(LAST_RETRAIN_FILE, str(day))
+
+
+def in_retrain_cooldown_by_day(
+    current_day: int,
+    cooldown_days: int = 14,
+) -> tuple[bool, int | None]:
     """
     Check cooldown using simulation days instead of wall-clock time.
     """
@@ -360,6 +364,7 @@ def in_retrain_cooldown_by_day(current_day: int, cooldown_days: int = 14) -> tup
 
     days_since_retrain = current_day - last_retrain_day
     return days_since_retrain < cooldown_days, days_since_retrain
+
 
 def should_retrain(
     df: pd.DataFrame,
@@ -395,7 +400,7 @@ def should_retrain(
         return (
             False,
             f"Simulation cooldown active "
-            f"({sim_days_since_retrain}/{cooldown_days} sim days since last retrain)."
+            f"({sim_days_since_retrain}/{cooldown_days} sim days since last retrain).",
         )
 
     recent = df.tail(min_points).copy()
@@ -403,9 +408,10 @@ def should_retrain(
 
     latest_samples = float(latest.get("n_samples", 0) or 0)
     if latest_samples < min_samples_latest:
-        return False, (
+        return (
+            False,
             f"Not enough samples in latest window "
-            f"({latest_samples:.0f}/{min_samples_latest})."
+            f"({latest_samples:.0f}/{min_samples_latest}).",
         )
 
     rmse_limit = rmse_baseline * (1.0 + rmse_rel_increase)
@@ -445,10 +451,24 @@ def should_retrain(
             True,
             "Persistent degradation detected: "
             f"rmse_last3={rmse_last3:.1f} vs prev3={rmse_prev3:.1f}, "
-            f"abs_bias_last3={bias_last3:.1f} vs prev3={bias_prev3:.1f}."
+            f"abs_bias_last3={bias_last3:.1f} vs prev3={bias_prev3:.1f}.",
         )
 
     return False, "No persistent degradation detected."
+
+
+def extract_training_result(output: str) -> dict:
+    """
+    Extract the TRAINING_RESULT_JSON line emitted by training_flow.py.
+    """
+    marker = "TRAINING_RESULT_JSON="
+    for line in output.splitlines():
+        if line.startswith(marker):
+            try:
+                return json.loads(line[len(marker):])
+            except json.JSONDecodeError:
+                return {}
+    return {}
 
 
 def main():
@@ -456,20 +476,20 @@ def main():
     day_counter = 1
     max_days = 999
 
-    ensure_dir(str(MONITORING_PATH))
+    ensure_dir(MONITORING_PATH)
     RESULTS_PATH.mkdir(parents=True, exist_ok=True)
 
-    if file_exists(str(INFERENCE_LOG_FILE)):
+    if file_exists(INFERENCE_LOG_FILE):
         logger.info(f"🧹 Removing old inference log: {INFERENCE_LOG_FILE}")
-        INFERENCE_LOG_FILE.unlink()
+        remove_file(INFERENCE_LOG_FILE)
 
-    if file_exists(str(CUMULATIVE_GT_FILE)):
+    if file_exists(CUMULATIVE_GT_FILE):
         logger.info(f"🧹 Removing old cumulative ground truth file: {CUMULATIVE_GT_FILE}")
-        CUMULATIVE_GT_FILE.unlink()
+        remove_file(CUMULATIVE_GT_FILE)
 
-    if file_exists(str(LAST_RETRAIN_FILE)):
+    if file_exists(LAST_RETRAIN_FILE):
         logger.info(f"🧹 Removing old retrain marker: {LAST_RETRAIN_FILE}")
-        LAST_RETRAIN_FILE.unlink()
+        remove_file(LAST_RETRAIN_FILE)
 
     logger.info("=" * 60)
     logger.info("📈 STARTING PERFORMANCE MONITORING DEMO")
@@ -490,7 +510,7 @@ def main():
             raise RuntimeError("simulate_ground_truth.py failed")
 
         latest_batch = find_latest_ground_truth_batch()
-        logger.info(f"📦 Latest batch selected: {latest_batch.name}")
+        logger.info(f"📦 Latest batch selected: {path_name(latest_batch)}")
 
         status, _ = run_command(
             ["python", "scripts/stress_test.py", "--n-requests", "150"],
@@ -523,11 +543,15 @@ def main():
 
         metrics_df = append_latest_metrics_row(METRICS_OUTPUT, latest_metrics_row)
 
+        event = None
+        champion_promoted = False
+        latest_metrics = {}
+
         if latest_metrics_row.empty:
             logger.warning("No metrics available yet for the latest rolling window.")
         else:
-            latest_metrics = latest_metrics_row.iloc[0] 
-            
+            latest_metrics = latest_metrics_row.iloc[0].to_dict()
+
             logger.info("✅ Latest rolling metrics row computed and appended.")
 
             logger.info(
@@ -537,9 +561,6 @@ def main():
                 f"Bias={latest_metrics.get('bias')} | "
                 f"Samples={latest_metrics.get('n_samples')}"
             )
-
-            event = None
-            champion_promoted = False
 
             retrain_needed, retrain_reason = should_retrain(
                 metrics_df,
@@ -581,16 +602,6 @@ def main():
                     "Retraining triggered by performance",
                 )
 
-                def extract_training_result(output: str) -> dict:
-                    marker = "TRAINING_RESULT_JSON="
-                    for line in output.splitlines():
-                        if line.startswith(marker):
-                            try:
-                                return json.loads(line[len(marker):])
-                            except json.JSONDecodeError:
-                                return {}
-                    return {}
-
                 if retrain_status == "ERROR":
                     send_alert(
                         title="Retraining failed",
@@ -600,12 +611,11 @@ def main():
                     raise RuntimeError(
                         "training_flow failed during performance-triggered retraining"
                     )
+
                 training_result = extract_training_result(retrain_output)
                 champion_promoted = bool(training_result.get("champion_promoted", False))
 
-                LAST_RETRAIN_FILE.write_text(str(day_counter))
-                event = "retrain"
-                LAST_RETRAIN_FILE.write_text(str(day_counter))
+                write_last_retrain_day(day_counter)
                 event = "retrain"
             else:
                 logger.info(f"✅ No retrain triggered | {retrain_reason}")
@@ -613,7 +623,7 @@ def main():
         history.append(
             {
                 "day": day_counter,
-                "latest_batch_file": latest_batch.name,
+                "latest_batch_file": path_name(latest_batch),
                 "cumulative_days": unique_days,
                 "rmse": latest_metrics.get("rmse"),
                 "mae": latest_metrics.get("mae"),
@@ -635,6 +645,7 @@ def main():
     logger.info(f"✅ Cumulative ground truth saved to: {CUMULATIVE_GT_FILE}")
     logger.info(f"✅ Rolling metrics saved to: {METRICS_OUTPUT}")
     logger.info("=" * 60)
+
 
 if __name__ == "__main__":
     main()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Optional, Dict, Union, List
+from src.configs.loader import ensure_dir, file_exists, path_suffix
 
 import numpy as np
 import pandas as pd
@@ -15,21 +16,22 @@ import pandas as pd
 def load_table(path: str | Path) -> pd.DataFrame:
     """
     Load a table from parquet or CSV based on file suffix.
+
+    Works for both local paths and gs:// paths.
     """
-    path = Path(path)
+    path_str = str(path)
 
-    if not path.exists():
-        raise FileNotFoundError(f"File not found: {path}")
+    if not file_exists(path_str):
+        raise FileNotFoundError(f"File not found: {path_str}")
 
-    suffix = path.suffix.lower()
+    suffix = path_suffix(path_str)
 
     if suffix == ".parquet":
-        return pd.read_parquet(path)
+        return pd.read_parquet(path_str)
     if suffix == ".csv":
-        return pd.read_csv(path)
+        return pd.read_csv(path_str)
 
     raise ValueError(f"Unsupported file format: {suffix}. Use .parquet or .csv")
-
 
 # -------------------------------------------------
 # Metrics Computation
@@ -150,21 +152,24 @@ def save_metrics(
 ) -> None:
     """
     Save metrics as parquet or CSV depending on output suffix.
-    """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    suffix = output_path.suffix.lower()
+    Works for both local paths and gs:// paths.
+    """
+    output_path_str = str(output_path)
+
+    if not output_path_str.startswith("gs://"):
+        ensure_dir(str(Path(output_path_str).parent))
+
+    suffix = path_suffix(output_path_str)
 
     if suffix == ".parquet":
-        metrics.to_parquet(output_path, index=False)
+        metrics.to_parquet(output_path_str, index=False)
         return
     if suffix == ".csv":
-        metrics.to_csv(output_path, index=False)
+        metrics.to_csv(output_path_str, index=False)
         return
 
     raise ValueError(f"Unsupported output format: {suffix}. Use .parquet or .csv")
-
 
 # -------------------------------------------------
 # Data Preparation Helpers
