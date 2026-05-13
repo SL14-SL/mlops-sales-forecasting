@@ -3,7 +3,7 @@ project_name: mlops-sales-forecasting
 random_seed: 42
 
 model:
-  registry_name: ${MODEL_REGISTRY_NAME:-mlops-sales-forecasting}
+  registry_name: ${MODEL_REGISTRY_NAME:-sales-forecasting-model}
 
 tracking:
   mlflow_tracking_uri: ${MLFLOW_TRACKING_URI}

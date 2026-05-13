@@ -222,18 +222,30 @@ def task_archive_logs():
 @task(name="Refresh API")
 def task_refresh_api() -> None:
     """
-    Refresh the API model after a new champion has been promoted.
+    Refresh the forecasting API serving state after training.
 
-    Calls the API reload endpoint instead of restarting the container.
+    Reloads:
+    - current champion model
+    - store metadata
+    - forecasting state snapshot
     """
     p_logger = get_run_logger()
     cfg = load_config()
 
     api_url = cfg.get("api", {}).get("url", "http://api:8080/predict")
-    base_url = api_url.replace("/predict", "")
-    reload_url = f"{base_url}/admin/reload-model"
+
+    if api_url.endswith("/predict"):
+        base_url = api_url.removesuffix("/predict")
+    else:
+        base_url = api_url.rstrip("/")
+
+    reload_url = f"{base_url}/admin/reload-serving-state"
 
     api_key = os.getenv("API_KEY")
+    if not api_key:
+        raise RuntimeError("API_KEY environment variable is not set.")
+
+    p_logger.info(f"Refreshing API serving state via: {reload_url}")
 
     response = requests.post(
         reload_url,
@@ -242,8 +254,8 @@ def task_refresh_api() -> None:
     )
 
     response.raise_for_status()
-    p_logger.info(f"API model reload successful: {response.json()}")
-
+    p_logger.info(f"API serving state reload successful: {response.json()}")
+    
 @task(name="Verify API Health")
 def task_verify_health():
     p_logger = get_run_logger()
@@ -294,11 +306,12 @@ def training_pipeline(force_run: bool = False):
     new_champion_crowned = task_eval_and_reg(run_id)
     if should_refresh_api(new_champion_crowned):
         p_logger.info("🚀 New Champion detected. Refreshing API...")
-        task_refresh_api()
-        task_verify_health()
+        
     else:
         p_logger.info("✅ No API refresh needed. Current Champion is still the best.")
 
+    task_refresh_api()
+    task_verify_health()
     p_logger.info("Pipeline execution finished successfully.")
 
     return {

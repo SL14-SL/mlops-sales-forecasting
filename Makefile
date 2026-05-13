@@ -4,7 +4,8 @@ export
 # --- Configuration ---
 .DEFAULT_GOAL := help
 PYTHON_VERSION := 3.12.9
-PREFECT_API_URL := http://localhost:4200/api
+
+LOCAL_PREFECT_API_URL := http://localhost:4200/api
 PREFECT_POOL ?= local-pool
 
 .PHONY: help setup dev-up dev-down dev train train-force test lint clean \
@@ -44,7 +45,7 @@ dev-up: ## Spin up the full stack (DB, MLflow, API, Prefect) in detached mode
 	mkdir -p data/monitoring
 	UID=$$(id -u) GID=$$(id -g) docker compose up -d --build
 	@echo "✅ Services are live: API (8000), MLflow (5000), Prefect (4200), Grafana (3000), Prometheus(9090)"
-	@uv run --active prefect config set PREFECT_API_URL=$(PREFECT_API_URL)
+	@uv run --active prefect config set PREFECT_API_URL=$(LOCAL_PREFECT_API_URL)
 
 dev-down: ## Stop all containers and remove networks
 	@echo "🛑 Shutting down services..."
@@ -65,11 +66,11 @@ refresh-api: ## Restart or recreate API service using Docker Compose
 prefect-status: ## Check if Prefect server is responding
 	@echo "🔍 Checking Prefect server status..."
 	@uv run --active prefect config view
-	@curl -s http://localhost:4200/api/health || echo "⚠️ Prefect server is not reachable. Run 'make dev-up'."
+	@curl -s $(LOCAL_PREFECT_API_URL)/health || echo "⚠️ Prefect server is not reachable. Run 'make dev-up'."
 
 wait-prefect: ## Wait until Prefect server is reachable
-	@echo "⏳ Waiting for Prefect server (http://localhost:4200/api/health)..."
-	@until curl -s http://localhost:4200/api/health > /dev/null; do \
+	@echo "⏳ Waiting for Prefect server ($(LOCAL_PREFECT_API_URL)/health)..."
+	@until curl -s $(LOCAL_PREFECT_API_URL)/health > /dev/null; do \
 		sleep 2; \
 		echo "Prefect not ready yet..."; \
 	done
@@ -129,6 +130,58 @@ predict-test: ## Send a sample prediction request and format output
 demo-forecasting-lifecycle: wait-prefect ## Run forecasting lifecycle demo inside the API container
 	@echo "📈 Running forecasting lifecycle demo inside API container..."
 	$(COMPOSE_RUN_API) uv run --no-sync python scripts/run_performance_demo.py
+
+# --- Production Helpers ---
+
+GCP_PROJECT_ID ?= $(shell gh variable get GCP_PROJECT_ID 2>/dev/null)
+GCP_BUCKET_NAME ?= $(shell gh variable get GCP_BUCKET_NAME 2>/dev/null)
+MLFLOW_URL ?= $(shell gh variable get MLFLOW_URL 2>/dev/null)
+PREDICTION_API_URL ?= $(shell gh variable get PREDICTION_API_URL 2>/dev/null)
+
+upload-raw-prod: ## Upload raw forecasting data to the production GCS bucket
+	@echo "☁️ Uploading raw data to gs://$(GCP_BUCKET_NAME)/data/raw/"
+	gcloud storage cp data/raw/train.csv data/raw/store.csv data/raw/test.csv \
+		gs://$(GCP_BUCKET_NAME)/data/raw/
+	@echo "✅ Raw data uploaded."
+	gcloud storage ls gs://$(GCP_BUCKET_NAME)/data/raw/
+
+
+train-force-prod: ## Execute forced training flow against production cloud services
+	@echo "🧠 Starting forced production training flow..."
+	PYTHONPATH=. \
+	APP_ENV=prod \
+	PREFECT_API_URL="$(PREFECT_API_URL)" \
+	PREFECT_API_KEY="$(PREFECT_API_KEY)" \
+	MLFLOW_TRACKING_URI="$(MLFLOW_URL)" \
+	PREDICTION_API_URL="$(PREDICTION_API_URL)" \
+	GCP_BUCKET_NAME="$(GCP_BUCKET_NAME)" \
+	GCP_PROJECT_ID="$(GCP_PROJECT_ID)" \
+	MODEL_REGISTRY_NAME="$(MODEL_REGISTRY_NAME)" \
+	API_KEY="$(API_KEY)" \
+	uv run --active python flows/training_flow.py --force
+
+
+demo-forecasting-lifecycle-prod: ## Run forecasting lifecycle demo against production API and GCS
+	@echo "📈 Running forecasting lifecycle demo against production cloud services..."
+	PYTHONPATH=. \
+	APP_ENV=prod \
+	PREFECT_API_URL="$(PREFECT_API_URL)" \
+	PREFECT_API_KEY="$(PREFECT_API_KEY)" \
+	MLFLOW_TRACKING_URI="$(MLFLOW_URL)" \
+	PREDICTION_API_URL="$(PREDICTION_API_URL)" \
+	GCP_BUCKET_NAME="$(GCP_BUCKET_NAME)" \
+	MODEL_REGISTRY_NAME="$(MODEL_REGISTRY_NAME)" \
+	GCP_PROJECT_ID="$(GCP_PROJECT_ID)" \
+	API_KEY="$(API_KEY)" \
+	uv run --active python scripts/run_performance_demo.py
+
+debug-prod-env: ## Show production environment values loaded by Make
+	@echo "PREFECT_API_URL=$(PREFECT_API_URL)"
+	@echo "MLFLOW_URL=$(MLFLOW_URL)"
+	@echo "PREDICTION_API_URL=$(PREDICTION_API_URL)"
+	@echo "GCP_PROJECT_ID=$(GCP_PROJECT_ID)"
+	@echo "GCP_BUCKET_NAME=$(GCP_BUCKET_NAME)"
+
 
 # --- Quality Assurance ---
 
