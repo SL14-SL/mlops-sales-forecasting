@@ -95,8 +95,8 @@ def test_training_pipeline_force_run_executes_training_path(monkeypatch):
     mock_log_dataset_metadata.assert_called_once_with("run_123", {"dataset_version": "ds_test_001"})
     mock_eval_and_reg.assert_called_once_with("run_123")
 
-    mock_refresh_api.assert_not_called()
-    mock_verify_health.assert_not_called()
+    mock_refresh_api.assert_called_once()
+    mock_verify_health.assert_called_once()
 
 
 def test_training_pipeline_drift_with_new_champion_refreshes_api(monkeypatch):
@@ -135,7 +135,7 @@ def test_training_pipeline_drift_with_new_champion_refreshes_api(monkeypatch):
     mock_verify_health.assert_called_once()
 
 
-def test_training_pipeline_drift_without_new_champion_skips_refresh(monkeypatch):
+def test_training_pipeline_drift_without_new_champion_refreshes_api(monkeypatch):
     mock_check_drift = MagicMock(return_value=True)
     mock_evaluate_champion = MagicMock()
     mock_prepare_data = MagicMock()
@@ -167,5 +167,5 @@ def test_training_pipeline_drift_without_new_champion_skips_refresh(monkeypatch)
     mock_log_dataset_metadata.assert_called_once_with("run_789", {"dataset_version": "ds_test_003"})
     mock_eval_and_reg.assert_called_once_with("run_789")
 
-    mock_refresh_api.assert_not_called()
-    mock_verify_health.assert_not_called()
+    mock_refresh_api.assert_called_once()
+    mock_verify_health.assert_called_once()
