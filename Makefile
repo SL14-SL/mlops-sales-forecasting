@@ -5,7 +5,7 @@ export
 .DEFAULT_GOAL := help
 PYTHON_VERSION := 3.12.9
 
-LOCAL_PREFECT_API_URL := http://localhost:4200/api
+LOCAL_PREFECT_API_URL := http://localhost:4221/api
 PREFECT_POOL ?= local-pool
 
 .PHONY: help setup dev-up dev-down dev train train-force test lint clean \
