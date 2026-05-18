@@ -683,6 +683,14 @@ CI/CD automatically handles:
 
 The pipeline validates, builds, scans and deploys the services automatically on pushes to `main`.
 
+<p align="center">
+  <img src="docs/images/ci_pipeline.png" width="100%">
+</p>
+
+<p align="center">
+  <em>GitHub Actions CI/CD pipeline with linting, tests, API smoke checks, container builds, vulnerability scanning and cloud deployment steps.</em>
+</p>
+
 ---
 
 # 📈 API Endpoints
