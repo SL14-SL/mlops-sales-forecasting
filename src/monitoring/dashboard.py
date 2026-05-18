@@ -16,7 +16,7 @@ st.set_page_config(page_title="MLOps Dashboard", layout="wide")
 # Helpers
 # -----------------------------
 DRIFT_RESULTS_DIR = os.path.join(PROJECT_ROOT, "results")
-DRIFT_RESULTS_FILE = os.path.join(DRIFT_RESULTS_DIR, "evolution_results_90days_baseline.csv")
+DRIFT_RESULTS_FILE = os.path.join(DRIFT_RESULTS_DIR, "evolution_results.csv")
 PERF_RESULTS_FILE = os.path.join(DRIFT_RESULTS_DIR, "performance_demo_history.csv")
 PERF_ROLLING_FILE = os.path.join(PROJECT_ROOT, "data", "monitoring", "performance_rolling.parquet")
 
@@ -283,9 +283,9 @@ with tab1:
         status_icon = "🌩️ Drift" if latest["drift_detected"] else "☀️ Stable"
         m4.metric("System Status", status_icon)
 
-        st.divider()
-        st.subheader("📈 Performance Evolution: Adaptive vs. Static Baseline")
-        st.plotly_chart(build_performance_evolution_chart(df_drift), width="stretch")
+        # st.divider()
+        # st.subheader("📈 Performance Evolution: Adaptive vs. Static Baseline")
+        # st.plotly_chart(build_performance_evolution_chart(df_drift), width="stretch")
 
         st.divider()
         st.header("📊 Model Performance Monitoring")
