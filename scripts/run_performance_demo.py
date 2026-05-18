@@ -569,13 +569,13 @@ def main():
                 min_samples_latest=600,
                 cooldown_days=21,
                 consecutive_bad_points=2,
-                rmse_baseline=2200.0,
-                mae_baseline=1850.0,
-                bias_limit=1650.0,
-                rmse_rel_increase=0.112,
-                mae_rel_increase=0.112,
-                rmse_step_threshold=180.0,
-                bias_step_threshold=1100.0,
+                rmse_baseline=1250.0,
+                mae_baseline=900.0,
+                bias_limit=900.0,
+                rmse_rel_increase=0.10,
+                mae_rel_increase=0.10,
+                rmse_step_threshold=120.0,
+                bias_step_threshold=400.0,
             )
 
             if retrain_needed:
