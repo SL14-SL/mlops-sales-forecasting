@@ -78,6 +78,21 @@ The forecasting use case mainly changes the domain-specific layers: temporal fea
 
 ---
 
+# 🖥️ Demo Highlights
+
+The repository includes screenshots and examples for:
+
+- FastAPI Swagger UI for forecast serving
+- MLflow experiment tracking and model registry
+- Prefect training and retraining orchestration
+- Streamlit dashboard for forecast performance monitoring
+- Grafana dashboard for operational API metrics
+- GitHub Actions CI/CD pipeline
+
+These screenshots are generated from the reproducible local Docker Compose stack and demonstrate the main MLOps capabilities end-to-end.
+
+---
+
 # 🏗️ Architecture Overview
 
 The platform implements a complete operational ML lifecycle for sales forecasting.
@@ -203,14 +218,14 @@ Training and retraining workflows are orchestrated with Prefect.
 
 The pipeline automates:
 
-- raw data ingestion
-- data validation
-- feature engineering
-- temporal splitting
+- drift checks before training
+- raw data ingestion and validation
+- feature processing and feature state updates
+- dataset snapshotting
 - model training
-- model evaluation
+- model evaluation and registration
 - MLflow logging
-- model registration
+- API refresh after model promotion
 - retraining trigger evaluation
 
 Retraining can be triggered when monitoring detects quality degradation, feature drift or performance issues.
@@ -226,6 +241,14 @@ F -->|Yes| G[Promote Candidate]
 F -->|No| H[Keep Current Champion]
 G --> I[API Reload]
 ```
+
+<p align="center">
+  <img src="docs/images/prefect_flow.png" width="100%">
+</p>
+
+<p align="center">
+  <em>Prefect flow run for the end-to-end demand forecasting pipeline, including drift checks, feature processing, model training, evaluation, registration and API refresh.</em>
+</p>  
 
 ---
 
@@ -247,6 +270,14 @@ Tracked information includes:
 Forecasting evaluation focuses on regression-oriented quality metrics such as forecast error and model stability over time.
 
 The Model Registry enables controlled promotion of new model versions and supports reproducible deployment workflows.
+
+<p align="center">
+  <img src="docs/images/mlflow_run_overview.png" width="100%">
+</p>
+
+<p align="center">
+  <em>MLflow run overview with tracked parameters, training metrics, cost estimates and registered model artifacts.</em>
+</p>
 
 ---
 
@@ -274,6 +305,14 @@ This creates a clean separation between:
 
 That separation is an important production MLOps pattern because it allows controlled model updates without tightly coupling training and serving.
 
+<p align="center">
+  <img src="docs/images/mlflow_model_details.png" width="100%">
+</p>
+
+<p align="center">
+  <em>MLflow Model Registry with versioned forecasting models and a champion alias for controlled production serving.</em>
+</p>
+
 ---
 
 # 📡 Monitoring & Observability
@@ -295,6 +334,16 @@ Monitoring features include:
 
 The monitoring layer evaluates whether the currently deployed champion model still satisfies expected production quality requirements.
 
+Operational API metrics are collected through Prometheus and visualized in Grafana, including success rate, prediction latency, status codes and request throughput.
+
+<p align="center">
+  <img src="docs/images/grafana_dashboard.png" width="100%">
+</p>
+
+<p align="center">
+  <em>Grafana dashboard for operational API monitoring with success rate, p95 prediction latency, HTTP status codes and prediction request throughput.</em>
+</p>
+
 ---
 
 # 📉 Forecast Performance Monitoring
@@ -310,6 +359,16 @@ The project therefore includes monitoring logic for:
 - retraining decision support
 
 This mirrors a common real-world forecasting setup: predictions are generated first, while actual sales values become available later and can then be used to evaluate model quality.
+
+The Streamlit dashboard visualizes rolling RMSE, MAE and bias over simulated production days. It also highlights automated retraining triggers and gated champion promotion, where a challenger model is only promoted if it improves over the existing champion.
+
+<p align="center">
+  <img src="docs/images/streamlit_dashboard.png" width="100%">
+</p>
+
+<p align="center">
+  <em>Forecast performance monitoring dashboard showing rolling metrics, automated retraining triggers and gated champion/challenger promotion.</em>
+</p>
 
 ---
 
@@ -409,6 +468,7 @@ The resulting performance history is stored under:
 ```text
 results/performance_demo_history.csv
 ```
+The generated history is used by the Streamlit monitoring dashboard to visualize rolling forecast metrics, retraining events and champion promotion decisions.
 
 The demo helps illustrate how the forecasting system can be monitored after deployment and how performance signals can support retraining decisions.
 
