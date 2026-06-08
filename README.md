@@ -1,23 +1,10 @@
 # 🚀 Production-Oriented MLOps Blueprint for Sales Forecasting
 
-End-to-end MLOps showcase for deploying, monitoring and continuously improving machine learning models in a cloud-native production-style environment.
+End-to-end MLOps showcase for deploying, monitoring and continuously improving forecasting models in a cloud-native production-style environment.
 
-This project uses sales forecasting as the example use case, but the architecture is designed around reusable MLOps patterns: model serving, experiment tracking, model registry workflows, monitoring, automated retraining, CI/CD and infrastructure-as-code.
+Sales forecasting is used as the example use case, but the architecture is designed around reusable MLOps patterns: forecast serving, experiment tracking, model registry workflows, monitoring, automated retraining, CI/CD and infrastructure-as-code.
 
-The focus is not only model training — but the engineering layer required to operate forecasting models reliably after they have been trained.
-
-The platform combines:
-
-* FastAPI for online forecast serving
-* MLflow for experiment tracking and model registry workflows
-* Prefect for training and retraining orchestration
-* Docker for containerized local development
-* Terraform for infrastructure-as-code
-* GitHub Actions for CI/CD
-* Prometheus & Grafana for operational monitoring
-* Google Cloud Platform for cloud deployment
-
----
+The focus is not only model training, but the engineering layer required to operate forecasting systems reliably after the model has been trained.
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Forecasting_API-green)
@@ -31,18 +18,17 @@ The platform combines:
 
 # 🎯 What This Project Demonstrates
 
-This project demonstrates how to build a production-oriented ML system for time-dependent prediction problems.
+This project demonstrates a production-oriented ML lifecycle for time-dependent prediction problems:
 
-It shows how to:
-
-- serve sales forecasts through a FastAPI prediction service
-- track experiments, parameters, metrics and artifacts with MLflow
-- promote models through a champion/challenger workflow
-- orchestrate training and retraining pipelines with Prefect
-- handle forecasting-specific feature engineering and temporal state
-- monitor prediction quality, data quality and feature drift
-- expose operational API metrics with Prometheus and Grafana
-- deploy reproducibly with Docker, Terraform, GitHub Actions and Google Cloud Run
+- FastAPI forecast serving for single and batch prediction
+- MLflow experiment tracking and model registry workflows
+- Champion/challenger promotion and controlled model rollout
+- Prefect-based training and retraining orchestration
+- Forecasting-specific temporal feature engineering and state handling
+- Data quality, feature drift and forecast performance monitoring
+- Prometheus/Grafana metrics for API observability
+- CI/CD with tests, Docker builds, vulnerability scanning and Cloud Run deployment
+- Infrastructure as Code with Terraform on Google Cloud Platform
 
 The goal is to demonstrate reusable MLOps patterns for operating forecasting systems reliably over time.
 
@@ -50,31 +36,16 @@ The goal is to demonstrate reusable MLOps patterns for operating forecasting sys
 
 # 🧩 Blueprint Positioning
 
-This repository is part of a reusable MLOps blueprint series.
+This repository is the forecasting variant of a reusable MLOps blueprint.
 
-The goal is not to optimize one specific dataset, but to demonstrate how the same production-oriented ML architecture can be adapted to different machine learning problem types.
+The goal is not to optimize one specific dataset, but to show how the same production-oriented ML architecture can be adapted to different ML problem types.
 
 | Project | Problem Type | Use Case | Main Adapted Components |
 |---|---|---|---|
 | Customer Churn MLOps | Binary Classification | Retention risk prediction | Classification metrics, churn decision logic, delayed labels |
 | Sales Forecasting MLOps | Time Series / Regression | Demand prediction | Temporal features, forecasting state, regression monitoring |
 
-This project demonstrates the forecasting variant of the blueprint.
-
-The core lifecycle remains the same across both projects:
-
-1. ingest and validate data
-2. build features
-3. train and evaluate candidate models
-4. track experiments and artifacts
-5. register models in MLflow
-6. serve the active champion model through an API
-7. log predictions and operational metadata
-8. monitor quality, drift and performance
-9. trigger retraining when needed
-10. deploy reproducibly through CI/CD and infrastructure-as-code
-
-The forecasting use case mainly changes the domain-specific layers: temporal feature generation, forecast validation, regression metrics, state handling and monitoring policy.
+The shared lifecycle is: data validation, feature engineering, training, MLflow tracking and registry, API serving, prediction logging, monitoring, retraining and CI/CD deployment.
 
 ---
 
@@ -88,8 +59,6 @@ The repository includes screenshots and examples for:
 - Streamlit dashboard for forecast performance monitoring
 - Grafana dashboard for operational API metrics
 - GitHub Actions CI/CD pipeline
-
-These screenshots are generated from the reproducible local Docker Compose stack and demonstrate the main MLOps capabilities end-to-end.
 
 ---
 
