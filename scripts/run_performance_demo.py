@@ -1,8 +1,10 @@
 import json
 import subprocess
 import sys
+import os
 
 import pandas as pd
+import requests
 
 from src.configs.loader import (
     ensure_dir,
@@ -10,6 +12,7 @@ from src.configs.loader import (
     get_path,
     join_uri,
     list_files,
+    load_config,
     modified_time,
     path_name,
     path_suffix,
@@ -20,12 +23,15 @@ from src.configs.loader import (
 from src.constants import PROJECT_ROOT
 from src.monitoring.alerts import send_alert
 from src.utils.logger import get_logger
+from src.data.features.update_state import update_feature_state_from_ground_truth
 
 
 # Ensure project root is importable when script is run directly
 sys.path.append(str(PROJECT_ROOT))
 
 logger = get_logger(__name__)
+
+ENV_CFG = load_config()
 
 PREDICTIONS_PATH = get_path("predictions")
 RAW_DATA_PATH = get_path("raw_data")
@@ -38,6 +44,48 @@ CUMULATIVE_GT_FILE = join_uri(MONITORING_PATH, "cumulative_ground_truth.csv")
 METRICS_OUTPUT = join_uri(MONITORING_PATH, "performance_rolling.parquet")
 RESULTS_OUTPUT = RESULTS_PATH / "performance_demo_history.csv"
 LAST_RETRAIN_FILE = join_uri(MONITORING_PATH, "last_retrain.txt")
+
+
+def reload_api_feature_state() -> dict:
+    """
+    Tell the running API to reload latest_state.json.
+
+    The model and store metadata remain unchanged.
+    """
+    api_url = ENV_CFG.get("api", {}).get(
+        "url",
+        "http://api:8080/predict",
+    )
+
+    if api_url.endswith("/predict"):
+        base_url = api_url.removesuffix("/predict")
+    else:
+        base_url = api_url.rstrip("/")
+
+    reload_url = f"{base_url}/admin/reload-feature-state"
+
+    api_key = os.getenv("API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "API_KEY environment variable is not set."
+        )
+
+    response = requests.post(
+        reload_url,
+        headers={"X-API-KEY": api_key},
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    result = response.json()
+
+    logger.info(
+        "API feature state reload successful | "
+        "state_entities=%s",
+        result.get("state_entities"),
+    )
+
+    return result
 
 
 def run_command(command: list[str], description: str) -> tuple[str, str]:
@@ -541,7 +589,27 @@ def main():
             min_samples=1,
         )
 
-        metrics_df = append_latest_metrics_row(METRICS_OUTPUT, latest_metrics_row)
+        metrics_df = append_latest_metrics_row(
+            METRICS_OUTPUT,
+            latest_metrics_row,
+        )
+
+        # Update the forecasting state only after predictions and evaluation
+        # for the current day have completed. This prevents target leakage.
+        state_update_result = update_feature_state_from_ground_truth(
+            latest_batch
+        )
+
+        logger.info(
+            "Daily feature state update completed | "
+            "updated_entities=%s | appended_values=%s",
+            state_update_result.get("updated_entities"),
+            state_update_result.get("appended_values"),
+        )
+
+        # Reload the in-memory API state so that the next simulation day uses
+        # the latest known actual sales values.
+        reload_api_feature_state()
 
         event = None
         champion_promoted = False

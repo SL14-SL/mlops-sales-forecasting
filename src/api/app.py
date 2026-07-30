@@ -388,6 +388,43 @@ def reload_serving_state(api_key: str = Depends(get_api_key)):
         **model_result,
     }
 
+@app.post("/admin/reload-feature-state")
+def reload_feature_state(api_key: str = Depends(get_api_key)):
+    """
+    Reload only the forecasting feature state.
+
+    This endpoint is used after newly available ground truth has been
+    appended to latest_state.json. It does not reload or replace the model.
+    """
+    global store_state
+
+    try:
+        updated_state = load_store_state(
+            models_path=MODELS_PATH,
+            gcs_bucket=GCS_BUCKET,
+        )
+
+        if updated_state is None:
+            updated_state = {}
+
+        store_state = updated_state
+
+    except Exception as error:
+        logger.error(
+            "Feature state reload failed: %s",
+            traceback.format_exc(),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Feature state reload failed: {str(error)}",
+        )
+
+    return {
+        "status": "reloaded",
+        "state_loaded": store_state is not None,
+        "state_entities": len(store_state or {}),
+    }
+
 @app.get("/health")
 def health(response: Response):
     is_healthy = (
