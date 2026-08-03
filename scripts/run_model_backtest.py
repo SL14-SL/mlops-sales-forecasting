@@ -72,6 +72,96 @@ def calculate_regression_metrics(
         "bias": bias,
     }
 
+def calculate_daily_metrics(
+    validation_df: pd.DataFrame,
+    predictions,
+    *,
+    fold_number: int,
+) -> pd.DataFrame:
+    """Calculate diagnostic metrics for every validation date."""
+    data_cfg = TRAIN_CFG["data"]
+
+    target_column = data_cfg["target_column"]
+    time_column = data_cfg["time_column"]
+
+    evaluation_df = validation_df.copy().reset_index(drop=True)
+    evaluation_df["prediction"] = np.asarray(
+        predictions,
+        dtype=float,
+    )
+
+    daily_results = []
+
+    for validation_date, daily_df in evaluation_df.groupby(
+        time_column,
+        sort=True,
+    ):
+        metrics = calculate_regression_metrics(
+            daily_df[target_column],
+            daily_df["prediction"],
+        )
+
+        result = {
+            "fold": fold_number,
+            "date": pd.Timestamp(validation_date).date().isoformat(),
+            "rows": len(daily_df),
+            "actual_mean": float(
+                daily_df[target_column].mean()
+            ),
+            "prediction_mean": float(
+                daily_df["prediction"].mean()
+            ),
+            "actual_sum": float(
+                daily_df[target_column].sum()
+            ),
+            "prediction_sum": float(
+                daily_df["prediction"].sum()
+            ),
+            **metrics,
+        }
+
+        if "Open" in daily_df.columns:
+            result["open_stores"] = int(
+                (daily_df["Open"] == 1).sum()
+            )
+            result["closed_stores"] = int(
+                (daily_df["Open"] == 0).sum()
+            )
+
+        if "Promo" in daily_df.columns:
+            result["promo_stores"] = int(
+                (daily_df["Promo"] == 1).sum()
+            )
+
+        if "SchoolHoliday" in daily_df.columns:
+            result["school_holiday_stores"] = int(
+                (daily_df["SchoolHoliday"] == 1).sum()
+            )
+
+        if "StateHoliday" in daily_df.columns:
+            normalized_holiday = (
+                daily_df["StateHoliday"]
+                .astype(str)
+                .str.lower()
+                .str.strip()
+            )
+
+            no_holiday_values = {
+                "0",
+                "0.0",
+                "nan",
+                "none",
+                "",
+            }
+
+            result["state_holiday_stores"] = int(
+                (~normalized_holiday.isin(no_holiday_values)).sum()
+            )
+
+        daily_results.append(result)
+
+    return pd.DataFrame(daily_results)
+
 
 def load_feature_data() -> pd.DataFrame:
     """Load the complete feature table used by the training pipeline."""
@@ -199,8 +289,13 @@ def evaluate_fold(
     validation_df: pd.DataFrame,
     *,
     fold_number: int,
-) -> dict[str, float | int | str]:
+) -> tuple[
+    dict[str, float | int | str],
+    pd.DataFrame,
+]:
     """Train and evaluate one walk-forward fold."""
+    train_df = train_df.reset_index(drop=True)
+    validation_df = validation_df.reset_index(drop=True)
     data_cfg = TRAIN_CFG["data"]
     model_cfg = TRAIN_CFG["model"]
     training_cfg = TRAIN_CFG.get("training", {})
@@ -271,6 +366,12 @@ def evaluate_fold(
         predictions,
     )
 
+    daily_metrics_df = calculate_daily_metrics(
+        validation_df,
+        predictions,
+        fold_number=fold_number,
+    )
+
     result: dict[str, float | int | str] = {
         "fold": fold_number,
         "train_start": str(train_df[time_column].min().date()),
@@ -297,7 +398,7 @@ def evaluate_fold(
         metrics["bias"],
     )
 
-    return result
+    return result, daily_metrics_df
 
 
 def summarize_results(results_df: pd.DataFrame) -> pd.DataFrame:
@@ -344,19 +445,26 @@ def run_backtest(
     )
 
     results = []
+    daily_results = []
 
     for fold_number, (train_df, validation_df) in enumerate(
         folds,
         start=1,
     ):
-        result = evaluate_fold(
+        result, daily_metrics_df = evaluate_fold(
             train_df,
             validation_df,
             fold_number=fold_number,
         )
+
         results.append(result)
+        daily_results.append(daily_metrics_df)
 
     results_df = pd.DataFrame(results)
+    daily_results_df = pd.concat(
+        daily_results,
+        ignore_index=True,
+    )
     summary_df = summarize_results(results_df)
 
     output_directory.mkdir(
@@ -371,8 +479,17 @@ def run_backtest(
         output_directory / "model_backtest_summary.csv"
     )
 
+    daily_output_path = (
+        output_directory / "model_backtest_daily.csv"
+    )
+
     results_df.to_csv(
         fold_output_path,
+        index=False,
+    )
+
+    daily_results_df.to_csv(
+        daily_output_path,
         index=False,
     )
     summary_df.to_csv(
@@ -396,6 +513,10 @@ def run_backtest(
     logger.info(
         "Summary saved to: %s",
         summary_output_path,
+    )
+    logger.info(
+        "Daily results saved to: %s",
+        daily_output_path,
     )
 
     print()
