@@ -13,6 +13,10 @@ from src.data.features.core import (
     initialize_inference_lag_placeholders,
     sort_frame,
 )
+from src.data.features.calendar import (
+    load_known_calendar,
+    merge_known_calendar_features,
+)
 from src.data.features.forecasting_policy import (
     FORECASTING_TECHNICAL_DROP_COLUMNS,
     add_competition_duration_features,
@@ -237,16 +241,37 @@ def _load_validated_inputs() -> dict[str, pd.DataFrame]:
     }
 
 
-def _merge_feature_sources(datasets: dict[str, pd.DataFrame], config: dict) -> pd.DataFrame:
-    entity_column = _resolve_core_columns(config)["entity_column"]
+def _merge_feature_sources(
+    datasets: dict[str, pd.DataFrame],
+    config: dict,
+) -> pd.DataFrame:
+    entity_column = _resolve_core_columns(
+        config
+    )["entity_column"]
 
-    logger.info(f"Merging validated datasets on '{entity_column}'.")
+    logger.info(
+        f"Merging validated datasets on '{entity_column}'."
+    )
 
-    return datasets["train"].merge(
+    merged_df = datasets["train"].merge(
         datasets["store"],
         on=entity_column,
         how="left",
     )
+
+    calendar_df = load_known_calendar()
+
+    merged_df = merge_known_calendar_features(
+        merged_df,
+        calendar_df,
+        strict=True,
+    )
+
+    logger.info(
+        "Known calendar features merged successfully."
+    )
+
+    return merged_df
 
 
 def run_feature_pipeline(config: dict | None = None) -> None:

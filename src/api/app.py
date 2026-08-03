@@ -34,16 +34,19 @@ from src.inference.adapters import (
 )
 from src.inference.model_manager import (
     reload_serving_model as reload_model_state,
+    load_known_calendar_artifact,
     load_store_metadata,
     load_store_state,
 )
 from src.data.features.build_features import preprocess_data
 
 from src.inference.forecasting_policy import (
-    merge_request_with_metadata,
-    inject_forecasting_state_features,
     finalize_forecasting_feature_frame,
+    inject_forecasting_state_features,
+    merge_request_with_calendar,
+    merge_request_with_metadata,
 )
+
 from src.utils.logger import get_logger
 
 
@@ -58,6 +61,7 @@ TRAIN_CFG = load_config("training.yaml")
 MODEL_NAME = CFG["model"]["registry_name"]
 VALIDATED_PATH = get_path("validated_data")
 MODELS_PATH = Path(get_path("models"))
+FEATURES_PATH = get_path("features")
 GCS_BUCKET = os.getenv("GCS_BUCKET_NAME", CFG.get("gcp", {}).get("gcs", {}).get("bucket_name"))
 
 # Global variables for caching
@@ -71,6 +75,7 @@ model_uri = None
 dq_reference_categories: dict[str, set[str]] = {}
 serving_model_version = None
 serving_model_run_id = None
+known_calendar = None
 
 # Define the header name for the API Key
 API_KEY_NAME = "X-API-KEY"
@@ -129,7 +134,7 @@ async def lifespan(app: FastAPI):
     - missing metadata/state/model does not crash startup
     - readiness endpoints report degraded state
     """
-    global model, store_metadata, store_state, model_type, target_transformation
+    global model, store_metadata, store_state, model_type, target_transformation, known_calendar
     global model_uri, serving_alias, serving_model_version, serving_model_run_id
     global dq_reference_categories
 
@@ -164,6 +169,23 @@ async def lifespan(app: FastAPI):
                 metadata_error,
             )
             store_metadata = None
+        try:
+            known_calendar = load_known_calendar_artifact(
+                features_path=FEATURES_PATH,
+                gcs_bucket=GCS_BUCKET,
+            )
+
+            logger.info(
+                "Known calendar loaded successfully."
+            )
+
+        except Exception as calendar_error:
+            logger.warning(
+                "Known calendar loading failed: %s. "
+                "API will start without calendar features.",
+                calendar_error,
+            )
+            known_calendar = None
 
         # -------------------------------------------------
         # 2. Initialize data quality reference cache
@@ -327,6 +349,7 @@ def readyz():
         "model_uri": model_uri,
         "store_metadata_loaded": store_metadata is not None,
         "state_loaded": store_state is not None,
+        "calendar_loaded": known_calendar is not None,
     }
 
 @app.post("/admin/reload-model")
@@ -359,7 +382,7 @@ def reload_serving_state(api_key: str = Depends(get_api_key)):
     - store metadata
     - forecasting state snapshot
     """
-    global store_metadata, store_state
+    global store_metadata, store_state, known_calendar
 
     try:
         model_result = reload_serving_model()
@@ -368,7 +391,10 @@ def reload_serving_state(api_key: str = Depends(get_api_key)):
             validated_path=VALIDATED_PATH,
             gcs_bucket=GCS_BUCKET,
         )
-
+        known_calendar = load_known_calendar_artifact(
+            features_path=FEATURES_PATH,
+            gcs_bucket=GCS_BUCKET,
+        )
         store_state = load_store_state(
             models_path=MODELS_PATH,
             gcs_bucket=GCS_BUCKET,
@@ -385,6 +411,7 @@ def reload_serving_state(api_key: str = Depends(get_api_key)):
         "status": "reloaded",
         "store_metadata_loaded": store_metadata is not None,
         "state_loaded": store_state is not None,
+        "calendar_loaded": known_calendar is not None,
         **model_result,
     }
 
@@ -441,6 +468,7 @@ def health(response: Response):
         "model_loaded": model is not None,
         "store_metadata_loaded": store_metadata is not None,
         "state_loaded": store_state is not None,
+        "calendar_loaded": known_calendar is not None,
         "model_type": model_type,
         "target_transformation": target_transformation,
         "model_name": MODEL_NAME,
@@ -449,6 +477,7 @@ def health(response: Response):
         "model_uri": model_uri,
         "model_version": serving_model_version,
         "model_run_id": serving_model_run_id,
+
     }
 
 MAX_BATCH_ROWS = 5000
@@ -508,20 +537,24 @@ def predict(payload: PredictionRequest):
         t_batch = time.perf_counter()
 
         for row in payload.inputs:
-            # Alte Single-Request-Semantik pro Zeile
+            #  Single-Request-Semantik pro Zeile
             row_df = request_to_dataframe([row])
             row_validated_df = validate_prediction_input(row_df)
 
             store_id = resolve_forecasting_store_id(row_validated_df)
             open_flags = resolve_open_flags(row_validated_df)
 
-            # Alte Single-Store-Logik
+            #  Single-Store-Logik
             features_df = merge_request_with_metadata(
                 validated_df=row_validated_df,
                 store_metadata=store_metadata,
                 store_id=store_id,
             )
-
+            if known_calendar is not None:
+                features_df = merge_request_with_calendar(
+                    features_df,
+                    known_calendar,
+                )
             processed_df = preprocess_data(features_df, mode="inference")
 
             processed_df = inject_forecasting_state_features(

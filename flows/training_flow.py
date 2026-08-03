@@ -30,6 +30,9 @@ from prefect import flow, task, get_run_logger
 from src.data.raw.ingest import ingest
 from src.data.features.build_features import run_feature_pipeline
 from src.data.features.create_state import create_feature_state
+from src.data.features.calendar import (
+    create_known_calendar_artifact,
+)
 from src.data.splits.split import split as split_logic
 from src.data.versioning import make_dataset_version, snapshot_current_datasets, log_dataset_manifest_to_mlflow
 
@@ -106,15 +109,35 @@ def task_evaluate_champion():
 @task(name="Data Processing & Feature State Update")
 def task_prepare_data(is_drift_run: bool):
     p_logger = get_run_logger()
-    p_logger.info(f"Starting data preparation (Emergency Mode: {is_drift_run})")
+
+    p_logger.info(
+        f"Starting data preparation "
+        f"(Emergency Mode: {is_drift_run})"
+    )
+
     ingest()
+
+    p_logger.info(
+        "Creating known calendar artifact."
+    )
+    create_known_calendar_artifact()
+
     run_feature_pipeline()
-    p_logger.info("Updating feature state snapshot for the API.")
+
+    p_logger.info(
+        "Updating feature state snapshot for the API."
+    )
+
     try:
         create_feature_state()
-    except Exception as e:
-        p_logger.error(f"Failed to update feature state: {e}")
-    split_logic(is_drift_run=is_drift_run)
+    except Exception as error:
+        p_logger.error(
+            f"Failed to update feature state: {error}"
+        )
+
+    split_logic(
+        is_drift_run=is_drift_run
+    )
 
 @task(name="Snapshot Dataset Version")
 def task_snapshot_dataset():

@@ -86,6 +86,45 @@ def load_store_state(
         logger.warning("No state snapshot found. Using empty state.")
         return {}
 
+def load_known_calendar_artifact(
+    *,
+    features_path: str,
+    gcs_bucket: str | None,
+) -> pd.DataFrame:
+    """Load the known calendar used during online inference."""
+    if gcs_bucket and gcs_bucket != "None":
+        calendar_path = (
+            f"gs://{gcs_bucket}/data/features/"
+            "known_calendar.parquet"
+        )
+    else:
+        calendar_path = (
+            f"{features_path}/known_calendar.parquet"
+        )
+
+    logger.info(
+        "Checking for known calendar at: %s",
+        calendar_path,
+    )
+
+    calendar_df = pd.read_parquet(calendar_path)
+
+    calendar_df["Store"] = pd.to_numeric(
+        calendar_df["Store"],
+        errors="raise",
+    ).astype(int)
+
+    calendar_df["Date"] = pd.to_datetime(
+        calendar_df["Date"],
+        errors="raise",
+    )
+
+    logger.info(
+        "Known calendar loaded successfully | rows=%s",
+        len(calendar_df),
+    )
+
+    return calendar_df
 
 def reload_serving_model(
     *,

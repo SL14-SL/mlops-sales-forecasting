@@ -3,7 +3,9 @@ import pandas as pd
 from src.configs.loader import load_config
 from src.data.features.build_features import preprocess_data
 from src.data.features.core import get_lag_feature_names
-
+from src.data.features.calendar import (
+    merge_known_calendar_features,
+)
 
 CFG = load_config("training.yaml")
 TARGET_COLUMN = CFG["data"]["target_column"]
@@ -20,6 +22,16 @@ def normalize_store_key(validated_df: pd.DataFrame) -> pd.DataFrame:
 
     return validated_df
 
+def merge_request_with_calendar(
+    features_df: pd.DataFrame,
+    known_calendar: pd.DataFrame,
+) -> pd.DataFrame:
+    """Attach known calendar features to inference rows."""
+    return merge_known_calendar_features(
+        features_df,
+        known_calendar,
+        strict=True,
+    )
 
 def merge_request_with_metadata(
     validated_df: pd.DataFrame,

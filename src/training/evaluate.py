@@ -17,6 +17,30 @@ CFG = load_config()
 TRAIN_CFG = load_config("training.yaml")
 MODEL_NAME = CFG["model"]["registry_name"]
 
+def align_features_for_evaluation(
+    model,
+    features: pd.DataFrame,
+) -> pd.DataFrame:
+    """Align evaluation features to the schema expected by a model."""
+    booster = model.get_booster()
+    expected_features = booster.feature_names or []
+
+    if not expected_features:
+        return features
+
+    missing_features = [
+        feature
+        for feature in expected_features
+        if feature not in features.columns
+    ]
+
+    if missing_features:
+        raise ValueError(
+            "Evaluation data is missing model features: "
+            f"{missing_features}"
+        )
+
+    return features[expected_features]
 
 def evaluate_model(model_alias: str = "champion") -> float:
     """
@@ -45,8 +69,13 @@ def evaluate_model(model_alias: str = "champion") -> float:
         version = client.get_model_version_by_alias(MODEL_NAME, model_alias)
         run = client.get_run(version.run_id)
         
-        preds = model.predict(X_val)
-        
+        aligned_X_val = align_features_for_evaluation(
+            model,
+            X_val,
+        )
+
+        preds = model.predict(aligned_X_val)    
+
         # Check for log scale
         if run.data.tags.get("target_transformation") == "log1p" or \
            run.data.params.get("target_transformation") == "log1p":
@@ -91,7 +120,14 @@ def compare_models(new_run_id: str, val_path: str | None = None):
         or "none"
     )
 
-    chall_preds = challenger.predict(X_val)
+    challenger_X_val = align_features_for_evaluation(
+        challenger,
+        X_val,
+    )
+
+    chall_preds = challenger.predict(
+        challenger_X_val
+    )
     chall_preds = inverse_transform_target(chall_preds, challenger_transform)
 
     chall_rmse = np.sqrt(mean_squared_error(y_val, chall_preds))
@@ -107,11 +143,26 @@ def compare_models(new_run_id: str, val_path: str | None = None):
         champion = mlflow.xgboost.load_model(champion_uri)
         
         run_info = client.get_run(champ_run_id)
-        if run_info.data.tags.get("target_transformation") == "log1p" or \
-            run_info.data.params.get("target_transformation") == "log1p":
-             champ_preds = np.expm1(champion.predict(X_val))
+        champion_X_val = align_features_for_evaluation(
+            champion,
+            X_val,
+        )
+
+        raw_champion_predictions = champion.predict(
+            champion_X_val
+        )
+
+        if (
+            run_info.data.tags.get("target_transformation")
+            == "log1p"
+            or run_info.data.params.get("target_transformation")
+            == "log1p"
+        ):
+            champ_preds = np.expm1(
+                raw_champion_predictions
+            )
         else:
-             champ_preds = champion.predict(X_val)
+            champ_preds = raw_champion_predictions
 
         champ_rmse = np.sqrt(mean_squared_error(y_val, champ_preds))
         metrics["champion_rmse"] = champ_rmse
