@@ -424,6 +424,46 @@ def load_known_calendar(
 
     return calendar_df
 
+def prepare_known_calendar_lookup(
+    calendar_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Prepare an indexed calendar for efficient inference lookups."""
+    data_cfg = TRAIN_CFG["data"]
+
+    entity_column = data_cfg["id_columns"][0]
+    date_column = data_cfg["time_column"]
+
+    lookup_df = calendar_df.copy()
+
+    lookup_df[entity_column] = pd.to_numeric(
+        lookup_df[entity_column],
+        errors="raise",
+    ).astype(int)
+
+    lookup_df[date_column] = pd.to_datetime(
+        lookup_df[date_column],
+        errors="raise",
+    )
+
+    lookup_df = (
+        lookup_df.drop_duplicates(
+            subset=[
+                entity_column,
+                date_column,
+            ],
+            keep="last",
+        )
+        .set_index(
+            [
+                entity_column,
+                date_column,
+            ]
+        )
+        .sort_index()
+    )
+
+    return lookup_df
+
 
 def merge_known_calendar_features(
     df: pd.DataFrame,
@@ -431,7 +471,7 @@ def merge_known_calendar_features(
     *,
     strict: bool = True,
 ) -> pd.DataFrame:
-    """Merge known calendar features by entity and date."""
+    """Attach known calendar features using entity and date keys."""
     if calendar_df is None or calendar_df.empty:
         if strict:
             raise ValueError(
@@ -449,26 +489,56 @@ def merge_known_calendar_features(
         result[entity_column],
         errors="raise",
     ).astype(int)
+
     result[date_column] = pd.to_datetime(
         result[date_column],
         errors="raise",
     )
 
-    merge_columns = [
+    expected_index_names = [
         entity_column,
         date_column,
-        *CALENDAR_FEATURE_COLUMNS,
     ]
 
-    result = result.merge(
-        calendar_df[merge_columns],
-        on=[
+    if (
+        isinstance(calendar_df.index, pd.MultiIndex)
+        and calendar_df.index.names
+        == expected_index_names
+    ):
+        lookup_keys = pd.MultiIndex.from_frame(
+            result[
+                [
+                    entity_column,
+                    date_column,
+                ]
+            ]
+        )
+
+        calendar_features = calendar_df.reindex(
+            lookup_keys
+        )[CALENDAR_FEATURE_COLUMNS].copy()
+
+        calendar_features.index = result.index
+
+        for column in CALENDAR_FEATURE_COLUMNS:
+            result[column] = calendar_features[column]
+
+    else:
+        merge_columns = [
             entity_column,
             date_column,
-        ],
-        how="left",
-        validate="many_to_one",
-    )
+            *CALENDAR_FEATURE_COLUMNS,
+        ]
+
+        result = result.merge(
+            calendar_df[merge_columns],
+            on=[
+                entity_column,
+                date_column,
+            ],
+            how="left",
+            validate="many_to_one",
+        )
 
     missing_calendar = result[
         CALENDAR_FEATURE_COLUMNS
@@ -489,21 +559,26 @@ def merge_known_calendar_features(
         )
 
     if missing_calendar.any():
+        distance_columns = [
+            column
+            for column in CALENDAR_FEATURE_COLUMNS
+            if column.startswith("days_")
+        ]
+        binary_columns = [
+            column
+            for column in CALENDAR_FEATURE_COLUMNS
+            if column.startswith("is_")
+        ]
+
         result.loc[
             missing_calendar,
-            CALENDAR_FEATURE_COLUMNS,
+            distance_columns,
         ] = 31
 
-        for binary_column in [
-            "is_day_before_state_holiday",
-            "is_day_after_state_holiday",
-            "is_school_holiday_start",
-            "is_school_holiday_end",
-        ]:
-            result.loc[
-                missing_calendar,
-                binary_column,
-            ] = 0
+        result.loc[
+            missing_calendar,
+            binary_columns,
+        ] = 0
 
     result[CALENDAR_FEATURE_COLUMNS] = result[
         CALENDAR_FEATURE_COLUMNS

@@ -3,6 +3,7 @@ import pandas as pd
 from src.data.features.calendar import (
     build_known_calendar,
     merge_known_calendar_features,
+    prepare_known_calendar_lookup,
 )
 
 
@@ -109,3 +110,35 @@ def test_merge_known_calendar_features_uses_store_and_date():
 
     assert result.loc[0, "days_until_state_holiday"] == 1
     assert result.loc[0, "is_day_before_state_holiday"] == 1
+
+def test_merge_known_calendar_features_supports_indexed_lookup():
+    source_df = build_calendar_source()
+    calendar_df = build_known_calendar(source_df)
+
+    indexed_calendar = prepare_known_calendar_lookup(
+        calendar_df
+    )
+
+    request_df = pd.DataFrame(
+        {
+            "Store": [1],
+            "Date": ["2015-04-02"],
+            "Promo": [1],
+        }
+    )
+
+    result = merge_known_calendar_features(
+        request_df,
+        indexed_calendar,
+        strict=True,
+    )
+
+    assert result.loc[
+        0,
+        "days_until_state_holiday",
+    ] == 1
+
+    assert result.loc[
+        0,
+        "is_day_before_state_holiday",
+    ] == 1

@@ -11,6 +11,7 @@ from mlflow import MlflowClient
 
 from src.inference.router import load_registry_model
 from src.utils.logger import get_logger
+from src.data.features.calendar import prepare_known_calendar_lookup
 
 logger = get_logger(__name__)
 
@@ -124,7 +125,9 @@ def load_known_calendar_artifact(
         len(calendar_df),
     )
 
-    return calendar_df
+    return prepare_known_calendar_lookup(
+        calendar_df
+    )
 
 def reload_serving_model(
     *,
