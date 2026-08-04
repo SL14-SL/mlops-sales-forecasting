@@ -6,12 +6,23 @@ project:
 model:
   type: xgboost
   params:
-    n_estimators: 300
-    max_depth: 8
-    learning_rate: 0.05
-    subsample: 0.8
+    # n_estimators: 300
+    # max_depth: 8
+    # learning_rate: 0.05
+    # subsample: 0.8
     tree_method: hist
     enable_categorical: true
+    n_estimators: 1200
+    max_depth: 7
+    learning_rate: 0.02951097123871115
+    min_child_weight: 7
+    subsample: 0.7591811958673289
+    colsample_bytree: 0.8220753234069667
+    reg_alpha: 0.026633895001357495
+    reg_lambda: 8.719936821452245
+    gamma: 0.22544860040323314
+    objective: reg:squarederror
+    early_stopping_rounds: 50
 
 data:
   target_column: Sales
