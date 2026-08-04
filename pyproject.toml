@@ -38,6 +38,7 @@ dependencies = [
     "urllib3>=2.7.0",
     "streamlit>=1.57.0",
     "plotly>=6.7.0",
+    "optuna>=4.9.0",
 ]
 
 [tool.setuptools.packages.find]
