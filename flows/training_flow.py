@@ -157,10 +157,18 @@ def task_log_dataset_metadata(run_id: str, dataset_manifest: dict):
         p_logger.warning(f"Could not log dataset metadata: {e}")
 
 @task(name="Model Training")
-def task_train():
+def task_train(is_drift_run: bool):
     p_logger = get_run_logger()
-    p_logger.info("Triggering model training task.")
-    model, run_id = train()
+
+    p_logger.info(
+        "Triggering model training task | drift_run=%s",
+        is_drift_run,
+    )
+
+    model, run_id = train(
+        is_drift_run=is_drift_run,
+    )
+
     return run_id
 
 @task(name="Evaluation & Registration")
@@ -321,7 +329,7 @@ def training_pipeline(force_run: bool = False):
     
     task_prepare_data(is_drift_run=drift_detected)
     dataset_manifest = task_snapshot_dataset()
-    run_id = task_train()
+    run_id = task_train(is_drift_run=drift_detected)
     task_log_dataset_metadata(run_id, dataset_manifest)
 
     #task_archive_logs() 

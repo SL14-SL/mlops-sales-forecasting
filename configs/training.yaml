@@ -50,6 +50,12 @@ training:
   test_size: 0.2
   target_transformation: log1p
 
+  recency_weighting:
+    enabled_for_drift: true
+    last_30_days_weight: 10.0
+    last_60_days_weight: 5.0
+    last_120_days_weight: 2.0
+    default_weight: 1.0
 metrics:
   primary: rmse
   evaluate_on_original_scale: true

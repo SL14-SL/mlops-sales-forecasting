@@ -130,8 +130,71 @@ def log_effective_run_config_to_mlflow(config: dict) -> None:
         "run_config/effective_config.json",
     )
 
+def build_recency_weights(
+    dates: pd.Series,
+    weighting_config: dict,
+) -> np.ndarray:
+    """
+    Assign higher sample weights to recent training observations.
+    """
+    parsed_dates = pd.to_datetime(
+        dates,
+        errors="raise",
+    )
 
-def train(train_file: str | None = None, val_file: str | None = None):
+    if parsed_dates.isna().any():
+        raise ValueError(
+            "Training dates contain missing values."
+        )
+
+    latest_training_date = parsed_dates.max()
+
+    age_days = (
+        latest_training_date - parsed_dates
+    ).dt.days
+
+    weights = np.select(
+        [
+            age_days <= 30,
+            age_days <= 60,
+            age_days <= 120,
+        ],
+        [
+            float(
+                weighting_config.get(
+                    "last_30_days_weight",
+                    10.0,
+                )
+            ),
+            float(
+                weighting_config.get(
+                    "last_60_days_weight",
+                    5.0,
+                )
+            ),
+            float(
+                weighting_config.get(
+                    "last_120_days_weight",
+                    2.0,
+                )
+            ),
+        ],
+        default=float(
+            weighting_config.get(
+                "default_weight",
+                1.0,
+            )
+        ),
+    )
+
+    return weights.astype(np.float32)
+
+def train(
+    train_file: str | None = None,
+    val_file: str | None = None,
+    *,
+    is_drift_run: bool = False,
+):
     """
     Main training task:
     - loads train/validation data
@@ -181,6 +244,49 @@ def train(train_file: str | None = None, val_file: str | None = None):
         f"drop_columns={drop_columns}"
     )
 
+    weighting_config = training_cfg.get(
+        "recency_weighting",
+        {},
+    )
+
+    use_recency_weighting = bool(
+        is_drift_run
+        and weighting_config.get(
+            "enabled_for_drift",
+            False,
+        )
+    )
+
+    sample_weight = None
+
+    if use_recency_weighting:
+        if "Date" not in df_train.columns:
+            raise ValueError(
+                "Date column is required for recency weighting."
+            )
+
+        sample_weight = build_recency_weights(
+            df_train["Date"],
+            weighting_config,
+        )
+
+        weight_distribution = (
+            pd.Series(sample_weight)
+            .value_counts()
+            .sort_index()
+            .to_dict()
+        )
+
+        logger.info(
+            "Recency weighting enabled | distribution=%s",
+            weight_distribution,
+        )
+    else:
+        logger.info(
+            "Recency weighting disabled | drift_run=%s",
+            is_drift_run,
+        )
+
     X_train = df_train.drop(columns=drop_columns, errors="ignore")
     X_val = df_val.drop(columns=drop_columns, errors="ignore")
 
@@ -206,6 +312,29 @@ def train(train_file: str | None = None, val_file: str | None = None):
         mlflow.set_tag("model_type", model_type)
         mlflow.set_tag("target_column", target_column)
         mlflow.set_tag("target_transformation", target_transform)
+        mlflow.set_tag("is_drift_run", str(is_drift_run).lower())
+        mlflow.log_param("recency_weighting_enabled",use_recency_weighting)
+        if sample_weight is not None:
+            mlflow.log_param(
+                "recent_30_days_weight",
+                weighting_config["last_30_days_weight"],
+            )
+            mlflow.log_param(
+                "recent_60_days_weight",
+                weighting_config["last_60_days_weight"],
+            )
+            mlflow.log_param(
+                "recent_120_days_weight",
+                weighting_config["last_120_days_weight"],
+            )
+            mlflow.log_param(
+                "default_weight",
+                weighting_config["default_weight"],
+            )
+            mlflow.log_metric(
+                "sample_weight_mean",
+                float(sample_weight.mean()),
+            )
 
         if seed is not None:
             mlflow.log_param("seed", seed)
@@ -225,6 +354,7 @@ def train(train_file: str | None = None, val_file: str | None = None):
             y_train=y_train,
             X_val=X_val,
             y_val=y_val,
+            sample_weight=sample_weight,
         )
 
         training_finished_at_utc = datetime.now(timezone.utc)

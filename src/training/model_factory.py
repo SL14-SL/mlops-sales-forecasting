@@ -47,13 +47,30 @@ def build_model(model_cfg: dict, *, seed: int | None = None):
     
     return MODEL_REGISTRY[model_type](**resolved_params)
 
-def fit_model(model, model_type: str, X_train, y_train, X_val, y_val):
+def fit_model(
+    model,
+    model_type: str,
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    sample_weight=None,
+):
     if model_type == "xgboost":
         model.fit(
             X_train,
             y_train,
+            sample_weight=sample_weight,
             eval_set=[(X_val, y_val)],
             verbose=False,
+        )
+        return
+
+    if sample_weight is not None:
+        model.fit(
+            X_train,
+            y_train,
+            sample_weight=sample_weight,
         )
         return
 

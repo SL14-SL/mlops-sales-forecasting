@@ -91,7 +91,7 @@ def test_training_pipeline_force_run_executes_training_path(monkeypatch):
 
     mock_prepare_data.assert_called_once_with(is_drift_run=False)
     mock_snapshot_dataset.assert_called_once()
-    mock_train.assert_called_once()
+    mock_train.assert_called_once_with(is_drift_run=False)
     mock_log_dataset_metadata.assert_called_once_with("run_123", {"dataset_version": "ds_test_001"})
     mock_eval_and_reg.assert_called_once_with("run_123")
 
@@ -127,7 +127,7 @@ def test_training_pipeline_drift_with_new_champion_refreshes_api(monkeypatch):
 
     mock_prepare_data.assert_called_once_with(is_drift_run=True)
     mock_snapshot_dataset.assert_called_once()
-    mock_train.assert_called_once()
+    mock_train.assert_called_once_with(is_drift_run=True)
     mock_log_dataset_metadata.assert_called_once_with("run_456", {"dataset_version": "ds_test_002"})
     mock_eval_and_reg.assert_called_once_with("run_456")
 
@@ -163,7 +163,7 @@ def test_training_pipeline_drift_without_new_champion_refreshes_api(monkeypatch)
 
     mock_prepare_data.assert_called_once_with(is_drift_run=True)
     mock_snapshot_dataset.assert_called_once()
-    mock_train.assert_called_once()
+    mock_train.assert_called_once_with(is_drift_run=True)
     mock_log_dataset_metadata.assert_called_once_with("run_789", {"dataset_version": "ds_test_003"})
     mock_eval_and_reg.assert_called_once_with("run_789")
 
