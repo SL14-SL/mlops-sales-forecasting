@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import os
+import argparse
 
 import pandas as pd
 import requests
@@ -364,18 +365,39 @@ def append_latest_metrics_row(
     if file_exists(output_path):
         existing = load_metrics(output_path)
     else:
-        existing = pd.DataFrame(columns=latest_row.columns)
-
-    combined = pd.concat([existing, latest_row], ignore_index=True)
-
-    if "window_end" in combined.columns:
-        combined["window_end"] = pd.to_datetime(combined["window_end"], errors="coerce")
-        combined = combined.sort_values("window_end").drop_duplicates(
-            subset=["window_end"],
-            keep="last",
+        existing = pd.DataFrame(
+            columns=latest_row.columns
         )
 
-    save_metrics_table(combined, output_path)
+    if existing.empty:
+        combined = latest_row.copy().reset_index(
+            drop=True
+        )
+    else:
+        combined = pd.concat(
+            [existing, latest_row],
+            ignore_index=True,
+        )
+
+    if "window_end" in combined.columns:
+        combined["window_end"] = pd.to_datetime(
+            combined["window_end"],
+            errors="coerce",
+        )
+
+        combined = (
+            combined.sort_values("window_end")
+            .drop_duplicates(
+                subset=["window_end"],
+                keep="last",
+            )
+        )
+
+    save_metrics_table(
+        combined,
+        output_path,
+    )
+
     return combined
 
 
@@ -519,10 +541,31 @@ def extract_training_result(output: str) -> dict:
     return {}
 
 
-def main():
+def main(
+    *,
+    scenario: str = "stable",
+    retraining_enabled: bool = True,
+    output_file: str | None = None,
+    drift_start_day: int = 46,
+    drift_duration_days: int = 14,
+    maximum_base_uplift: float = 0.10,
+    maximum_promo_uplift: float = 0.35,
+    max_days: int = 999,
+):
     history = []
     day_counter = 1
-    max_days = 999
+
+    results_output = (
+        PROJECT_ROOT / output_file
+        if output_file is not None
+        else RESULTS_OUTPUT
+    )
+
+    results_output.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
 
     ensure_dir(MONITORING_PATH)
     RESULTS_PATH.mkdir(parents=True, exist_ok=True)
@@ -546,8 +589,23 @@ def main():
     while day_counter <= max_days:
         logger.info(f"📅 [DAY {day_counter}]")
 
+        simulation_command = [
+            "python",
+            "scripts/simulate_ground_truth.py",
+            "--scenario",
+            scenario,
+            "--drift-start-day",
+            str(drift_start_day),
+            "--drift-duration-days",
+            str(drift_duration_days),
+            "--maximum-base-uplift",
+            str(maximum_base_uplift),
+            "--maximum-promo-uplift",
+            str(maximum_promo_uplift),
+        ]
+
         status, _ = run_command(
-            ["python", "scripts/simulate_ground_truth.py"],
+            simulation_command,
             f"Simulating Day {day_counter}",
         )
 
@@ -646,7 +704,7 @@ def main():
                 bias_step_threshold=400.0,
             )
 
-            if retrain_needed:
+            if retrain_needed and retraining_enabled:
                 event = "alert"
 
                 send_alert(
@@ -662,31 +720,62 @@ def main():
                 )
 
                 logger.warning(
-                    f"🚨 Performance degraded → triggering retraining | {retrain_reason}"
+                    "Performance degraded, triggering retraining | %s",
+                    retrain_reason,
                 )
 
                 retrain_status, retrain_output = run_command(
-                    ["python", "-m", "flows.training_flow"],
+                    [
+                        "python",
+                        "-m",
+                        "flows.training_flow",
+                    ],
                     "Retraining triggered by performance",
                 )
 
                 if retrain_status == "ERROR":
                     send_alert(
                         title="Retraining failed",
-                        message="Performance degradation detected, but retraining failed.",
+                        message=(
+                            "Performance degradation detected, "
+                            "but retraining failed."
+                        ),
                         severity="critical",
                     )
                     raise RuntimeError(
-                        "training_flow failed during performance-triggered retraining"
+                        "training_flow failed during "
+                        "performance-triggered retraining"
                     )
 
-                training_result = extract_training_result(retrain_output)
-                champion_promoted = bool(training_result.get("champion_promoted", False))
+                training_result = extract_training_result(
+                    retrain_output
+                )
+                champion_promoted = bool(
+                    training_result.get(
+                        "champion_promoted",
+                        False,
+                    )
+                )
 
-                write_last_retrain_day(day_counter)
+                write_last_retrain_day(
+                    day_counter
+                )
                 event = "retrain"
+
+            elif retrain_needed:
+                event = "would_retrain"
+
+                logger.warning(
+                    "Performance degradation detected, but "
+                    "retraining is disabled | %s",
+                    retrain_reason,
+                )
+
             else:
-                logger.info(f"✅ No retrain triggered | {retrain_reason}")
+                logger.info(
+                    "No retrain triggered | %s",
+                    retrain_reason,
+                )
 
         history.append(
             {
@@ -701,19 +790,127 @@ def main():
                 "window_end": latest_metrics.get("window_end"),
                 "event": event,
                 "champion_promoted": champion_promoted,
+                "scenario": scenario,
+                "retraining_enabled": retraining_enabled,
+                "drift_start_day": drift_start_day,
+                "drift_duration_days": drift_duration_days,
+                "maximum_base_uplift": maximum_base_uplift,
+                "maximum_promo_uplift": maximum_promo_uplift,
             }
         )
 
-        pd.DataFrame(history).to_csv(RESULTS_OUTPUT, index=False)
+        pd.DataFrame(history).to_csv(
+            results_output,
+            index=False,
+        )
 
         day_counter += 1
 
     logger.info("=" * 60)
-    logger.info(f"✅ Demo finished. Results saved to: {RESULTS_OUTPUT}")
+    logger.info("Demo finished. Results saved to: %s", results_output)
     logger.info(f"✅ Cumulative ground truth saved to: {CUMULATIVE_GT_FILE}")
     logger.info(f"✅ Rolling metrics saved to: {METRICS_OUTPUT}")
     logger.info("=" * 60)
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse lifecycle demo command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the forecasting performance lifecycle demo."
+        )
+    )
+
+    parser.add_argument(
+        "--scenario",
+        choices=[
+            "stable",
+            "gradual_promo_shift",
+        ],
+        default="stable",
+        help="Ground-truth simulation scenario.",
+    )
+
+    parser.add_argument(
+        "--retraining",
+        choices=[
+            "enabled",
+            "disabled",
+        ],
+        default="enabled",
+        help="Enable or disable automatic retraining.",
+    )
+
+    parser.add_argument(
+        "--output-file",
+        type=str,
+        default=None,
+        help=(
+            "Output CSV path relative to the "
+            "project root."
+        ),
+    )
+
+    parser.add_argument(
+        "--drift-start-day",
+        type=int,
+        default=46,
+        help="First simulation day affected by drift.",
+    )
+
+    parser.add_argument(
+        "--drift-duration-days",
+        type=int,
+        default=14,
+        help="Number of days until full drift strength.",
+    )
+
+    parser.add_argument(
+        "--maximum-base-uplift",
+        type=float,
+        default=0.10,
+        help=(
+            "Maximum relative sales uplift "
+            "without promotion."
+        ),
+    )
+
+    parser.add_argument(
+        "--maximum-promo-uplift",
+        type=float,
+        default=0.35,
+        help=(
+            "Maximum relative sales uplift "
+            "with promotion."
+        ),
+    )
+
+    parser.add_argument(
+        "--max-days",
+        type=int,
+        default=999,
+        help="Maximum number of simulation days.",
+    )
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+
+    main(
+        scenario=args.scenario,
+        retraining_enabled=(
+            args.retraining == "enabled"
+        ),
+        output_file=args.output_file,
+        drift_start_day=args.drift_start_day,
+        drift_duration_days=args.drift_duration_days,
+        maximum_base_uplift=(
+            args.maximum_base_uplift
+        ),
+        maximum_promo_uplift=(
+            args.maximum_promo_uplift
+        ),
+        max_days=args.max_days,
+    )

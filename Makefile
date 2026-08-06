@@ -10,7 +10,8 @@ PREFECT_POOL ?= local-pool
 
 .PHONY: help setup dev-up dev-down dev train train-force test lint clean \
         ui-prefect ui-mlflow prefect-status wait-prefect logs refresh-api \
-        prefect-pool prefect-setup prefect-worker auto-retrain
+        prefect-pool prefect-setup prefect-worker auto-retrain \
+		snapshot-demo-baseline reset-lifecycle-run
 
 # --- Main Entry Point ---
 
@@ -235,3 +236,52 @@ reset-demo: ## Reset generated artifacts and runtime state, keep only raw input 
 	rm -f ./mlflow.db
 	docker run --rm -v "$$(pwd):/workspace" alpine sh -c "rm -rf /workspace/prefect_data"
 	@echo "✅ Demo state reset complete. Raw source data remains in data/raw/."
+
+snapshot-demo-baseline: ## Save the initial state for reproducible comparison runs
+	@echo "📸 Saving demo baseline..."
+
+	@test -f models/latest_state.json || \
+		(echo "❌ models/latest_state.json not found. Run 'make train-force' first."; exit 1)
+
+	@test -f data/raw/simulation_ground_truth.csv || \
+		(echo "❌ Simulation pool not found. Run the ingestion step first."; exit 1)
+
+	mkdir -p data/demo_baseline
+
+	cp models/latest_state.json \
+		data/demo_baseline/latest_state.json
+
+	cp data/raw/simulation_ground_truth.csv \
+		data/demo_baseline/simulation_ground_truth.csv
+
+	@echo "✅ Demo baseline saved."
+
+
+reset-lifecycle-run: ## Restore lifecycle state without deleting models or MLflow
+	@echo "♻️ Resetting lifecycle run..."
+
+	@test -f data/demo_baseline/latest_state.json || \
+		(echo "❌ Baseline feature state not found."; exit 1)
+
+	@test -f data/demo_baseline/simulation_ground_truth.csv || \
+		(echo "❌ Baseline simulation pool not found."; exit 1)
+
+	rm -rf ./data/predictions/*
+	rm -rf ./data/monitoring/*
+
+	find ./data/raw/new_batches -mindepth 1 -delete
+	find ./data/raw/quarantine -mindepth 1 -delete
+
+	cp data/demo_baseline/latest_state.json \
+		models/latest_state.json
+
+	cp data/demo_baseline/simulation_ground_truth.csv \
+		data/raw/simulation_ground_truth.csv
+
+	@echo "🔄 Reloading API feature state..."
+	@curl -s -X POST \
+		-H "X-API-KEY: $(API_KEY)" \
+		http://localhost:8000/admin/reload-feature-state \
+		| jq .
+
+	@echo "✅ Lifecycle baseline restored."
