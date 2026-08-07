@@ -7,6 +7,8 @@ import gcsfs
 import mlflow
 import numpy as np
 import pandas as pd
+from copy import deepcopy
+
 from sklearn.metrics import mean_squared_error
 
 from src.configs.loader import get_path, load_config
@@ -216,11 +218,48 @@ def build_recency_weights(
 
     return weights.astype(np.float32)
 
+def build_final_refit_model_config(
+    candidate_run_id: str,
+) -> tuple[dict, int | None]:
+    """
+    Build a final model configuration using the candidate's best iteration.
+
+    Early stopping is removed because the final model is trained on all
+    available observations without a separate validation set.
+    """
+    model_cfg = deepcopy(TRAIN_CFG["model"])
+    params = model_cfg.setdefault("params", {})
+
+    if model_cfg["type"] != "xgboost":
+        return model_cfg, None
+
+    candidate_uri = f"runs:/{candidate_run_id}/model"
+    candidate_model = mlflow.xgboost.load_model(candidate_uri)
+
+    best_iteration = None
+
+    try:
+        best_iteration = int(candidate_model.best_iteration)
+    except (AttributeError, TypeError, ValueError):
+        logger.warning(
+            "Candidate model does not expose a best iteration. "
+            "Using configured n_estimators for final refit."
+        )
+
+    params.pop("early_stopping_rounds", None)
+
+    if best_iteration is not None:
+        params["n_estimators"] = best_iteration + 1
+
+    return model_cfg, best_iteration
+
 def train(
     train_file: str | None = None,
     val_file: str | None = None,
     *,
     is_drift_run: bool = False,
+    run_role: str = "candidate",
+    candidate_run_id: str | None = None,
 ):
     """
     Main training task:
@@ -247,8 +286,54 @@ def train(
         logger.error(f"Failed to load data for training: {e}")
         raise
 
+    if run_role not in {"candidate", "final_refit"}:
+        raise ValueError(
+            f"Unsupported training run role: {run_role}"
+        )
+
+    if run_role == "final_refit" and not candidate_run_id:
+        raise ValueError(
+            "candidate_run_id is required for final refit."
+        )
+
+    validation_df = df_val.copy()
+
+    if run_role == "final_refit":
+        df_train = (
+            pd.concat(
+                [df_train, df_val],
+                ignore_index=True,
+            )
+            .sort_values(["Date", "Store"])
+            .drop_duplicates(
+                subset=["Store", "Date"],
+                keep="last",
+            )
+            .reset_index(drop=True)
+        )
+
+        logger.info(
+            "Final refit dataset prepared | "
+            "candidate_run_id=%s | rows=%s | start=%s | end=%s",
+            candidate_run_id,
+            len(df_train),
+            df_train["Date"].min(),
+            df_train["Date"].max(),
+        )
+
     data_cfg = TRAIN_CFG["data"]
-    model_cfg = TRAIN_CFG["model"]
+
+    candidate_best_iteration = None
+
+    if run_role == "final_refit":
+        model_cfg, candidate_best_iteration = (
+            build_final_refit_model_config(
+                candidate_run_id=candidate_run_id,
+            )
+        )
+    else:
+        model_cfg = deepcopy(TRAIN_CFG["model"])
+
     training_cfg = TRAIN_CFG.get("training", {})
     metrics_cfg = TRAIN_CFG.get("metrics", {})
 
@@ -325,15 +410,33 @@ def train(
             is_drift_run,
         )
 
-    X_train = df_train.drop(columns=drop_columns, errors="ignore")
-    X_val = df_val.drop(columns=drop_columns, errors="ignore")
-
+    X_train = df_train.drop(
+        columns=drop_columns,
+        errors="ignore",
+    )
     X_train = normalize_feature_dtypes(X_train)
-    X_val = normalize_feature_dtypes(X_val)
 
-    y_train = transform_target(df_train[target_column], target_transform)
-    y_val = transform_target(df_val[target_column], target_transform)
+    y_train = transform_target(
+        df_train[target_column],
+        target_transform,
+    )
 
+    if run_role == "candidate":
+        X_val = validation_df.drop(
+            columns=drop_columns,
+            errors="ignore",
+        )
+        X_val = normalize_feature_dtypes(X_val)
+
+        y_val = transform_target(
+            validation_df[target_column],
+            target_transform,
+        )
+    else:
+        X_val = None
+        y_val = None
+
+    
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
     mlflow.set_tracking_uri(tracking_uri)
 
@@ -351,7 +454,30 @@ def train(
         mlflow.set_tag("target_column", target_column)
         mlflow.set_tag("target_transformation", target_transform)
         mlflow.set_tag("is_drift_run", str(is_drift_run).lower())
-        mlflow.log_param("recency_weighting_enabled",use_recency_weighting)
+        mlflow.set_tag("run_role", run_role)
+
+        if candidate_run_id is not None:
+            mlflow.set_tag(
+                "candidate_run_id",
+                candidate_run_id,
+            )
+
+        mlflow.log_param(
+            "training_rows",
+            len(df_train),
+        )
+
+        if candidate_best_iteration is not None:
+            mlflow.log_param(
+                "candidate_best_iteration",
+                candidate_best_iteration,
+            )
+            mlflow.log_param(
+                "final_n_estimators",
+                candidate_best_iteration + 1,
+            )
+
+        mlflow.log_param("recency_weighting_enabled", use_recency_weighting)
         if sample_weight is not None:
             mlflow.log_param(
                 "recent_30_days_weight",
@@ -431,17 +557,56 @@ def train(
         mlflow.log_param("target_transformation", target_transform)
         mlflow.log_param("evaluate_on_original_scale", evaluate_on_original_scale)
 
-        preds = model.predict(X_val)
+        if run_role == "candidate":
+            preds = model.predict(X_val)
 
-        if evaluate_on_original_scale:
-            preds_for_metric = inverse_transform_target(preds, target_transform)
-            actuals_for_metric = df_val[target_column].to_numpy()
+            if evaluate_on_original_scale:
+                preds_for_metric = inverse_transform_target(
+                    preds,
+                    target_transform,
+                )
+                actuals_for_metric = (
+                    validation_df[target_column].to_numpy()
+                )
+            else:
+                preds_for_metric = preds
+                actuals_for_metric = y_val.to_numpy()
+
+            rmse = float(
+                np.sqrt(
+                    mean_squared_error(
+                        actuals_for_metric,
+                        preds_for_metric,
+                    )
+                )
+            )
+
+            mlflow.log_metric("rmse", rmse)
+
+            logger.info(
+                "Candidate model trained | validation_rmse=%.4f",
+                rmse,
+            )
         else:
-            preds_for_metric = preds
-            actuals_for_metric = y_val.to_numpy()
+            candidate_run = mlflow.MlflowClient().get_run(
+                candidate_run_id
+            )
+            candidate_rmse = candidate_run.data.metrics.get(
+                "rmse"
+            )
 
-        rmse = float(np.sqrt(mean_squared_error(actuals_for_metric, preds_for_metric)))
-        mlflow.log_metric("rmse", rmse)
+            if candidate_rmse is not None:
+                mlflow.log_metric(
+                    "candidate_validation_rmse",
+                    candidate_rmse,
+                )
+
+            logger.info(
+                "Final refit completed | "
+                "training_rows=%s | candidate_run_id=%s",
+                len(df_train),
+                candidate_run_id,
+            )
 
         log_model_by_type(
             model=model,
@@ -450,12 +615,21 @@ def train(
             metadata={
                 "target_column": target_column,
                 "target_transformation": target_transform,
-                "evaluate_on_original_scale": str(evaluate_on_original_scale),
+                "evaluate_on_original_scale": str(
+                    evaluate_on_original_scale
+                ),
                 "model_type": model_type,
+                "run_role": run_role,
+                "candidate_run_id": candidate_run_id or "",
             },
         )
 
-        logger.info(f"Model logged to MLflow with RMSE: {rmse:.4f}")
+        logger.info(
+            "Model logged to MLflow | "
+            "run_id=%s | run_role=%s",
+            run_id,
+            run_role,
+        )
 
         if ENV_CFG["environment"] != "prod":
             models_dir = get_path("models")

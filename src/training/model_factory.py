@@ -52,18 +52,25 @@ def fit_model(
     model_type: str,
     X_train,
     y_train,
-    X_val,
-    y_val,
+    X_val=None,
+    y_val=None,
     sample_weight=None,
 ):
+    """
+    Fit a candidate model with validation or a final model without validation.
+    """
     if model_type == "xgboost":
-        model.fit(
-            X_train,
-            y_train,
-            sample_weight=sample_weight,
-            eval_set=[(X_val, y_val)],
-            verbose=False,
-        )
+        fit_kwargs = {
+            "X": X_train,
+            "y": y_train,
+            "sample_weight": sample_weight,
+            "verbose": False,
+        }
+
+        if X_val is not None and y_val is not None:
+            fit_kwargs["eval_set"] = [(X_val, y_val)]
+
+        model.fit(**fit_kwargs)
         return
 
     if sample_weight is not None:

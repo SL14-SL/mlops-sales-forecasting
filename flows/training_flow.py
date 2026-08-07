@@ -171,23 +171,70 @@ def task_train(is_drift_run: bool):
 
     return run_id
 
-@task(name="Evaluation & Registration")
-def task_eval_and_reg(new_run_id: str):
+@task(name="Candidate Evaluation")
+def task_eval_and_reg(new_run_id: str) -> bool:
+    """
+    Evaluate the candidate and register it only when it is rejected.
+    """
     p_logger = get_run_logger()
     is_better, metrics = compare_models(new_run_id)
 
     if metrics and "rmse_euro" in metrics:
-        print(f"Challenger RMSE: {metrics['rmse_euro']}")
+        print(
+            f"Challenger RMSE: "
+            f"{metrics['rmse_euro']}"
+        )
 
     if is_better:
-        p_logger.info(f"Challenger (Run: {new_run_id}) outperforms Champion. Promoting...")
-        register_model(new_run_id, alias="champion")
+        p_logger.info(
+            "Candidate outperforms Champion | "
+            f"candidate_run_id={new_run_id}"
+        )
         return True
-    else:
-        p_logger.info("Champion remains superior. Registering new model as Challenger.")
-        register_model(new_run_id, alias="challenger")
-        return False
 
+    p_logger.info(
+        "Champion remains superior. "
+        "Registering candidate as Challenger."
+    )
+    register_model(
+        new_run_id,
+        alias="challenger",
+    )
+    return False
+
+@task(name="Final Model Refit")
+def task_final_refit(
+    candidate_run_id: str,
+    is_drift_run: bool,
+) -> str:
+    """
+    Refit an accepted candidate on train and validation data.
+    """
+    p_logger = get_run_logger()
+
+    p_logger.info(
+        "Starting final refit | "
+        f"candidate_run_id={candidate_run_id} | "
+        f"drift_run={is_drift_run}"
+    )
+
+    _, final_run_id = train(
+        is_drift_run=is_drift_run,
+        run_role="final_refit",
+        candidate_run_id=candidate_run_id,
+    )
+
+    register_model(
+        final_run_id,
+        alias="champion",
+    )
+
+    p_logger.info(
+        "Final refit registered as Champion | "
+        f"final_run_id={final_run_id}"
+    )
+
+    return final_run_id
 
 @task(name="Archive Logs")
 def task_archive_logs():
@@ -334,7 +381,22 @@ def training_pipeline(force_run: bool = False):
 
     #task_archive_logs() 
 
-    new_champion_crowned = task_eval_and_reg(run_id)
+    candidate_accepted = task_eval_and_reg(run_id)
+    serving_run_id = run_id
+
+    if candidate_accepted:
+        serving_run_id = task_final_refit(
+            candidate_run_id=run_id,
+            is_drift_run=drift_detected,
+        )
+
+        task_log_dataset_metadata(
+            serving_run_id,
+            dataset_manifest,
+        )
+
+    new_champion_crowned = candidate_accepted
+
     if should_refresh_api(new_champion_crowned):
         p_logger.info("🚀 New Champion detected. Refreshing API...")
         
@@ -346,8 +408,16 @@ def training_pipeline(force_run: bool = False):
     p_logger.info("Pipeline execution finished successfully.")
 
     return {
-        "run_id": run_id,
-        "champion_promoted": bool(new_champion_crowned),
+        "run_id": serving_run_id,
+        "candidate_run_id": run_id,
+        "final_refit_run_id": (
+            serving_run_id
+            if candidate_accepted
+            else None
+        ),
+        "champion_promoted": bool(
+            new_champion_crowned
+        ),
     }
 
 if __name__ == "__main__":
