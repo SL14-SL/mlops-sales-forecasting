@@ -132,10 +132,11 @@ def log_effective_run_config_to_mlflow(config: dict) -> None:
 
 def build_recency_weights(
     dates: pd.Series,
+    promo_values: pd.Series,
     weighting_config: dict,
 ) -> np.ndarray:
     """
-    Assign higher sample weights to recent training observations.
+    Assign higher sample weights to recent promotional observations.
     """
     parsed_dates = pd.to_datetime(
         dates,
@@ -147,17 +148,43 @@ def build_recency_weights(
             "Training dates contain missing values."
         )
 
+    parsed_promo = (
+        pd.to_numeric(
+            promo_values,
+            errors="coerce",
+        )
+        .fillna(0)
+        .eq(1)
+    )
+
     latest_training_date = parsed_dates.max()
 
     age_days = (
         latest_training_date - parsed_dates
     ).dt.days
 
+    recent_30_day_promo = (
+        parsed_promo
+        & age_days.le(30)
+    )
+
+    recent_60_day_promo = (
+        parsed_promo
+        & age_days.gt(30)
+        & age_days.le(60)
+    )
+
+    recent_120_day_promo = (
+        parsed_promo
+        & age_days.gt(60)
+        & age_days.le(120)
+    )
+
     weights = np.select(
         [
-            age_days <= 30,
-            age_days <= 60,
-            age_days <= 120,
+            recent_30_day_promo,
+            recent_60_day_promo,
+            recent_120_day_promo,
         ],
         [
             float(
@@ -265,9 +292,20 @@ def train(
                 "Date column is required for recency weighting."
             )
 
+        promo_column = weighting_config.get(
+            "promo_column",
+            "Promo",
+        )
+
+        if promo_column not in df_train.columns:
+            raise ValueError(
+                f"Promo column '{promo_column}' is missing."
+            )
+
         sample_weight = build_recency_weights(
-            df_train["Date"],
-            weighting_config,
+            dates=df_train["Date"],
+            promo_values=df_train[promo_column],
+            weighting_config=weighting_config,
         )
 
         weight_distribution = (

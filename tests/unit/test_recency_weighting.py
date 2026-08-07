@@ -4,7 +4,7 @@ import pandas as pd
 from src.training.train import build_recency_weights
 
 
-def test_build_recency_weights_uses_configured_age_bands():
+def test_build_recency_weights_only_weights_promo_rows():
     latest_date = pd.Timestamp("2015-06-23")
 
     dates = pd.Series(
@@ -19,6 +19,18 @@ def test_build_recency_weights_uses_configured_age_bands():
         ]
     )
 
+    promo_values = pd.Series(
+        [
+            1,
+            0,
+            1,
+            0,
+            1,
+            1,
+            1,
+        ]
+    )
+
     config = {
         "last_30_days_weight": 10.0,
         "last_60_days_weight": 5.0,
@@ -27,16 +39,17 @@ def test_build_recency_weights_uses_configured_age_bands():
     }
 
     weights = build_recency_weights(
-        dates,
-        config,
+        dates=dates,
+        promo_values=promo_values,
+        weighting_config=config,
     )
 
     expected = np.array(
         [
             10.0,
-            10.0,
+            1.0,
             5.0,
-            5.0,
+            1.0,
             2.0,
             2.0,
             1.0,
