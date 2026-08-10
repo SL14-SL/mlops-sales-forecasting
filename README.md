@@ -202,14 +202,24 @@ Retraining can be triggered when monitoring detects quality degradation, feature
 ```mermaid
 flowchart LR
 A[Monitoring Signal] --> B[Retraining Decision]
-B --> C[Prefect Retraining Flow]
-C --> D[Train Candidate Model]
-D --> E[Evaluate Candidate]
-E --> F{Better than Champion?}
-F -->|Yes| G[Promote Candidate]
-F -->|No| H[Keep Current Champion]
-G --> I[API Reload]
+B --> C[Train Candidate]
+C --> D[Evaluate on Validation Data]
+D --> E{Better than Champion?}
+E -->|No| F[Keep Champion]
+E -->|Yes| G[Final Refit on Train and Validation]
+G --> H[Register New Champion]
+H --> I[Reload API]
 ```
+The candidate is first trained on the training split and compared with the
+current champion on untouched chronological validation data. If the candidate
+wins, a separate final model is refitted on both training and validation data.
+Only this final-refit model is registered as the new champion and loaded by the
+serving API.
+
+During drift retraining, recent promotional observations receive higher sample
+weights. The current policy uses weights of 10, 5 and 2 for promotional
+observations from the most recent 30, 60 and 120 days. All other observations
+retain the default weight of 1.
 
 <p align="center">
   <img src="docs/images/prefect_flow.png" width="100%">
@@ -341,6 +351,67 @@ The Streamlit dashboard visualizes rolling RMSE, MAE and bias over simulated pro
 
 ---
 
+## Controlled Retraining Experiment
+
+A controlled concept-drift experiment evaluates whether automated retraining
+improves forecast quality after the relationship between promotions and sales
+changes.
+
+The simulation gradually reduces the sales effect of promotions by 25%:
+
+- drift starts on simulation day 20
+- full drift strength is reached after 14 days
+- retraining is triggered on day 40
+- recent promotional observations receive recency weights of 10, 5 and 2
+- the accepted candidate is refitted on all available training and validation
+  observations before promotion
+- both variants use identical ground truth and the same initial champion model
+
+<p align="center">
+  <img src="docs/images/promo_final_refit_comparison.png" width="100%">
+</p>
+
+<p align="center">
+  <em>
+    Forecast performance under controlled promo-effect drift. The upper panel
+    shows rolling RMSE over the simulated production lifecycle, while the lower
+    panel compares post-promotion RMSE by forecast segment.
+  </em>
+</p>
+
+### Post-promotion results
+
+| Segment | Without retraining RMSE | With final-refit retraining RMSE | Relative RMSE change |
+|---|---:|---:|---:|
+| All open stores | 915.73 | 893.48 | -2.4% |
+| Promotional stores | 1,032.02 | 969.38 | -6.1% |
+| Non-promotional stores | 824.74 | 836.33 | +1.4% |
+
+A negative relative RMSE change indicates lower forecast error and therefore
+better performance. A positive value indicates higher forecast error.
+
+Across all open stores, final-refit retraining reduces RMSE by 2.7%.
+For promotional observations, which are directly affected by the simulated
+concept drift, RMSE improves by 7.9%. The non-promotional segment becomes 2.7%
+worse, demonstrating a measurable trade-off between adaptation to the changed
+promotion effect and stability in unaffected observations.
+
+Additional post-promotion metrics also improve overall:
+
+| Metric | Without retraining | With final-refit retraining |
+|---|---:|---:|
+| RMSE | 915.73 | 893.48 |
+| MAE | 699.52 | 693.35 |
+| WMAPE | 11.34% | 11.24% |
+| Bias | 122.12 | 98.23 |
+
+The experiment therefore shows that retraining adapts successfully to the
+targeted promo-effect drift while highlighting why model promotion should be
+evaluated across business-relevant segments rather than by a single aggregate
+metric alone.
+
+---
+
 # 🧠 Business Context
 
 The current project focuses on the technical MLOps lifecycle for sales forecasting.
@@ -383,9 +454,12 @@ This platform demonstrates a complete production ML lifecycle:
 5. the API serves forecasts using the champion model
 6. predictions and metadata are logged
 7. monitoring evaluates quality, drift and performance
-8. retraining is triggered when needed
-9. a new candidate model is trained
-10. the model is promoted only if it improves production quality
+8. retraining is triggered when degradation persists
+9. a candidate model is trained on chronological training data
+10. the candidate is compared with the champion on untouched validation data
+11. an accepted candidate is refitted on all available training and validation data
+12. the final-refit model is registered as champion
+13. the serving API reloads the new champion without rebuilding the image
 
 The goal is not a static forecasting model — but a continuously monitored and maintainable forecasting system.
 
@@ -788,12 +862,12 @@ For a real enterprise deployment, I would additionally consider:
 - stricter IAM scoping per environment
 - managed secret rotation
 - explicit SLO definitions
-- automated rollback workflows
+- broader multi-scenario drift backtesting
+- external event calendars for local and business-specific events
 - shadow model evaluation or canary deployment
 - advanced backtesting workflows
 - richer forecast explainability
 - hierarchical forecasting support
-- holiday and event calendar integration
 - probabilistic forecasts and prediction intervals
 - cost monitoring and budget alerts
 - data privacy controls for business-specific datasets
