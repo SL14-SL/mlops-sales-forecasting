@@ -38,25 +38,25 @@ The shared lifecycle is: data validation, feature engineering, training, MLflow 
 The platform implements a complete operational ML lifecycle for sales forecasting.
 
 ```mermaid
-flowchart TB
-A[Raw Sales Data] --> B[Validation]
-B --> C[Feature Engineering]
-C --> D[Temporal Splitting]
-D --> E[Training Pipeline - Prefect]
-E --> F[MLflow Tracking]
-F --> G[MLflow Model Registry]
-G --> H[FastAPI Forecasting API]
+flowchart TD
+    A["Raw sales data"] --> B["Data validation"]
+    B --> C["Feature engineering"]
+    C --> D["Temporal data splitting"]
+    D --> E["Prefect training pipeline"]
+    E --> F["MLflow experiment tracking"]
+    F --> G["MLflow Model Registry"]
+    G --> H["FastAPI forecasting API"]
 
-H --> I[Forecast Logs]
-I --> J[Monitoring Layer]
+    H --> I["Prediction logging"]
+    I --> J["Monitoring layer"]
 
-J --> K[Data Quality Checks]
-J --> L[Feature Drift Detection]
-J --> M[Forecast Performance Monitoring]
-J --> N[Retraining Trigger]
+    J --> K["Data-quality checks"]
+    J --> L["Feature-drift monitoring"]
+    J --> M["Forecast-performance monitoring"]
 
-N --> O[Retraining Pipeline]
-O --> E
+    M --> N["Retraining decision"]
+    N --> O["Candidate training and final refit"]
+    O --> G
 ```
 
 The architecture separates reusable MLOps infrastructure from
