@@ -428,7 +428,7 @@ promotional and non-promotional stores.
 
 
 <p align="center">
-  <img src="docs/images/promo_mild_weights_comparison.png" width="100%">
+  <img src="docs/images/promo_final_refit_comparison.png" width="100%">
 </p>
 
 <p align="center">
