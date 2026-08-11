@@ -16,27 +16,11 @@ The focus is not only model training, but the engineering layer required to oper
 
 ---
 
-# 🎯 What This Project Demonstrates
-
-This project demonstrates a production-oriented ML lifecycle for time-dependent prediction problems:
-
-- FastAPI forecast serving for single and batch prediction
-- MLflow experiment tracking and model registry workflows
-- Champion/challenger promotion and controlled model rollout
-- Prefect-based training and retraining orchestration
-- Forecasting-specific temporal feature engineering and state handling
-- Data quality, feature drift and forecast performance monitoring
-- Prometheus/Grafana metrics for API observability
-- CI/CD with tests, Docker builds, vulnerability scanning and Cloud Run deployment
-- Infrastructure as Code with Terraform on Google Cloud Platform
-
-The goal is to demonstrate reusable MLOps patterns for operating forecasting systems reliably over time.
-
----
-
 # 🧩 Blueprint Positioning
 
-This repository is the forecasting variant of a reusable MLOps blueprint.
+This repository is the forecasting variant of a reusable MLOps blueprint. A
+corresponding classification implementation is available in the
+[Customer Churn MLOps project](https://github.com/SL14-SL/mlops-churn-prediction).
 
 The goal is not to optimize one specific dataset, but to show how the same production-oriented ML architecture can be adapted to different ML problem types.
 
@@ -46,19 +30,6 @@ The goal is not to optimize one specific dataset, but to show how the same produ
 | Sales Forecasting MLOps | Time Series / Regression | Demand prediction | Temporal features, forecasting state, regression monitoring |
 
 The shared lifecycle is: data validation, feature engineering, training, MLflow tracking and registry, API serving, prediction logging, monitoring, retraining and CI/CD deployment.
-
----
-
-# 🖥️ Demo Highlights
-
-The repository includes screenshots and examples for:
-
-- FastAPI Swagger UI for forecast serving
-- MLflow experiment tracking and model registry
-- Prefect training and retraining orchestration
-- Streamlit dashboard for forecast performance monitoring
-- Grafana dashboard for operational API metrics
-- GitHub Actions CI/CD pipeline
 
 ---
 
@@ -88,49 +59,14 @@ N --> O[Retraining Pipeline]
 O --> E
 ```
 
-The architecture separates reusable MLOps infrastructure from use-case-specific forecasting logic.
+The architecture separates reusable MLOps infrastructure from
+forecasting-specific logic. 
+Validation, orchestration, experiment tracking,
+model registration, serving, monitoring and deployment form the reusable
+platform layer.
 
-Reusable layers include:
-
-- configuration management
-- data validation
-- training orchestration
-- experiment tracking
-- model registry workflows
-- model serving
-- monitoring
-- retraining
-- deployment automation
-
-Forecasting-specific layers include:
-
-- temporal feature engineering
-- store-level forecasting state
-- regression evaluation
-- forecast performance monitoring
-- demand-oriented inference logic
-
----
-
-# ⭐ MLOps Capabilities
-
-- production-style forecast serving
-- MLflow experiment tracking
-- MLflow Model Registry integration
-- champion/challenger model promotion
-- automated training and retraining workflows
-- forecasting-specific feature engineering
-- temporal validation and data splitting
-- prediction logging
-- feature drift monitoring
-- data quality monitoring
-- API metrics with Prometheus
-- Grafana dashboard support
-- Dockerized local development stack
-- Terraform-based cloud infrastructure
-- GitHub Actions CI/CD pipeline
-- container vulnerability scanning
-- Google Cloud Run deployment
+Temporal features, store-level forecasting state, regression evaluation and
+demand-oriented inference represent the use-case-specific forecasting layer.
 
 ---
 
@@ -262,21 +198,26 @@ RMSE by approximately 12.9%.
 
 Run the backtest with:
 
-'''bash
+```bash
 uv run python scripts/run_model_backtest.py \
   --output-directory results/model_backtest
-'''
+```
 
 Hyperparameter studies can be executed with:
 
-'''bash
+```bash
 uv run python scripts/tune_model.py \
   --trials 20 \
   --folds 2 3
-'''
+```
 
-The tuning folds are intentionally separated from the final four-fold
-walk-forward evaluation to reduce selection bias.
+To keep the optimization runtime manageable, hyperparameter tuning is performed
+on walk-forward folds 2 and 3. The selected configuration is subsequently
+reported across all four folds.
+
+Because folds 2 and 3 also participate in hyperparameter selection, the
+four-fold result should be interpreted as a validation estimate rather than
+performance on a completely untouched final test period.
 
 ---
 
@@ -457,46 +398,27 @@ The simulation gradually reduces the sales effect of promotions by 25%:
 
 ### Reproducing the experiment
 
-The comparison requires two lifecycle runs with identical ground truth,
-simulation parameters and initial champion model.
+After training the initial champion, create a reproducible experiment snapshot:
 
-Run the static variant without automated retraining:
+```bash
+make snapshot-demo-baseline
+```
+Run both lifecycle variants and generate the final comparison:
 
-'''bash
-docker compose exec api \
-  uv run --no-sync python scripts/run_performance_demo.py \
-  --scenario gradual_promo_shift \
-  --retraining disabled \
-  --output-file results/promo_weighted_without_retraining.csv \
-  --drift-start-day 20 \
-  --drift-duration-days 14 \
-  --maximum-base-uplift 0.0 \
-  --maximum-promo-uplift -0.25
-'''
+```bash
+make controlled-retraining-experiment
+```
+The experiment target automatically:
 
-After restoring the same initial demo baseline, run the adaptive variant:
+- restores the same training data, feature state, simulation pool and champion
+  before each variant
+- executes one run without retraining
+- executes one run with automated retraining and final refitting
+- preserves row-level predictions and ground truth for both variants
+- generates the rolling and segment-level comparison
 
-'''bash
-docker compose exec api \
-  uv run --no-sync python scripts/run_performance_demo.py \
-  --scenario gradual_promo_shift \
-  --retraining enabled \
-  --output-file results/promo_mild_weights_with_retraining.csv \
-  --drift-start-day 20 \
-  --drift-duration-days 14 \
-  --maximum-base-uplift 0.0 \
-  --maximum-promo-uplift -0.25
-'''
-
-Generate the final offline comparison with:
-
-'''bash
-uv run python scripts/plot_retraining_comparison.py
-'''
-
-The no-retraining and retraining variants must start from the same champion
-and simulation baseline. Otherwise, differences cannot be attributed solely
-to automated retraining.
+This ensures that differences between both variants can be attributed to the
+retraining policy rather than different initial conditions.
 
 
 The interactive dashboard focuses on lifecycle monitoring and rolling metrics.
@@ -516,6 +438,12 @@ promotional and non-promotional stores.
     business-relevant forecast segments.
   </em>
 </p>
+
+The dashboard chart reports a rolling lifecycle metric over the most recent
+monitoring window. The table below reports row-level metrics across the complete
+post-promotion evaluation period. The values therefore answer different
+questions and are not expected to be identical.
+
 
 ### Post-promotion results
 
@@ -542,6 +470,10 @@ Additional post-promotion metrics also improve overall:
 | MAE | 699.52 | 693.35 |
 | WMAPE | 11.34% | 11.24% |
 | Bias | 122.12 | 98.23 |
+
+Bias is calculated as mean prediction minus mean actual sales. Positive bias
+therefore indicates systematic overprediction, while negative bias indicates
+underprediction.
 
 The experiment therefore shows that retraining adapts successfully to the
 targeted promo-effect drift while highlighting why model promotion should be
@@ -581,46 +513,26 @@ This keeps the project focused on MLOps while leaving room for a realistic busin
 
 ---
 
-# 🔄 Continuous ML Lifecycle
-
-This platform demonstrates a complete production ML lifecycle:
-
-1. a model is trained and evaluated
-2. the model is logged to MLflow
-3. a candidate model is registered
-4. the best model is promoted as champion
-5. the API serves forecasts using the champion model
-6. predictions and metadata are logged
-7. monitoring evaluates quality, drift and performance
-8. retraining is triggered when degradation persists
-9. a candidate model is trained on chronological training data
-10. the candidate is compared with the champion on untouched validation data
-11. an accepted candidate is refitted on all available training and validation data
-12. the final-refit model is registered as champion
-13. the serving API reloads the new champion without rebuilding the image
-
-The goal is not a static forecasting model — but a continuously monitored and maintainable forecasting system.
-
----
-
 # 🔁 When Retraining Happens
 
-Retraining is triggered when monitoring detects that the current champion model may no longer be reliable.
+The controlled lifecycle demo uses persistent forecast-performance degradation
+as its automatic retraining signal.
 
-Potential retraining signals include:
+The monitoring architecture also produces additional signals that could be
+connected to future retraining policies, including:
 
 - feature drift
-- degraded forecast accuracy
-- data quality issues
-- newly available ground truth
+- data-quality failures
 - scheduled retraining windows
-- explicit monitoring trigger flags
+- minimum newly available ground-truth volume
+- explicit operational trigger flags
 
-The retraining workflow trains a new candidate model and compares it against the current champion.
+Once retraining is triggered, a new candidate is trained and compared with the
+current champion on untouched chronological validation data. Only an accepted
+candidate proceeds to final refitting and champion promotion.
 
-A newly trained model should only be promoted if it improves the relevant evaluation criteria.
-
-This prevents uncontrolled model replacement and supports stable production behavior.
+This prevents uncontrolled model replacement and supports stable production
+behavior.
 
 ---
 
@@ -645,9 +557,9 @@ make demo-forecasting-lifecycle
 Each lifecycle run writes its monitoring history directly to the output file
 specified for the simulation, for example:
 
-'''text
+```text
 results/promo_mild_weights_with_retraining.csv
-'''
+```
 
 The Streamlit dashboard automatically discovers compatible lifecycle result
 files under `results/`. Completed and partially running simulations can
@@ -663,37 +575,26 @@ The dashboard provides:
 
 Open the Streamlit monitoring dashboard at:
 
-'''text
+```text
 http://localhost:8501
-'''
+```
 
 Because the local `results/` directory is mounted into the API container,
 lifecycle output becomes available to the dashboard immediately.
 
 ---
 
-# ☁️ Infrastructure Stack
+# ☁️ Technology Stack
 
-## Core Stack
-
-* Python 3.12
-* FastAPI
-* MLflow
-* Prefect
-* scikit-learn
-* XGBoost
-* Pandas
-* Docker
-
-## Cloud & DevOps
-
-* Google Cloud Run
-* Google Artifact Registry
-* Google Cloud Storage
-* Terraform
-* GitHub Actions
-* Prometheus
-* Grafana
+| Layer | Technologies |
+|---|---|
+| Modeling | Python 3.12, XGBoost, scikit-learn, Pandas |
+| Serving | FastAPI, Streamlit |
+| MLOps | MLflow, Prefect |
+| Observability | Prometheus, Grafana |
+| Runtime | Docker, PostgreSQL |
+| Cloud and IaC | Google Cloud Run, Artifact Registry, Cloud Storage, Terraform |
+| CI/CD | GitHub Actions |
 
 ---
 
@@ -729,7 +630,7 @@ lifecycle output becomes available to the dashboard immediately.
 
 Key experiment and visualization files include:
 
-'''text
+```text
 scripts/
 ├── run_model_backtest.py
 ├── tune_model.py
@@ -741,7 +642,7 @@ docs/images/
 ├── streamlit_dashboard.png
 ├── streamlit_retraining_comparison.png
 └── promo_mild_weights_comparison.png
-'''
+```
 
 ---
 
@@ -750,7 +651,8 @@ docs/images/
 The local demo starts the full MLOps stack with Docker Compose:
 
 - FastAPI forecasting API
-- MLflow tracking server
+- Streamlit monitoring dashboard
+- MLflow tracking server and model registry
 - Prefect orchestration server
 - PostgreSQL backend
 - Prometheus metrics
@@ -761,7 +663,7 @@ After starting the services, run the training pipeline once to register an initi
 ## 1️⃣ Clone repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/SL14-SL/mlops-sales-forecasting.git
 cd sales-forecasting-mlops
 ```
 
@@ -818,20 +720,12 @@ This executes:
 
 ---
 
-## 5️⃣ Optional: Run API outside Docker
+## 5️⃣ Run quality checks
 
 ```bash
-uv run uvicorn src.api.app:app --host 0.0.0.0 --port 8080
-```
-
----
-
-## 6️⃣ Run quality checks
-
-'''bash
 make test
 make lint
-'''
+```
 
 The test suite covers training, inference, feature engineering, monitoring and
 lifecycle behavior. Ruff is used for static code-quality checks.
@@ -859,14 +753,15 @@ MLflow, Prefect and API service addresses.
 Production helper targets set `APP_ENV=prod` and connect to the configured
 cloud services. For example:
 
-'''bash
+```bash
 make train-force-prod
-'''
+```
 
 `APP_ENV` selects the environment-specific YAML configuration. Environment
 variables such as API URLs, credentials and service endpoints remain
 independent configuration inputs and are not automatically ignored merely
 because development mode is active.
+
 ---
 
 # ☁️ Deployment
@@ -902,7 +797,9 @@ CI/CD automatically handles:
 * container registry publishing
 * Cloud Run deployment
 
-The pipeline validates, builds, scans and deploys the services automatically on pushes to `main`.
+When the required GCP infrastructure, repository variables, secrets and
+authentication are configured, pushes to `main` trigger the complete CI/CD
+workflow for validation, image publication and Cloud Run deployment.
 
 <p align="center">
   <img src="docs/images/ci_pipeline.png" width="100%">
@@ -916,79 +813,53 @@ The pipeline validates, builds, scans and deploys the services automatically on 
 
 # 📈 API Endpoints
 
-If a live demo deployment is active, the API exposes:
+The forecasting API exposes the following endpoints:
 
-## Swagger Documentation
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/docs` | Interactive Swagger documentation |
+| `GET` | `/livez` | Process liveness check |
+| `GET` | `/readyz` | Model and service readiness check |
+| `GET` | `/metrics` | Prometheus metrics |
+| `GET` | `/monitoring/summary` | Monitoring status summary |
+| `POST` | `/predict` | Single or batch forecast generation |
+| `POST` | `/admin/reload-model` | Reload the active registry model |
 
-```text
-https://YOUR_API_URL/docs
-```
-
----
-
-## Health & Readiness Endpoints
-
-```text
-GET https://YOUR_API_URL/livez
-GET https://YOUR_API_URL/readyz
-```
-
----
-
-## Metrics Endpoint
-
-```text
-GET https://YOUR_API_URL/metrics
-```
-
----
-
-## Monitoring Summary
-
-```text
-GET https://YOUR_API_URL/monitoring/summary
-```
-
----
-
-## Prediction Endpoint
-
-```text
-POST https://YOUR_API_URL/predict
-```
-
----
-
-## Model Reload Endpoint
-
-```text
-POST https://YOUR_API_URL/admin/reload-model
-```
+For a deployed environment, prepend the active API base URL to the endpoint,
+for example `https://YOUR_API_URL/predict`.
 
 ---
 
 # 📦 Dataset
 
-This project uses store-level sales data as a realistic forecasting use case.
+The project uses the Rossmann Store Sales dataset as a realistic store-level
+sales forecasting use case.
 
-The dataset is not the main focus of the repository. It serves as a concrete example for demonstrating reusable MLOps architecture patterns for time-dependent prediction problems.
+The data contains daily observations for multiple stores together with
+information about promotions, store availability, school holidays, state
+holidays and store metadata. These fields support the temporal, promotional
+and calendar-based feature engineering used by the forecasting pipeline.
 
-The project uses the forecasting scenario to demonstrate:
+The forecasting scenario is used to demonstrate:
 
 - temporal feature engineering
 - data validation
-- time-aware splitting
-- model training
-- model registry workflows
+- time-aware splitting and walk-forward evaluation
+- model training and hyperparameter tuning
+- experiment tracking and model registry workflows
 - API-based forecast serving
 - prediction logging
-- performance monitoring
-- drift detection
-- retraining workflows
+- performance and drift monitoring
+- automated retraining and controlled model promotion
 - CI/CD deployment
 
-The main focus is operational ML infrastructure, reproducibility and lifecycle automation.
+The dataset and forecasting model provide a concrete application scenario, but
+they are not the primary focus of the repository. The main focus is the
+production-oriented MLOps infrastructure surrounding the model: reproducible
+data processing, orchestration, model serving, monitoring, retraining, model
+registry workflows and deployment automation.
 
+Raw dataset files are intentionally excluded from version control.
 ---
 
 # 🎯 Project Goals
@@ -1011,22 +882,17 @@ The emphasis is on reliable ML infrastructure — not just model training or not
 
 # 🔁 Reusable Use Cases
 
-Sales forecasting is used as the example use case in this repository.
+The architecture can be adapted to other forecasting and regression problems
+in which predictions must be served, monitored and improved over time.
+Examples include demand, inventory, revenue, traffic, workload, staffing and
+energy-consumption forecasting.
 
-The same MLOps architecture can be adapted to other forecasting or regression problems where predictions need to be served, monitored and improved over time, such as:
+The reusable components are the data and training orchestration, experiment
+tracking, registry-based promotion, API serving, monitoring, retraining and
+deployment workflows. Forecasting-specific schemas, features and evaluation
+policies can be replaced for a different application domain.
 
-- demand forecasting
-- inventory forecasting
-- revenue forecasting
-- traffic forecasting
-- workload forecasting
-- capacity planning
-- staffing demand prediction
-- energy consumption forecasting
-- support ticket volume forecasting
-- marketplace supply and demand prediction
-
-The sales forecasting use case is therefore mainly a vehicle for demonstrating reusable MLOps patterns: model serving, experiment tracking, registry-based promotion, monitoring, retraining, reproducibility and CI/CD.
+Raw dataset files are intentionally excludd from version control.
 
 ---
 
@@ -1040,7 +906,6 @@ For a real enterprise deployment, I would additionally consider:
 - stricter IAM scoping per environment
 - managed secret rotation
 - explicit SLO definitions
-- broader multi-scenario drift backtesting
 - external event calendars for local and business-specific events
 - shadow model evaluation or canary deployment
 - broader multi-horizon and multi-scenario backtesting
@@ -1050,6 +915,7 @@ For a real enterprise deployment, I would additionally consider:
 - cost monitoring and budget alerts
 - data privacy controls for business-specific datasets
 - blue/green deployment strategies
+- a fully untouched final temporal test period after hyperparameter selection
 
 The goal of this project is to demonstrate realistic MLOps architecture patterns in a compact and reproducible showcase.
 
