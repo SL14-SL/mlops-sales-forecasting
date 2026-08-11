@@ -1,5 +1,5 @@
-import os
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -9,489 +9,711 @@ from src.constants import PROJECT_ROOT
 from src.monitoring.costs import build_cost_report
 
 
-st.set_page_config(page_title="MLOps Dashboard", layout="wide")
-
-
-# -----------------------------
-# Helpers
-# -----------------------------
-RESULTS_DIR = os.path.join(PROJECT_ROOT, "results")
-
-DRIFT_RESULTS_FILE = os.path.join(RESULTS_DIR, "evolution_results.csv")
-PERF_RESULTS_FILE = os.path.join(RESULTS_DIR, "performance_demo_history.csv")
-PERF_ROLLING_FILE = os.path.join(
-    PROJECT_ROOT,
-    "data",
-    "monitoring",
-    "performance_rolling.parquet",
+st.set_page_config(
+    page_title="MLOps Dashboard",
+    layout="wide",
 )
 
 
-def load_drift_data() -> pd.DataFrame | None:
-    if not os.path.exists(DRIFT_RESULTS_FILE):
-        return None
+RESULTS_DIR = PROJECT_ROOT / "results"
+PERFORMANCE_ROLLING_FILE = (
+    PROJECT_ROOT
+    / "data"
+    / "monitoring"
+    / "performance_rolling.parquet"
+)
 
-    df = pd.read_csv(DRIFT_RESULTS_FILE)
+REQUIRED_LIFECYCLE_COLUMNS = {
+    "day",
+    "rmse",
+    "mae",
+    "bias",
+}
 
-    for col in ["rmse_euro", "static_rmse_euro"]:
-        if col in df.columns:
-            df[col] = (
-                df[col]
-                .astype(str)
-                .str.replace("€", "", regex=False)
-                .replace("nan", None)
+
+def parse_boolean_series(series: pd.Series) -> pd.Series:
+    """Normalize common boolean representations."""
+    return (
+        series
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .map(
+            {
+                "true": True,
+                "false": False,
+                "1": True,
+                "0": False,
+            }
+        )
+        .fillna(False)
+        .astype(bool)
+    )
+
+
+def normalize_lifecycle_frame(
+    frame: pd.DataFrame,
+) -> pd.DataFrame:
+    """Normalize one lifecycle result table for dashboard rendering."""
+    frame = frame.copy()
+
+    for column in [
+        "day",
+        "cumulative_days",
+        "rmse",
+        "mae",
+        "bias",
+        "n_samples",
+        "drift_start_day",
+        "drift_duration_days",
+    ]:
+        if column in frame.columns:
+            frame[column] = pd.to_numeric(
+                frame[column],
+                errors="coerce",
             )
-            df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    if "drift_detected" in df.columns:
-        df["drift_detected"] = (
-            df["drift_detected"].astype(str).str.strip().str.lower() == "true"
+    for column in [
+        "window_start",
+        "window_end",
+    ]:
+        if column in frame.columns:
+            frame[column] = pd.to_datetime(
+                frame[column],
+                errors="coerce",
+            )
+
+    if "event" not in frame.columns:
+        frame["event"] = None
+
+    if "champion_promoted" in frame.columns:
+        frame["champion_promoted"] = (
+            parse_boolean_series(
+                frame["champion_promoted"]
+            )
         )
     else:
-        df["drift_detected"] = False
+        frame["champion_promoted"] = False
 
-    return df
-
-
-def load_performance_history() -> pd.DataFrame | None:
-    if not os.path.exists(PERF_RESULTS_FILE):
-        return None
-
-    df = pd.read_csv(PERF_RESULTS_FILE)
-
-    for col in ["rmse", "mae", "bias", "n_samples", "cumulative_days", "day"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    for col in ["window_start", "window_end"]:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
-
-    if "champion_promoted" in df.columns:
-        df["champion_promoted"] = (
-            df["champion_promoted"]
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .map({"true": True, "false": False})
-            .fillna(False)
+    if "retraining_enabled" in frame.columns:
+        frame["retraining_enabled"] = (
+            parse_boolean_series(
+                frame["retraining_enabled"]
+            )
         )
-    else:
-        df["champion_promoted"] = False
 
-    if "event" not in df.columns:
-        df["event"] = None
+    if "day" not in frame.columns:
+        frame["day"] = range(
+            1,
+            len(frame) + 1,
+        )
 
-    return df
+    return (
+        frame
+        .dropna(subset=["day", "rmse"])
+        .sort_values("day")
+        .reset_index(drop=True)
+    )
 
 
-def load_performance_rolling() -> pd.DataFrame | None:
-    if not os.path.exists(PERF_ROLLING_FILE):
+def is_lifecycle_result(path: Path) -> bool:
+    """Return whether a CSV has the required lifecycle columns."""
+    try:
+        columns = set(
+            pd.read_csv(
+                path,
+                nrows=0,
+            ).columns
+        )
+    except (OSError, pd.errors.ParserError):
+        return False
+
+    return REQUIRED_LIFECYCLE_COLUMNS.issubset(
+        columns
+    )
+
+
+def discover_lifecycle_results() -> list[Path]:
+    """Discover compatible lifecycle CSV files, newest first."""
+    if not RESULTS_DIR.exists():
+        return []
+
+    candidates = [
+        path
+        for path in RESULTS_DIR.glob("*.csv")
+        if is_lifecycle_result(path)
+    ]
+
+    return sorted(
+        candidates,
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def load_lifecycle_result(
+    path: Path,
+) -> pd.DataFrame | None:
+    """Load one lifecycle result while tolerating a file being updated."""
+    try:
+        frame = pd.read_csv(path)
+    except (
+        OSError,
+        pd.errors.EmptyDataError,
+        pd.errors.ParserError,
+    ):
         return None
 
-    df = pd.read_parquet(PERF_ROLLING_FILE)
+    if not REQUIRED_LIFECYCLE_COLUMNS.issubset(
+        frame.columns
+    ):
+        return None
 
-    for col in ["rmse", "mae", "bias", "n_samples"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return normalize_lifecycle_frame(frame)
 
-    for col in ["window_start", "window_end"]:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
 
-    return df
+def load_rolling_fallback() -> pd.DataFrame | None:
+    """Load native monitoring metrics when no lifecycle CSV exists."""
+    if not PERFORMANCE_ROLLING_FILE.exists():
+        return None
+
+    try:
+        frame = pd.read_parquet(
+            PERFORMANCE_ROLLING_FILE
+        )
+    except (OSError, ValueError):
+        return None
+
+    if not {"rmse", "mae", "bias"}.issubset(
+        frame.columns
+    ):
+        return None
+
+    frame = frame.copy()
+    frame["day"] = range(
+        1,
+        len(frame) + 1,
+    )
+    frame["event"] = None
+    frame["champion_promoted"] = False
+
+    return normalize_lifecycle_frame(frame)
+
+
+def safe_metric_value(
+    value: float | int | None,
+) -> str:
+    """Format dashboard metric values."""
+    if value is None or pd.isna(value):
+        return "n/a"
+
+    return f"{float(value):.2f}"
+
+
+def describe_run(
+    path: Path,
+    frame: pd.DataFrame,
+) -> str:
+    """Create a readable label for one lifecycle result."""
+    scenario = "unknown"
+    retraining = "unknown"
+
+    if "scenario" in frame.columns:
+        values = frame["scenario"].dropna()
+        if not values.empty:
+            scenario = str(values.iloc[-1])
+
+    if "retraining_enabled" in frame.columns:
+        enabled = bool(
+            frame["retraining_enabled"].iloc[-1]
+        )
+        retraining = (
+            "retraining enabled"
+            if enabled
+            else "retraining disabled"
+        )
+
+    return (
+        f"{path.name} | {scenario} | {retraining} | "
+        f"{len(frame)} days"
+    )
 
 
 def build_monitoring_chart(
-    perf_history_df: pd.DataFrame,
-    retrain_df: pd.DataFrame,
-    promoted_df: pd.DataFrame,
+    history: pd.DataFrame,
 ) -> go.Figure:
-    fig = go.Figure()
+    """Build the operational rolling-metrics chart."""
+    figure = go.Figure()
 
-    fig.add_trace(
-        go.Scatter(
-            x=perf_history_df["day"],
-            y=perf_history_df["rmse"],
-            name="RMSE",
-            mode="lines+markers",
-        )
-    )
+    colors = {
+        "rmse": "#636EFA",
+        "mae": "#EF553B",
+        "bias": "#00CC96",
+    }
 
-    fig.add_trace(
-        go.Scatter(
-            x=perf_history_df["day"],
-            y=perf_history_df["mae"],
-            name="MAE",
-            mode="lines+markers",
-        )
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=perf_history_df["day"],
-            y=perf_history_df["bias"],
-            name="Bias",
-            mode="lines+markers",
-        )
-    )
-
-    if retrain_df is not None and not retrain_df.empty:
-        fig.add_trace(
+    for column, label in [
+        ("rmse", "RMSE"),
+        ("mae", "MAE"),
+        ("bias", "Bias"),
+    ]:
+        figure.add_trace(
             go.Scatter(
-                x=retrain_df["day"],
-                y=retrain_df["rmse"],
-                mode="markers",
-                name="Retrain Triggered",
-                marker=dict(size=12, symbol="x"),
+                x=history["day"],
+                y=history[column],
+                name=label,
+                mode="lines+markers",
+                line={
+                    "color": colors[column],
+                    "width": 2.5,
+                },
             )
         )
 
-    if promoted_df is not None and not promoted_df.empty:
-        fig.add_trace(
+    retrain_rows = history.loc[
+        history["event"].eq("retrain")
+    ]
+
+    if not retrain_rows.empty:
+        figure.add_trace(
             go.Scatter(
-                x=promoted_df["day"],
-                y=promoted_df["rmse"],
+                x=retrain_rows["day"],
+                y=retrain_rows["rmse"],
+                name="Retraining triggered",
                 mode="markers",
-                name="Champion Promoted",
-                marker=dict(size=16, symbol="star"),
+                marker={
+                    "size": 14,
+                    "symbol": "x",
+                    "color": "#AB63FA",
+                },
             )
         )
 
-    fig.update_layout(
+    promoted_rows = history.loc[
+        history["champion_promoted"]
+    ]
+
+    if not promoted_rows.empty:
+        figure.add_trace(
+            go.Scatter(
+                x=promoted_rows["day"],
+                y=promoted_rows["rmse"],
+                name="Final-refit champion promoted",
+                mode="markers",
+                marker={
+                    "size": 17,
+                    "symbol": "star",
+                    "color": "#FFA15A",
+                },
+            )
+        )
+
+    if {
+        "drift_start_day",
+        "drift_duration_days",
+    }.issubset(history.columns):
+        start_values = history[
+            "drift_start_day"
+        ].dropna()
+        duration_values = history[
+            "drift_duration_days"
+        ].dropna()
+
+        if not start_values.empty and not duration_values.empty:
+            drift_start = int(start_values.iloc[-1])
+            full_drift = (
+                drift_start
+                + int(duration_values.iloc[-1])
+                - 1
+            )
+
+            figure.add_vrect(
+                x0=drift_start,
+                x1=full_drift,
+                fillcolor="#F2C14E",
+                opacity=0.16,
+                line_width=0,
+                annotation_text="Drift ramp-up",
+                annotation_position="top left",
+            )
+
+    figure.update_layout(
+        height=540,
+        hovermode="x unified",
+        template="plotly_dark",
+        xaxis_title="Simulation day",
+        yaxis_title="Metric value",
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "right",
+            "x": 1,
+        },
+    )
+
+    return figure
+
+
+def build_rmse_comparison_chart(
+    without_retraining: pd.DataFrame,
+    with_retraining: pd.DataFrame,
+) -> go.Figure:
+    """Compare rolling RMSE for matching simulation days."""
+    comparison = (
+        without_retraining[
+            ["day", "rmse"]
+        ]
+        .merge(
+            with_retraining[
+                ["day", "rmse"]
+            ],
+            on="day",
+            how="inner",
+            suffixes=(
+                "_without",
+                "_with",
+            ),
+        )
+        .sort_values("day")
+    )
+
+    figure = go.Figure()
+
+    figure.add_trace(
+        go.Scatter(
+            x=comparison["day"],
+            y=comparison["rmse_without"],
+            name="Without retraining",
+            mode="lines",
+            line={
+                "color": "#EF553B",
+                "width": 2.5,
+                "dash": "dash",
+            },
+        )
+    )
+
+    figure.add_trace(
+        go.Scatter(
+            x=comparison["day"],
+            y=comparison["rmse_with"],
+            name="With retraining",
+            mode="lines",
+            line={
+                "color": "#636EFA",
+                "width": 3,
+            },
+        )
+    )
+
+    retrain_rows = with_retraining.loc[
+        with_retraining["event"].eq("retrain")
+    ]
+
+    if not retrain_rows.empty:
+        retrain_day = int(
+            retrain_rows.iloc[0]["day"]
+        )
+        figure.add_vline(
+            x=retrain_day,
+            line_dash="dash",
+            line_color="#00CC96",
+            annotation_text="Retraining",
+            annotation_position="top right",
+        )
+
+    figure.update_layout(
         height=500,
         hovermode="x unified",
         template="plotly_dark",
-        xaxis_title="Simulation Day",
-        yaxis_title="Metric Value",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis_title="Simulation day",
+        yaxis_title="Rolling RMSE",
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "right",
+            "x": 1,
+        },
     )
 
-    return fig
+    return figure
 
 
-def build_performance_evolution_chart(df_drift: pd.DataFrame) -> go.Figure:
-    fig = go.Figure()
+def get_retraining_enabled(
+    frame: pd.DataFrame,
+) -> bool | None:
+    """Return the retraining mode stored in one lifecycle result."""
+    if "retraining_enabled" not in frame.columns:
+        return None
 
-    if "static_rmse_euro" in df_drift.columns and df_drift["static_rmse_euro"].notna().any():
-        fig.add_trace(
-            go.Scatter(
-                x=df_drift["day"],
-                y=df_drift["static_rmse_euro"],
-                name="Static Model (No Retraining)",
-                line=dict(color="#EF553B", width=2, dash="dot"),
-                opacity=0.7,
-            )
-        )
+    values = frame["retraining_enabled"].dropna()
 
-    fig.add_trace(
-        go.Scatter(
-            x=df_drift["day"],
-            y=df_drift["rmse_euro"],
-            name="Adaptive Pipeline (MLOps)",
-            line=dict(color="#636EFA", width=3),
-            mode="lines+markers",
-        )
-    )
+    if values.empty:
+        return None
 
-    if "drift_detected" in df_drift.columns:
-        drift_detected = df_drift[df_drift["drift_detected"]]
-        stable_days = df_drift[~df_drift["drift_detected"]]
-
-        if not drift_detected.empty:
-            fig.add_trace(
-                go.Scatter(
-                    x=drift_detected["day"],
-                    y=drift_detected["rmse_euro"],
-                    mode="markers",
-                    name="Drift Detected",
-                    marker=dict(
-                        color="red",
-                        size=12,
-                        symbol="circle",
-                        line=dict(width=2, color="white"),
-                    ),
-                )
-            )
-
-        if not stable_days.empty:
-            fig.add_trace(
-                go.Scatter(
-                    x=stable_days["day"],
-                    y=stable_days["rmse_euro"],
-                    mode="markers",
-                    name="System Stable",
-                    marker=dict(color="green", size=8, symbol="circle"),
-                )
-            )
-
-    fig.add_hline(
-        y=1000,
-        line_dash="dash",
-        line_color="orange",
-        annotation_text="Target RMSE Limit",
-        annotation_position="top left",
-    )
-
-    fig.update_layout(
-        height=500,
-        hovermode="x unified",
-        template="plotly_dark",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        xaxis_title="Simulation Day",
-        yaxis_title="RMSE in €",
-    )
-
-    return fig
+    return bool(values.iloc[-1])
 
 
-def safe_metric_value(value: float | int | None, suffix: str = "") -> str:
-    if value is None or pd.isna(value):
-        return "n/a"
-    if isinstance(value, float):
-        return f"{value:.2f}{suffix}"
-    return f"{value}{suffix}"
-
-
-# -----------------------------
-# Data
-# -----------------------------
 cost_report = build_cost_report(window_days=7)
-perf_history_df = load_performance_history()
-perf_roll_df = load_performance_rolling()  # optional, available for future extension
-df_drift = load_drift_data()
+lifecycle_paths = discover_lifecycle_results()
+lifecycle_runs = {
+    path: load_lifecycle_result(path)
+    for path in lifecycle_paths
+}
+lifecycle_runs = {
+    path: frame
+    for path, frame in lifecycle_runs.items()
+    if frame is not None and not frame.empty
+}
 
 
-# -----------------------------
-# Layout
-# -----------------------------
-tab1, tab2 = st.tabs(["Performance", "Costs"])
+tab_performance, tab_costs = st.tabs(
+    [
+        "Performance",
+        "Costs",
+    ]
+)
 
 
-with tab1:
-    st.title("📊 Demand Forecasting - Performance Monitoring")
+with tab_performance:
+    st.title(
+        "📊 Demand Forecasting - Performance Monitoring"
+    )
     st.markdown(
         """
-        This dashboard focuses on the production monitoring story of the forecasting system.
-
-        Forecasts are generated first, while actual sales values become available later.
-        Once ground truth is available, the system evaluates rolling performance metrics
-        and can trigger retraining when degradation persists.
+        This dashboard reads lifecycle result files directly from `results/`.
+        Forecasts are generated first, delayed ground truth becomes available
+        later, and rolling performance metrics are updated throughout the
+        simulation. No manual result-file copy is required.
         """
     )
 
-    # ---------------------------------------------------------
-    # Primary Story: Performance Demo
-    # ---------------------------------------------------------
-    st.header("1️⃣ Production Performance Monitoring")
-    st.markdown(
-        """
-        This section is powered by `run_performance_demo.py`.
-
-        It simulates a realistic production lifecycle:
-        predictions are logged, delayed ground truth is collected, rolling metrics are
-        calculated, and retraining is triggered only when performance degradation persists.
-        """
+    st.header(
+        "Production Performance Monitoring"
     )
 
-    if perf_history_df is not None and not perf_history_df.empty:
-        retrain_df = perf_history_df[perf_history_df["event"] == "retrain"].copy()
-        promoted_df = perf_history_df[perf_history_df["champion_promoted"]].copy()
-        latest_perf = perf_history_df.iloc[-1]
+    if lifecycle_runs:
+        available_paths = list(
+            lifecycle_runs.keys()
+        )
 
-        p1, p2, p3, p4 = st.columns(4)
-        p1.metric("Performance Day", int(latest_perf["day"]))
-        p2.metric("Rolling RMSE", safe_metric_value(latest_perf.get("rmse")))
-        p3.metric("Rolling MAE", safe_metric_value(latest_perf.get("mae")))
-        p4.metric("Rolling Bias", safe_metric_value(latest_perf.get("bias")))
+        selected_path = st.selectbox(
+            "Lifecycle run",
+            options=available_paths,
+            format_func=lambda path: describe_run(
+                path,
+                lifecycle_runs[path],
+            ),
+        )
 
-        st.subheader("📈 Rolling Metrics Over Time")
+        selected_history = lifecycle_runs[
+            selected_path
+        ]
+    else:
+        selected_path = None
+        selected_history = load_rolling_fallback()
+
+    if selected_history is not None and not selected_history.empty:
+        latest = selected_history.iloc[-1]
+
+        metric_day, metric_rmse, metric_mae, metric_bias = (
+            st.columns(4)
+        )
+
+        metric_day.metric(
+            "Performance day",
+            int(latest["day"]),
+        )
+        metric_rmse.metric(
+            "Rolling RMSE",
+            safe_metric_value(
+                latest.get("rmse")
+            ),
+        )
+        metric_mae.metric(
+            "Rolling MAE",
+            safe_metric_value(
+                latest.get("mae")
+            ),
+        )
+        metric_bias.metric(
+            "Rolling bias",
+            safe_metric_value(
+                latest.get("bias")
+            ),
+        )
+
+        st.subheader(
+            "📈 Rolling Metrics Over Time"
+        )
         st.plotly_chart(
-            build_monitoring_chart(perf_history_df, retrain_df, promoted_df),
+            build_monitoring_chart(
+                selected_history
+            ),
             width="stretch",
         )
 
-        st.subheader("🧾 Performance Monitoring History")
-
-        performance_cols = [
-            "day",
-            "cumulative_days",
-            "rmse",
-            "mae",
-            "bias",
-            "n_samples",
-            "event",
-            "champion_promoted",
-        ]
-
-        available_perf_cols = [
-            col for col in performance_cols if col in perf_history_df.columns
-        ]
-
-        performance_table = perf_history_df[available_perf_cols].tail(15).copy()
-
-        for col in ["rmse", "mae", "bias"]:
-            if col in performance_table.columns:
-                performance_table[col] = performance_table[col].round(2)
-
-        if "event" in performance_table.columns:
-            performance_table["event"] = performance_table["event"].fillna("normal")
-
-        if "champion_promoted" in performance_table.columns:
-            performance_table["champion_promoted"] = performance_table["champion_promoted"].map(
-                {True: "yes", False: "no"}
+        retrain_rows = selected_history.loc[
+            selected_history["event"].eq(
+                "retrain"
             )
-
-        st.dataframe(
-            performance_table,
-            width="stretch",
-            hide_index=True,
+        ]
+        promotion_count = int(
+            selected_history[
+                "champion_promoted"
+            ].sum()
         )
 
-        if not retrain_df.empty:
-            promoted_count = int(perf_history_df["champion_promoted"].sum())
-
-            if promoted_count > 0:
-                st.success(
-                    f"Retraining was triggered {len(retrain_df)} time(s). "
-                    f"A new champion was promoted {promoted_count} time(s)."
-                )
-            else:
-                st.success(
-                    f"Retraining was triggered {len(retrain_df)} time(s) based on monitored performance. "
-                    "No challenger was promoted because the existing champion remained stronger."
-                )
+        if not retrain_rows.empty:
+            st.success(
+                f"Retraining was triggered "
+                f"{len(retrain_rows)} time(s). "
+                f"A final-refit champion was promoted "
+                f"{promotion_count} time(s)."
+            )
         else:
             st.info(
-                "No retraining has been triggered yet. "
-                "This can be a healthy signal if rolling metrics remain within acceptable limits."
+                "No retraining event is stored in "
+                "the selected lifecycle run."
             )
 
+        with st.expander(
+            "🧾 Recent monitoring history",
+            expanded=False,
+        ):
+            table_columns = [
+                column
+                for column in [
+                    "day",
+                    "cumulative_days",
+                    "rmse",
+                    "mae",
+                    "bias",
+                    "n_samples",
+                    "event",
+                    "champion_promoted",
+                    "scenario",
+                    "retraining_enabled",
+                ]
+                if column in selected_history.columns
+            ]
+
+            table = selected_history[
+                table_columns
+            ].tail(20).copy()
+
+            for column in [
+                "rmse",
+                "mae",
+                "bias",
+            ]:
+                if column in table.columns:
+                    table[column] = table[
+                        column
+                    ].round(2)
+
+            if "event" in table.columns:
+                table["event"] = table[
+                    "event"
+                ].fillna("normal")
+
+            st.dataframe(
+                table,
+                width="stretch",
+                hide_index=True,
+            )
     else:
         st.info(
-            "No performance demo data found yet. "
-            "Run `make demo-forecasting-lifecycle` to generate performance monitoring history."
+            "No lifecycle CSV or rolling monitoring "
+            "artifact is available yet. Run "
+            "`run_performance_demo.py` to generate data."
         )
 
-    # ---------------------------------------------------------
-    # Secondary Story: Drift Demo
-    # ---------------------------------------------------------
+    enabled_runs = {
+        path: frame
+        for path, frame in lifecycle_runs.items()
+        if get_retraining_enabled(frame) is True
+    }
+    disabled_runs = {
+        path: frame
+        for path, frame in lifecycle_runs.items()
+        if get_retraining_enabled(frame) is False
+    }
+
     st.divider()
-    st.header("2️⃣ Drift Simulation: Adaptive Pipeline vs. Static Baseline")
+    st.header(
+        "Controlled Retraining Comparison"
+    )
     st.markdown(
         """
-        This optional section is powered by `run_drift_demo.py`.
-
-        It compares the adaptive MLOps pipeline against a static baseline model and visualizes
-        when drift was detected during the simulation.
+        Select matching lifecycle runs to compare the adaptive pipeline with a
+        static no-retraining baseline. For a fair comparison, both files should
+        use the same scenario, drift parameters, initial champion and ground
+        truth.
         """
     )
 
-    if df_drift is not None and not df_drift.empty:
-        latest = df_drift.iloc[-1]
-
-        comparison_df = df_drift.dropna(subset=["rmse_euro", "static_rmse_euro"])
-        has_static_baseline = (
-            "static_rmse_euro" in df_drift.columns
-            and df_drift["static_rmse_euro"].notna().any()
-            and not comparison_df.empty
+    if enabled_runs and disabled_runs:
+        comparison_left, comparison_right = (
+            st.columns(2)
         )
 
-        total_saved_error = None
-        if has_static_baseline:
-            total_saved_error = (
-                comparison_df["static_rmse_euro"] - comparison_df["rmse_euro"]
-            ).sum()
-
-        d1, d2, d3, d4 = st.columns(4)
-        d1.metric("Simulation Day", int(latest["day"]))
-        d2.metric("Adaptive RMSE", safe_metric_value(latest.get("rmse_euro"), " €"))
-
-        if has_static_baseline:
-            latest_static = latest.get("static_rmse_euro")
-            baseline_diff = latest.get("rmse_euro") - latest_static
-            d3.metric(
-                "Static Baseline Delta",
-                f"{baseline_diff:.2f} €",
-                delta=f"{baseline_diff:.2f} € vs Static",
-                delta_color="inverse",
-            )
-            d4.metric(
-                "Total Accuracy Gain",
-                f"{total_saved_error:,.2f} €",
-                help="Summed RMSE improvement compared with the static baseline.",
-            )
-        else:
-            d3.metric("Static Baseline", "n/a")
-            d4.metric(
-                "Drift Status",
-                "🌩️ Drift" if bool(latest.get("drift_detected")) else "☀️ Stable",
+        with comparison_left:
+            without_path = st.selectbox(
+                "Without retraining",
+                options=list(disabled_runs.keys()),
+                format_func=lambda path: describe_run(
+                    path,
+                    disabled_runs[path],
+                ),
             )
 
-        st.subheader("📈 Adaptive Pipeline Evolution")
-        st.plotly_chart(build_performance_evolution_chart(df_drift), width="stretch")
-
-        col_a, col_b = st.columns([2, 1])
-
-        with col_a:
-            with st.expander("📝 Recent Drift Simulation Events", expanded=False):
-                drift_cols = [
-                    "day",
-                    "timestamp",
-                    "strategy",
-                    "drift_detected",
-                    "rmse_euro",
-                    "static_rmse_euro",
-                ]
-
-                available_drift_cols = [
-                    col for col in drift_cols if col in df_drift.columns
-                ]
-
-                drift_table = df_drift[available_drift_cols].tail(10).copy()
-
-                for col in ["rmse_euro", "static_rmse_euro"]:
-                    if col in drift_table.columns:
-                        drift_table[col] = drift_table[col].round(2)
-
-                st.dataframe(
-                    drift_table,
-                    width="stretch",
-                    hide_index=True,
-                )
-
-        with col_b:
-            st.subheader("ℹ️ Drift Demo Notes")
-            st.info(
-                """
-                The drift simulation is a stress scenario.
-
-                It is useful for showing how the system reacts to changing input
-                distributions, but the production-oriented monitoring story is the
-                rolling performance evaluation shown above.
-                """
+        with comparison_right:
+            with_path = st.selectbox(
+                "With retraining",
+                options=list(enabled_runs.keys()),
+                format_func=lambda path: describe_run(
+                    path,
+                    enabled_runs[path],
+                ),
             )
 
-        if not has_static_baseline:
-            st.warning(
-                "Static baseline values are not available in the drift results yet. "
-                "The adaptive pipeline is shown, but the static comparison line is hidden."
-            )
+        without_history = disabled_runs[
+            without_path
+        ]
+        with_history = enabled_runs[
+            with_path
+        ]
 
+        st.plotly_chart(
+            build_rmse_comparison_chart(
+                without_history,
+                with_history,
+            ),
+            width="stretch",
+        )
+
+        st.caption(
+            "This chart compares rolling RMSE. The segment-level "
+            "RMSE, MAE, WMAPE and bias report remains the final "
+            "offline model-quality evaluation."
+        )
     else:
         st.info(
-            "No drift demo data found yet. "
-            "Run `uv run python scripts/run_drift_demo.py` or execute it inside the API container "
-            "to generate `results/evolution_results.csv`."
+            "Both a retraining-enabled and a retraining-disabled "
+            "lifecycle CSV are required for the comparison."
         )
 
 
-with tab2:
-    st.title("💰 Cost Monitoring")
+with tab_costs:
+    st.title(
+        "💰 Cost Monitoring"
+    )
     st.markdown(
         """
-        This view shows recent training costs and monthly cost scenarios for different
-        retraining strategies.
+        This view shows recent training costs and monthly cost scenarios for
+        different retraining strategies.
         """
     )
 
@@ -499,63 +721,108 @@ with tab2:
     scenarios = cost_report["scenarios"]
     currency = summary["currency"]
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Runs (7d)", summary["run_count"])
-    c2.metric("Total Cost (7d)", f"{summary['total_training_cost']:.4f} {currency}")
-    c3.metric("Avg Cost / Run", f"{summary['avg_training_cost']:.6f} {currency}")
-    c4.metric("Avg Duration / Run", f"{summary['avg_training_duration_seconds']:.2f} s")
+    cost_1, cost_2, cost_3, cost_4 = (
+        st.columns(4)
+    )
+
+    cost_1.metric(
+        "Runs (7d)",
+        summary["run_count"],
+    )
+    cost_2.metric(
+        "Total cost (7d)",
+        f"{summary['total_training_cost']:.4f} "
+        f"{currency}",
+    )
+    cost_3.metric(
+        "Average cost per run",
+        f"{summary['avg_training_cost']:.6f} "
+        f"{currency}",
+    )
+    cost_4.metric(
+        "Average duration per run",
+        f"{summary['avg_training_duration_seconds']:.2f} s",
+    )
 
     st.divider()
-    st.subheader("📊 Monthly Cost Scenarios")
+    st.subheader(
+        "📊 Monthly Cost Scenarios"
+    )
 
-    scenario_df = pd.DataFrame(
+    scenario_frame = pd.DataFrame(
         [
             {
-                "Scenario": name.replace("_", " ").title(),
-                "Runs / Month": values["runs_per_month"],
-                "Estimated Monthly Cost": values["estimated_monthly_cost"],
+                "Scenario": name.replace(
+                    "_",
+                    " ",
+                ).title(),
+                "Runs / Month": values[
+                    "runs_per_month"
+                ],
+                "Estimated Monthly Cost": values[
+                    "estimated_monthly_cost"
+                ],
             }
             for name, values in scenarios.items()
         ]
     )
 
-    left, right = st.columns([1.2, 1])
+    cost_table_column, cost_chart_column = (
+        st.columns([1.2, 1])
+    )
 
-    with left:
+    with cost_table_column:
         st.dataframe(
-            scenario_df.style.format(
+            scenario_frame.style.format(
                 {
-                    "Estimated Monthly Cost": lambda x: f"{x:.4f} {currency}",
+                    "Estimated Monthly Cost": (
+                        lambda value: (
+                            f"{value:.4f} {currency}"
+                        )
+                    ),
                 }
             ),
             width="stretch",
             hide_index=True,
         )
 
-    with right:
-        chart_df = scenario_df.set_index("Scenario")[["Estimated Monthly Cost"]]
-        st.bar_chart(chart_df, width="stretch")
+    with cost_chart_column:
+        st.bar_chart(
+            scenario_frame.set_index(
+                "Scenario"
+            )[
+                ["Estimated Monthly Cost"]
+            ],
+            width="stretch",
+        )
 
     st.divider()
     st.caption(
-        "Cost estimates are based on a configured hourly rate and are intended as an "
-        "approximation of training costs, not as a complete cloud billing report."
+        "Cost estimates use the configured hourly rate and "
+        "are not a complete cloud billing report."
     )
 
 
-# -----------------------------
-# Sidebar
-# -----------------------------
-st.sidebar.header("System Health")
-st.sidebar.info(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
+st.sidebar.header(
+    "System Health"
+)
+st.sidebar.info(
+    "Last update: "
+    f"{datetime.now().strftime('%H:%M:%S')}"
+)
+st.sidebar.metric(
+    "Discovered lifecycle runs",
+    len(lifecycle_runs),
+)
 st.sidebar.markdown(
     """
-**Automated Stack:**
-- [x] Forecast performance monitoring
-- [x] Delayed ground truth evaluation
-- [x] Drift detection
-- [x] MLflow Registry
-- [x] Prefect Orchestration
-- [x] Feature State Persistence
-"""
+    **Automated Stack:**
+
+    - [x] Forecast performance monitoring
+    - [x] Delayed ground-truth evaluation
+    - [x] Controlled retraining comparison
+    - [x] MLflow Registry
+    - [x] Prefect orchestration
+    - [x] Feature-state persistence
+    """
 )
