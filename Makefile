@@ -45,7 +45,7 @@ dev-up: ## Spin up the full stack (DB, MLflow, API, Prefect) in detached mode
 	mkdir -p data/predictions/archive
 	mkdir -p data/monitoring
 	UID=$$(id -u) GID=$$(id -g) docker compose up -d --build
-	@echo "✅ Services are live: API (8000), MLflow (5000), Prefect (4200), Grafana (3000), Prometheus(9090)"
+	@echo "✅ Services are live: API (8000), Streamlit (8501), MLflow (5000), Prefect (4221), Grafana (3000), Prometheus (9090)"
 	@uv run --active prefect config set PREFECT_API_URL=$(LOCAL_PREFECT_API_URL)
 
 dev-down: ## Stop all containers and remove networks

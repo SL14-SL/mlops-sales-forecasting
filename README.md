@@ -197,7 +197,10 @@ The pipeline automates:
 - API refresh after model promotion
 - retraining trigger evaluation
 
-Retraining can be triggered when monitoring detects quality degradation, feature drift or performance issues.
+In the controlled lifecycle demo, retraining is triggered by persistent
+forecast-performance degradation. The broader monitoring architecture also
+provides signals for feature drift and data-quality issues, which can be
+connected to additional retraining policies.
 
 ```mermaid
 flowchart LR
@@ -213,11 +216,11 @@ H --> I[Reload API]
 The candidate is first trained on the training split and compared with the
 current champion on untouched chronological validation data. If the candidate
 wins, a separate final model is refitted on both training and validation data.
-Only this final-refit model is registered as the new champion and loaded by the
-serving API.
+Only the accepted final-refit model receives the champion alias and is loaded
+by the serving API.
 
 During drift retraining, recent promotional observations receive higher sample
-weights. The current policy uses weights of 10, 5 and 2 for promotional
+weights. The current policy uses weights of 5, 3 and 1.5 for promotional
 observations from the most recent 30, 60 and 120 days. All other observations
 retain the default weight of 1.
 
@@ -228,6 +231,52 @@ retain the default weight of 1.
 <p align="center">
   <em>Prefect flow run for the end-to-end demand forecasting pipeline, including drift checks, feature processing, model training, evaluation, registration and API refresh.</em>
 </p>  
+
+---
+
+# 🧪 Time-Aware Model Development
+
+Forecasting models must be evaluated without using future observations during
+training. The project therefore includes walk-forward backtesting with
+chronologically expanding training windows and later validation periods.
+
+The model-development process included:
+
+- forecasting-specific calendar and holiday features
+- lag and rolling demand features
+- chronological walk-forward validation
+- Optuna-based XGBoost hyperparameter tuning
+- evaluation on the original sales scale
+- RMSE, MAE, WMAPE, RMSPE and bias reporting
+
+Walk-forward mean RMSE improved across the model-development stages:
+
+| Model stage | Mean RMSE |
+|---|---:|
+| Initial baseline | 792.37 |
+| Calendar features | 748.31 |
+| Tuned XGBoost model | 690.49 |
+
+Compared with the initial baseline, the tuned model reduces mean walk-forward
+RMSE by approximately 12.9%.
+
+Run the backtest with:
+
+'''bash
+uv run python scripts/run_model_backtest.py \
+  --output-directory results/model_backtest
+'''
+
+Hyperparameter studies can be executed with:
+
+'''bash
+uv run python scripts/tune_model.py \
+  --trials 20 \
+  --folds 2 3
+'''
+
+The tuning folds are intentionally separated from the final four-fold
+walk-forward evaluation to reduce selection bias.
 
 ---
 
@@ -339,14 +388,53 @@ The project therefore includes monitoring logic for:
 
 This mirrors a common real-world forecasting setup: predictions are generated first, while actual sales values become available later and can then be used to evaluate model quality.
 
-The Streamlit dashboard visualizes rolling RMSE, MAE and bias over simulated production days. It also highlights automated retraining triggers and gated champion promotion, where a challenger model is only promoted if it improves over the existing champion.
+## Production Performance Monitoring
+
+The first dashboard view presents the operational monitoring state of one
+selected lifecycle run. It shows rolling RMSE, MAE and bias, the configured
+drift ramp-up period, the retraining trigger and the final-refit champion
+promotion.
+
+Lifecycle result files are discovered automatically under `results/`. The
+dashboard therefore supports completed and partially running simulations
+without requiring manual file copies or changes to the dashboard code.
 
 <p align="center">
-  <img src="docs/images/streamlit_dashboard.png" width="100%">
+  <img src="docs/images/streamlit_dashboard.png" width="90%">
 </p>
 
 <p align="center">
-  <em>Forecast performance monitoring dashboard showing rolling metrics, automated retraining triggers and gated champion/challenger promotion.</em>
+  <em>
+    Production monitoring view for the mild recency-weighted lifecycle run.
+    The dashboard displays rolling forecast metrics, the controlled drift
+    period, the retraining event and final-refit champion promotion.
+  </em>
+</p>
+
+---
+
+## Interactive Retraining Comparison
+
+The second dashboard view compares matching lifecycle runs with and without
+automated retraining. Both variants use the same drift scenario, simulation
+parameters, initial champion and ground truth.
+
+The interactive selectors make it possible to compare different preserved
+lifecycle runs without regenerating dashboard-specific input files.
+
+<p align="center">
+  <img
+    src="docs/images/streamlit_retraining_comparison.png"
+    width="90%"
+  >
+</p>
+
+<p align="center">
+  <em>
+    Interactive rolling-RMSE comparison between the static no-retraining
+    baseline and the adaptive pipeline using mild recency weighting and a
+    final refit.
+  </em>
 </p>
 
 ---
@@ -362,20 +450,70 @@ The simulation gradually reduces the sales effect of promotions by 25%:
 - drift starts on simulation day 20
 - full drift strength is reached after 14 days
 - retraining is triggered on day 40
-- recent promotional observations receive recency weights of 10, 5 and 2
+- recent promotional observations receive recency weights of 5, 3 and 1.5
 - the accepted candidate is refitted on all available training and validation
   observations before promotion
 - both variants use identical ground truth and the same initial champion model
 
+### Reproducing the experiment
+
+The comparison requires two lifecycle runs with identical ground truth,
+simulation parameters and initial champion model.
+
+Run the static variant without automated retraining:
+
+'''bash
+docker compose exec api \
+  uv run --no-sync python scripts/run_performance_demo.py \
+  --scenario gradual_promo_shift \
+  --retraining disabled \
+  --output-file results/promo_weighted_without_retraining.csv \
+  --drift-start-day 20 \
+  --drift-duration-days 14 \
+  --maximum-base-uplift 0.0 \
+  --maximum-promo-uplift -0.25
+'''
+
+After restoring the same initial demo baseline, run the adaptive variant:
+
+'''bash
+docker compose exec api \
+  uv run --no-sync python scripts/run_performance_demo.py \
+  --scenario gradual_promo_shift \
+  --retraining enabled \
+  --output-file results/promo_mild_weights_with_retraining.csv \
+  --drift-start-day 20 \
+  --drift-duration-days 14 \
+  --maximum-base-uplift 0.0 \
+  --maximum-promo-uplift -0.25
+'''
+
+Generate the final offline comparison with:
+
+'''bash
+uv run python scripts/plot_retraining_comparison.py
+'''
+
+The no-retraining and retraining variants must start from the same champion
+and simulation baseline. Otherwise, differences cannot be attributed solely
+to automated retraining.
+
+
+The interactive dashboard focuses on lifecycle monitoring and rolling metrics.
+For the final offline model-quality evaluation, preserved prediction and
+ground-truth records are evaluated at row level and segmented into all open,
+promotional and non-promotional stores.
+
+
 <p align="center">
-  <img src="docs/images/promo_final_refit_comparison.png" width="100%">
+  <img src="docs/images/promo_mild_weights_comparison.png" width="100%">
 </p>
 
 <p align="center">
   <em>
-    Forecast performance under controlled promo-effect drift. The upper panel
-    shows rolling RMSE over the simulated production lifecycle, while the lower
-    panel compares post-promotion RMSE by forecast segment.
+    Final controlled evaluation. The upper panel shows rolling RMSE over time,
+    while the lower panel compares post-promotion row-level RMSE across
+    business-relevant forecast segments.
   </em>
 </p>
 
@@ -383,18 +521,18 @@ The simulation gradually reduces the sales effect of promotions by 25%:
 
 | Segment | Without retraining RMSE | With final-refit retraining RMSE | Relative RMSE change |
 |---|---:|---:|---:|
-| All open stores | 915.73 | 893.48 | -2.4% |
-| Promotional stores | 1,032.02 | 969.38 | -6.1% |
-| Non-promotional stores | 824.74 | 836.33 | +1.4% |
+| All open stores | 915.73 | 893.48 | -2.43% |
+| Promotional stores | 1,032.02 | 969.38 | -6.07% |
+| Non-promotional stores | 824.74 | 836.33 | +1.41% |
 
 A negative relative RMSE change indicates lower forecast error and therefore
 better performance. A positive value indicates higher forecast error.
 
-Across all open stores, final-refit retraining reduces RMSE by 2.7%.
+Across all open stores, final-refit retraining reduces RMSE by 2.43%.
 For promotional observations, which are directly affected by the simulated
-concept drift, RMSE improves by 7.9%. The non-promotional segment becomes 2.7%
-worse, demonstrating a measurable trade-off between adaptation to the changed
-promotion effect and stability in unaffected observations.
+concept drift, RMSE improves by 6.07%. The non-promotional segment becomes
+1.41% worse, demonstrating a measurable trade-off between adaptation to the
+changed promotion effect and stability in unaffected observations.
 
 Additional post-promotion metrics also improve overall:
 
@@ -504,16 +642,33 @@ After starting the local Docker Compose stack and running the initial training p
 make demo-forecasting-lifecycle
 ```
 
-This runs the lifecycle simulation and demonstrates how forecasts are generated, logged, evaluated and used for retraining decision support.
+Each lifecycle run writes its monitoring history directly to the output file
+specified for the simulation, for example:
 
-The resulting performance history is stored under:
+'''text
+results/promo_mild_weights_with_retraining.csv
+'''
 
-```text
-results/performance_demo_history.csv
-```
-The generated history is used by the Streamlit monitoring dashboard to visualize rolling forecast metrics, retraining events and champion promotion decisions.
+The Streamlit dashboard automatically discovers compatible lifecycle result
+files under `results/`. Completed and partially running simulations can
+therefore be inspected without copying or renaming result files.
 
-The demo helps illustrate how the forecasting system can be monitored after deployment and how performance signals can support retraining decisions.
+The dashboard provides:
+
+- operational monitoring for one selected lifecycle run
+- rolling RMSE, MAE and bias
+- drift ramp-up visualization
+- retraining and final-refit promotion events
+- interactive comparison of matching runs with and without retraining
+
+Open the Streamlit monitoring dashboard at:
+
+'''text
+http://localhost:8501
+'''
+
+Because the local `results/` directory is mounted into the API container,
+lifecycle output becomes available to the dashboard immediately.
 
 ---
 
@@ -572,6 +727,22 @@ The demo helps illustrate how the forecasting system can be monitored after depl
 └── .github/workflows/     # CI/CD pipeline
 ```
 
+Key experiment and visualization files include:
+
+'''text
+scripts/
+├── run_model_backtest.py
+├── tune_model.py
+├── run_performance_demo.py
+├── simulate_ground_truth.py
+└── plot_retraining_comparison.py
+
+docs/images/
+├── streamlit_dashboard.png
+├── streamlit_retraining_comparison.png
+└── promo_mild_weights_comparison.png
+'''
+
 ---
 
 # ⚡ Quick Start
@@ -615,14 +786,17 @@ Set required variables:
 make dev-up
 ```
 
-This starts:
+The local services are available at:
 
-* FastAPI
-* MLflow
-* Prefect
-* PostgreSQL
-* Prometheus
-* Grafana
+| Service | Local URL |
+|---|---|
+| Forecasting API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
+| Streamlit dashboard | http://localhost:8501 |
+| MLflow | http://localhost:5000 |
+| Prefect | http://localhost:4221 |
+| Grafana | http://localhost:3000 |
+| Prometheus | http://localhost:9090 |
 
 ---
 
@@ -652,11 +826,15 @@ uv run uvicorn src.api.app:app --host 0.0.0.0 --port 8080
 
 ---
 
-## 6️⃣ Run tests
+## 6️⃣ Run quality checks
 
-```bash
-pytest tests -v
-```
+'''bash
+make test
+make lint
+'''
+
+The test suite covers training, inference, feature engineering, monitoring and
+lifecycle behavior. Ruff is used for static code-quality checks.
 
 ---
 
@@ -674,21 +852,21 @@ The platform follows a configuration-driven architecture.
 
 ## Environment switching
 
-```bash
-APP_ENV=dev
-APP_ENV=prod
-```
+Local Make targets run the containerized stack in development mode. The
+development lifecycle commands explicitly set `APP_ENV=dev` and use the local
+MLflow, Prefect and API service addresses.
 
-Configuration values can be injected through:
+Production helper targets set `APP_ENV=prod` and connect to the configured
+cloud services. For example:
 
-* YAML config files
-* environment variables
-* GitHub Actions variables
-* GitHub Actions secrets
-* GCP deployment configuration
+'''bash
+make train-force-prod
+'''
 
-This enables reproducible deployments across local, staging and production-style environments.
-
+`APP_ENV` selects the environment-specific YAML configuration. Environment
+variables such as API URLs, credentials and service endpoints remain
+independent configuration inputs and are not automatically ignored merely
+because development mode is active.
 ---
 
 # ☁️ Deployment
@@ -865,7 +1043,7 @@ For a real enterprise deployment, I would additionally consider:
 - broader multi-scenario drift backtesting
 - external event calendars for local and business-specific events
 - shadow model evaluation or canary deployment
-- advanced backtesting workflows
+- broader multi-horizon and multi-scenario backtesting
 - richer forecast explainability
 - hierarchical forecasting support
 - probabilistic forecasts and prediction intervals
