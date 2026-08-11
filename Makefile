@@ -9,9 +9,11 @@ LOCAL_PREFECT_API_URL := http://localhost:4221/api
 PREFECT_POOL ?= local-pool
 
 .PHONY: help setup dev-up dev-down dev train train-force test lint clean \
-        ui-prefect ui-mlflow prefect-status wait-prefect logs refresh-api \
-        prefect-pool prefect-setup prefect-worker auto-retrain \
-		snapshot-demo-baseline reset-lifecycle-run
+        ui-prefect ui-mlflow ui-dashboard prefect-status wait-prefect logs \
+        refresh-api prefect-pool prefect-setup prefect-worker auto-retrain \
+        snapshot-demo-baseline reset-lifecycle-run \
+        demo-promo-without-retraining demo-promo-with-retraining \
+        controlled-retraining-experiment
 
 # --- Main Entry Point ---
 
@@ -237,51 +239,170 @@ reset-demo: ## Reset generated artifacts and runtime state, keep only raw input 
 	docker run --rm -v "$$(pwd):/workspace" alpine sh -c "rm -rf /workspace/prefect_data"
 	@echo "✅ Demo state reset complete. Raw source data remains in data/raw/."
 
-snapshot-demo-baseline: ## Save the initial state for reproducible comparison runs
-	@echo "📸 Saving demo baseline..."
+snapshot-demo-baseline: ## Save model, data and feature state for reproducible comparison runs
+	@echo "📸 Saving controlled experiment baseline..."
 
 	@test -f models/latest_state.json || \
 		(echo "❌ models/latest_state.json not found. Run 'make train-force' first."; exit 1)
 
+	@test -f data/raw/train.csv || \
+		(echo "❌ data/raw/train.csv not found."; exit 1)
+
 	@test -f data/raw/simulation_ground_truth.csv || \
 		(echo "❌ Simulation pool not found. Run the ingestion step first."; exit 1)
+
+	@test -f data/features/features.parquet || \
+		(echo "❌ Feature table not found. Run 'make train-force' first."; exit 1)
+
+	@test -f data/features/known_calendar.parquet || \
+		(echo "❌ Known calendar not found. Run 'make train-force' first."; exit 1)
 
 	mkdir -p data/demo_baseline
 
 	cp models/latest_state.json \
 		data/demo_baseline/latest_state.json
 
+	cp data/raw/train.csv \
+		data/demo_baseline/train.csv
+
 	cp data/raw/simulation_ground_truth.csv \
 		data/demo_baseline/simulation_ground_truth.csv
 
-	@echo "✅ Demo baseline saved."
+	cp data/features/features.parquet \
+		data/demo_baseline/features.parquet
+
+	cp data/features/known_calendar.parquet \
+		data/demo_baseline/known_calendar.parquet
+
+	@curl -sf http://localhost:8000/health \
+		| jq -er '.model_version' \
+		> data/demo_baseline/champion_version.txt
+
+	@test -s data/demo_baseline/champion_version.txt || \
+		(echo "❌ Could not determine the active champion version."; exit 1)
+
+	@echo "✅ Controlled experiment baseline saved."
+	@echo "🏆 Champion version: $$(cat data/demo_baseline/champion_version.txt)"
 
 
-reset-lifecycle-run: ## Restore lifecycle state without deleting models or MLflow
-	@echo "♻️ Resetting lifecycle run..."
+reset-lifecycle-run: ## Restore the controlled experiment baseline
+	@echo "♻️ Restoring controlled experiment baseline..."
 
 	@test -f data/demo_baseline/latest_state.json || \
-		(echo "❌ Baseline feature state not found."; exit 1)
+		(echo "❌ Baseline feature state not found. Run 'make snapshot-demo-baseline' first."; exit 1)
+
+	@test -f data/demo_baseline/train.csv || \
+		(echo "❌ Baseline training data not found. Run 'make snapshot-demo-baseline' first."; exit 1)
 
 	@test -f data/demo_baseline/simulation_ground_truth.csv || \
-		(echo "❌ Baseline simulation pool not found."; exit 1)
+		(echo "❌ Baseline simulation pool not found. Run 'make snapshot-demo-baseline' first."; exit 1)
+
+	@test -f data/demo_baseline/features.parquet || \
+		(echo "❌ Baseline feature table not found. Run 'make snapshot-demo-baseline' first."; exit 1)
+
+	@test -f data/demo_baseline/known_calendar.parquet || \
+		(echo "❌ Baseline calendar not found. Run 'make snapshot-demo-baseline' first."; exit 1)
+
+	@test -s data/demo_baseline/champion_version.txt || \
+		(echo "❌ Baseline champion version not found. Run 'make snapshot-demo-baseline' first."; exit 1)
 
 	rm -rf ./data/predictions/*
 	rm -rf ./data/monitoring/*
+	rm -rf ./data/validation/*
+	rm -rf ./data/splits/*
 
 	find ./data/raw/new_batches -mindepth 1 -delete
 	find ./data/raw/quarantine -mindepth 1 -delete
 
+	mkdir -p \
+		data/predictions \
+		data/monitoring \
+		data/validation \
+		data/splits \
+		data/features
+
 	cp data/demo_baseline/latest_state.json \
 		models/latest_state.json
+
+	cp data/demo_baseline/train.csv \
+		data/raw/train.csv
 
 	cp data/demo_baseline/simulation_ground_truth.csv \
 		data/raw/simulation_ground_truth.csv
 
-	@echo "🔄 Reloading API feature state..."
-	@curl -s -X POST \
-		-H "X-API-KEY: $(API_KEY)" \
-		http://localhost:8000/admin/reload-feature-state \
-		| jq .
+	cp data/demo_baseline/features.parquet \
+		data/features/features.parquet
 
-	@echo "✅ Lifecycle baseline restored."
+	cp data/demo_baseline/known_calendar.parquet \
+		data/features/known_calendar.parquet
+
+	@echo "🏆 Restoring champion version $$(cat data/demo_baseline/champion_version.txt)..."
+
+	$(COMPOSE_RUN_API) uv run --no-sync python scripts/set_model_alias.py \
+		--alias champion \
+		--version "$$(cat data/demo_baseline/champion_version.txt)" \
+		--reload-api
+
+	@echo "✅ Controlled experiment baseline restored."
+
+demo-promo-without-retraining: wait-prefect ## Run the controlled static baseline
+	@$(MAKE) reset-lifecycle-run
+
+	@echo "📉 Running promo-effect decay without retraining..."
+
+	$(COMPOSE_RUN_API) uv run --no-sync python scripts/run_performance_demo.py \
+		--scenario gradual_promo_shift \
+		--retraining disabled \
+		--output-file results/promo_weighted_without_retraining.csv \
+		--drift-start-day 20 \
+		--drift-duration-days 14 \
+		--maximum-base-uplift 0.0 \
+		--maximum-promo-uplift -0.25
+
+	cp data/predictions/inference_log.parquet \
+		results/promo_weighted_without_predictions.parquet
+
+	cp data/monitoring/cumulative_ground_truth.csv \
+		results/promo_weighted_without_ground_truth.csv
+
+	@echo "✅ Static baseline and row-level artifacts saved."
+
+demo-promo-with-retraining: wait-prefect ## Run the controlled adaptive lifecycle
+	@$(MAKE) reset-lifecycle-run
+
+	@echo "📈 Running promo-effect decay with retraining..."
+
+	$(COMPOSE_RUN_API) uv run --no-sync python scripts/run_performance_demo.py \
+		--scenario gradual_promo_shift \
+		--retraining enabled \
+		--output-file results/promo_mild_weights_with_retraining.csv \
+		--drift-start-day 20 \
+		--drift-duration-days 14 \
+		--maximum-base-uplift 0.0 \
+		--maximum-promo-uplift -0.25
+
+	cp data/predictions/inference_log.parquet \
+		results/promo_mild_weights_with_predictions.parquet
+
+	cp data/monitoring/cumulative_ground_truth.csv \
+		results/promo_mild_weights_with_ground_truth.csv
+
+	@echo "✅ Adaptive lifecycle and row-level artifacts saved."
+
+controlled-retraining-experiment: wait-prefect ## Run both controlled variants and generate the final comparison
+	@echo "============================================================"
+	@echo "🧪 Starting controlled retraining experiment"
+	@echo "============================================================"
+
+	@$(MAKE) demo-promo-without-retraining
+	@$(MAKE) demo-promo-with-retraining
+
+	@echo "📊 Generating final comparison..."
+
+	uv run --active python scripts/plot_retraining_comparison.py
+
+	@echo "============================================================"
+	@echo "✅ Controlled retraining experiment completed"
+	@echo "📄 Results are available under results/"
+	@echo "============================================================"
+
