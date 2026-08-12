@@ -1,7 +1,8 @@
 import pandas as pd
 import pytest
 from unittest.mock import patch
-
+from unittest.mock import MagicMock
+import sys
 
 @pytest.fixture(autouse=True)
 def mock_api_dependencies(
@@ -10,12 +11,14 @@ def mock_api_dependencies(
     sample_store_metadata,
     sample_store_state,
 ):
-    """
-    Mock environment variables and app-level dependencies so API tests do not
-    depend on MLflow, GCS, startup loading, or the full feature pipeline.
-    """
-    monkeypatch.setenv("API_KEY", "test-secret-key")
-    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv(
+        "API_KEY",
+        "test-secret-key",
+    )
+    monkeypatch.setenv(
+        "APP_ENV",
+        "dev",
+    )
 
     mocked_processed_df = pd.DataFrame(
         [
@@ -44,17 +47,69 @@ def mock_api_dependencies(
         ]
     )
 
+    mocked_bundle = MagicMock()
+    mocked_bundle.model = mock_xgb_model
+    mocked_bundle.model_name = (
+        "sales-forecasting-model-dev"
+    )
+    mocked_bundle.model_type = "xgboost"
+    mocked_bundle.target_transformation = "log1p"
+    mocked_bundle.serving_alias = "champion"
+    mocked_bundle.model_uri = (
+        "models:/sales-forecasting-model-dev@champion"
+    )
+    mocked_bundle.model_version = "1"
+    mocked_bundle.model_run_id = "test-run-1"
+    mocked_bundle.store_metadata = sample_store_metadata
+    mocked_bundle.store_state = sample_store_state
+    mocked_bundle.known_calendar = pd.DataFrame(
+        {
+            "Store": [1],
+            "Date": [
+                pd.Timestamp("2026-02-27"),
+            ],
+        }
+    )
+
     with (
-        patch("src.api.app.model", mock_xgb_model),
-        patch("src.api.app.store_metadata", sample_store_metadata),
-        patch("src.api.app.store_state", sample_store_state),
-        patch("src.api.app.model_type", "xgboost"),
-        patch("src.api.app.target_transformation", "log1p"),
-        patch("src.api.app.preprocess_data", return_value=mocked_processed_df),
-        patch("src.api.app.align_features_for_model", return_value=mocked_processed_df),
-        patch("src.api.app.log_prediction"),
+        patch(
+            "src.api.app.active_serving_bundle",
+            mocked_bundle,
+        ),
+        patch(
+            "src.api.app.model",
+            mock_xgb_model,
+        ),
+        patch(
+            "src.api.app.store_metadata",
+            sample_store_metadata,
+        ),
+        patch(
+            "src.api.app.store_state",
+            sample_store_state,
+        ),
+        patch(
+            "src.api.app.model_type",
+            "xgboost",
+        ),
+        patch(
+            "src.api.app.target_transformation",
+            "log1p",
+        ),
+        patch(
+            "src.api.app.preprocess_data",
+            return_value=mocked_processed_df,
+        ),
+        patch(
+            "src.api.app.align_features_for_model",
+            return_value=mocked_processed_df,
+        ),
+        patch(
+            "src.api.app.log_prediction",
+        ),
     ):
         yield
+        
 
 
 def test_api_health_endpoint(api_client):
@@ -185,3 +240,100 @@ def test_predict_success_is_counted(api_client, api_headers):
     summary = api_client.get("/monitoring/summary").json()
     assert "/predict" in summary["paths"]
     assert summary["success_total"] >= 1
+
+def test_failed_bundle_reload_keeps_previous_serving_state(
+    monkeypatch,
+):
+    previous_bundle = MagicMock()
+    previous_bundle.model_version = "7"
+    app_module = sys.modules["src.api.app"]
+
+    monkeypatch.setattr(
+        app_module,
+        "active_serving_bundle",
+        previous_bundle,
+    )
+
+    monkeypatch.setattr(
+        app_module,
+        "load_serving_bundle",
+        MagicMock(
+            side_effect=RuntimeError(
+                "known calendar unavailable"
+            )
+        ),
+    )
+
+    with pytest.raises(RuntimeError):
+        app_module.reload_complete_serving_bundle()
+
+    assert (
+        app_module.active_serving_bundle
+        is previous_bundle
+    )
+    assert (
+        app_module.active_serving_bundle.model_version
+        == "7"
+    )
+
+def test_complete_bundle_is_activated_only_after_success(
+    monkeypatch,
+):
+
+    app_module = sys.modules["src.api.app"]
+
+    candidate_bundle = MagicMock()
+    candidate_bundle.model = MagicMock()
+    candidate_bundle.model_name = "sales-forecasting-model-dev"
+    candidate_bundle.model_type = "xgboost"
+    candidate_bundle.target_transformation = "log1p"
+    candidate_bundle.serving_alias = "champion"
+    candidate_bundle.model_uri = "models:/model@champion"
+    candidate_bundle.model_version = "8"
+    candidate_bundle.model_run_id = "run-8"
+    candidate_bundle.store_metadata = MagicMock()
+    candidate_bundle.store_state = {"1": [10.0]}
+    candidate_bundle.known_calendar = MagicMock()
+
+    monkeypatch.setattr(
+        app_module,
+        "load_serving_bundle",
+        MagicMock(return_value=candidate_bundle),
+    )
+
+    result = app_module.reload_complete_serving_bundle()
+
+    assert app_module.active_serving_bundle is candidate_bundle
+    assert app_module.model is candidate_bundle.model
+    assert app_module.serving_model_version == "8"
+    assert result["model_version"] == "8"
+
+def test_readyz_returns_503_without_active_bundle(
+    api_client,
+    monkeypatch,
+):
+    app_module = sys.modules["src.api.app"]
+
+    monkeypatch.setattr(
+        app_module,
+        "active_serving_bundle",
+        None,
+    )
+
+    response = api_client.get("/readyz")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "No complete serving bundle is active."
+    )
+
+def test_readyz_reports_active_bundle(api_client):
+    response = api_client.get("/readyz")
+
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["serving_bundle_loaded"] is True
+    assert body["model_version"] == "1"
+    assert body["model_run_id"] == "test-run-1"

@@ -12,6 +12,7 @@ from mlflow import MlflowClient
 from src.inference.router import load_registry_model
 from src.utils.logger import get_logger
 from src.data.features.calendar import prepare_known_calendar_lookup
+from src.inference.serving_bundle import ServingBundle, validate_serving_bundle
 
 logger = get_logger(__name__)
 
@@ -51,9 +52,12 @@ def load_store_metadata(
         store_metadata["Store"] = store_metadata["Store"].astype(int)
         logger.info("Store metadata loaded successfully.")
         return store_metadata
-    except Exception as exc:
-        logger.warning("Could not load store metadata: %s", exc)
-        return None
+    except Exception:
+        logger.exception(
+            "Store metadata could not be loaded from %s.",
+            store_file,
+        )
+        raise
 
 
 def load_store_state(
@@ -178,3 +182,58 @@ def reload_serving_model(
         "serving_model_run_id": serving_model_run_id,
         "model_name": model_name,
     }
+
+def load_serving_bundle(
+    *,
+    model_name: str,
+    cfg: dict,
+    validated_path: str,
+    features_path: str,
+    models_path: Path,
+    gcs_bucket: str | None,
+) -> ServingBundle:
+    """
+    Load and validate all serving components without changing active state.
+    """
+    model_state = reload_serving_model(
+        model_name=model_name,
+        cfg=cfg,
+    )
+
+    candidate_store_metadata = load_store_metadata(
+        validated_path=validated_path,
+        gcs_bucket=gcs_bucket,
+    )
+
+    candidate_known_calendar = load_known_calendar_artifact(
+        features_path=features_path,
+        gcs_bucket=gcs_bucket,
+    )
+
+    candidate_store_state = load_store_state(
+        models_path=models_path,
+        gcs_bucket=gcs_bucket,
+    )
+
+    bundle = ServingBundle(
+        model=model_state["model"],
+        model_name=model_state["model_name"],
+        model_type=model_state["model_type"],
+        target_transformation=model_state[
+            "target_transformation"
+        ],
+        serving_alias=model_state["serving_alias"],
+        model_uri=model_state["model_uri"],
+        model_version=model_state[
+            "serving_model_version"
+        ],
+        model_run_id=model_state[
+            "serving_model_run_id"
+        ],
+        store_metadata=candidate_store_metadata,
+        store_state=candidate_store_state,
+        known_calendar=candidate_known_calendar,
+    )
+
+    validate_serving_bundle(bundle)
+    return bundle

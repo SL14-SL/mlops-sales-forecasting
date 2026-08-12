@@ -34,10 +34,14 @@ from src.inference.adapters import (
 )
 from src.inference.model_manager import (
     reload_serving_model as reload_model_state,
-    load_known_calendar_artifact,
-    load_store_metadata,
     load_store_state,
 )
+from src.inference.model_manager import (
+    load_serving_bundle,
+)
+
+from src.inference.serving_bundle import ServingBundle
+
 from src.data.features.build_features import preprocess_data
 
 from src.inference.forecasting_policy import (
@@ -76,6 +80,7 @@ dq_reference_categories: dict[str, set[str]] = {}
 serving_model_version = None
 serving_model_run_id = None
 known_calendar = None
+active_serving_bundle: ServingBundle | None = None
 
 # Define the header name for the API Key
 API_KEY_NAME = "X-API-KEY"
@@ -119,155 +124,160 @@ def reload_serving_model() -> dict:
         "target_transformation": target_transformation,
     }
 
+def activate_serving_bundle(
+    bundle: ServingBundle,
+) -> dict:
+    """
+    Atomically replace the active in-memory serving state.
+    """
+    global active_serving_bundle
+    global model, model_type, target_transformation
+    global serving_alias, model_uri
+    global serving_model_version, serving_model_run_id
+    global store_metadata, store_state, known_calendar
+
+    # One authoritative snapshot reference.
+    active_serving_bundle = bundle
+
+    # Compatibility assignments for existing inference code.
+    model = bundle.model
+    model_type = bundle.model_type
+    target_transformation = bundle.target_transformation
+    serving_alias = bundle.serving_alias
+    model_uri = bundle.model_uri
+    serving_model_version = bundle.model_version
+    serving_model_run_id = bundle.model_run_id
+    store_metadata = bundle.store_metadata
+    store_state = bundle.store_state
+    known_calendar = bundle.known_calendar
+
+    return {
+        "model_name": bundle.model_name,
+        "serving_alias": bundle.serving_alias,
+        "model_version": bundle.model_version,
+        "model_run_id": bundle.model_run_id,
+        "model_uri": bundle.model_uri,
+        "target_transformation": bundle.target_transformation,
+        "store_metadata_loaded": True,
+        "state_loaded": True,
+        "calendar_loaded": True,
+    }
+
+def reload_complete_serving_bundle() -> dict:
+    """
+    Load and validate a candidate bundle before activating it.
+    """
+    candidate_bundle = load_serving_bundle(
+        model_name=MODEL_NAME,
+        cfg=CFG,
+        validated_path=VALIDATED_PATH,
+        features_path=FEATURES_PATH,
+        models_path=MODELS_PATH,
+        gcs_bucket=GCS_BUCKET,
+    )
+
+    return activate_serving_bundle(candidate_bundle)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Handles setup and teardown of the forecasting API.
+    Initialize and clean up the forecasting API.
 
-    Startup responsibilities:
-    - optionally skip heavy loading in smoke-test mode
-    - load store metadata
-    - load forecasting state snapshot
-    - load current champion model from MLflow registry
+    Startup behavior:
+    - smoke-test mode skips external artifact loading
+    - the complete serving bundle is loaded and validated
+    - an incomplete bundle is never activated
+    - startup continues in degraded mode if loading fails
 
-    The API is resilient by design:
-    - missing metadata/state/model does not crash startup
-    - readiness endpoints report degraded state
+    Readiness reports whether a complete bundle is active.
     """
-    global model, store_metadata, store_state, model_type, target_transformation, known_calendar
-    global model_uri, serving_alias, serving_model_version, serving_model_run_id
     global dq_reference_categories
 
     if os.getenv("SMOKE_TEST") == "1":
         logger.info(
-            "Smoke test mode enabled. Skipping model, metadata and state startup loading."
+            "Smoke test mode enabled. "
+            "Skipping serving bundle startup loading."
         )
-        yield
+
+        try:
+            yield
+        finally:
+            logger.info(
+                "Shutdown: cleaning up API assets."
+            )
+
         return
 
     try:
-        # -------------------------------------------------
-        # 1. Load store metadata
-        # -------------------------------------------------
+        # ---------------------------------------------
+        # 1. Load and atomically activate serving bundle
+        # ---------------------------------------------
         try:
-            store_metadata = load_store_metadata(
-                validated_path=VALIDATED_PATH,
-                gcs_bucket=GCS_BUCKET,
-            )
-
-            if store_metadata is None:
-                logger.warning(
-                    "Store metadata could not be loaded. "
-                    "API will start in degraded mode."
-                )
-            else:
-                logger.info("Store metadata loaded successfully.")
-
-        except Exception as metadata_error:
-            logger.warning(
-                "Store metadata loading failed: %s. API will start in degraded mode.",
-                metadata_error,
-            )
-            store_metadata = None
-        try:
-            known_calendar = load_known_calendar_artifact(
-                features_path=FEATURES_PATH,
-                gcs_bucket=GCS_BUCKET,
+            reload_result = (
+                reload_complete_serving_bundle()
             )
 
             logger.info(
-                "Known calendar loaded successfully."
+                "Initial serving bundle loaded | "
+                "alias=%s | version=%s | run_id=%s",
+                reload_result["serving_alias"],
+                reload_result["model_version"],
+                reload_result["model_run_id"],
             )
 
-        except Exception as calendar_error:
-            logger.warning(
-                "Known calendar loading failed: %s. "
-                "API will start without calendar features.",
-                calendar_error,
+        except Exception as serving_error:
+            logger.exception(
+                "Initial serving bundle load failed. "
+                "API will start in degraded mode: %s",
+                serving_error,
             )
-            known_calendar = None
 
-        # -------------------------------------------------
-        # 2. Initialize data quality reference cache
-        # -------------------------------------------------
+        # ---------------------------------------------
+        # 2. Initialize data-quality reference cache
+        # ---------------------------------------------
         try:
-            ref_df = initialize_data_quality_reference_cache()
-            dq_reference_categories = build_reference_category_cache(
-                ref_df,
-                categorical_reference_features=get_data_quality_settings().get(
-                    "categorical_reference_features", []
-                ),
+            reference_df = (
+                initialize_data_quality_reference_cache()
             )
-            logger.info("Data quality reference cache initialized.")
+
+            dq_reference_categories = (
+                build_reference_category_cache(
+                    reference_df,
+                    categorical_reference_features=(
+                        get_data_quality_settings().get(
+                            "categorical_reference_features",
+                            [],
+                        )
+                    ),
+                )
+            )
+
+            logger.info(
+                "Data-quality reference cache initialized."
+            )
 
         except Exception as dq_error:
             logger.warning(
-                "Data quality reference cache initialization failed: %s. "
-                "Continuing with empty reference categories.",
+                "Data-quality reference cache initialization "
+                "failed: %s. Continuing with an empty cache.",
                 dq_error,
             )
             dq_reference_categories = {}
 
-        # -------------------------------------------------
-        # 3. Load forecasting state snapshot
-        # -------------------------------------------------
-        try:
-            store_state = load_store_state(
-                models_path=MODELS_PATH,
-                gcs_bucket=GCS_BUCKET,
-            )
+        logger.info(
+            "Startup sequence finished. API listening."
+        )
 
-            if store_state is None:
-                store_state = {}
-
-            logger.info("Forecasting state loaded successfully.")
-
-        except Exception as state_error:
-            logger.warning(
-                "Forecasting state loading failed: %s. Continuing with empty state.",
-                state_error,
-            )
-            store_state = {}
-
-        # -------------------------------------------------
-        # 4. Load current champion model from MLflow
-        # -------------------------------------------------
-        try:
-            reload_result = reload_serving_model()
-
-            logger.info(
-                "Model loaded from MLflow registry. "
-                "alias=%s | version=%s | run_id=%s | model_type=%s | target_transformation=%s",
-                reload_result.get("serving_alias"),
-                reload_result.get("model_version"),
-                reload_result.get("model_run_id"),
-                reload_result.get("model_type"),
-                reload_result.get("target_transformation"),
-            )
-
-        except Exception as model_error:
-            logger.error(
-                "Registry model load failed: %s. API will start in degraded mode.",
-                model_error,
-            )
-            model = None
-            serving_alias = "unavailable"
-            model_uri = None
-            serving_model_version = None
-            serving_model_run_id = None
-
-        logger.info("Startup sequence finished. API listening.")
-        yield
-
-    except Exception as critical_error:
-        logger.error("Critical startup error: %s", critical_error)
-        logger.error(traceback.format_exc())
+        # The application runs between yield and finally.
         yield
 
     finally:
-        logger.info("Shutdown: cleaning up API assets.")
+        logger.info(
+            "Shutdown: cleaning up API assets."
+        )
 
-app = FastAPI(title="Blueprint Demand Forecasting API", lifespan=lifespan)
+app = FastAPI(title="Blueprint Sales Forecasting API", lifespan=lifespan)
 
 SERVING_CFG = get_serving_settings()
 
@@ -320,36 +330,58 @@ if SERVING_CFG.get("summary_endpoint_enabled", True):
     
 @app.get("/livez")
 def livez():
+    """
+    Report whether the API process is running.
+
+    Liveness does not require a loaded serving bundle.
+    """
     return {
         "status": "alive",
-        "service": CFG.get("project_name", "sales-forecasting-api"),
-        "environment": CFG.get("environment", "unknown"),
+        "service": CFG.get(
+            "project_name",
+            "sales-forecasting-api",
+        ),
+        "environment": CFG.get(
+            "environment",
+            "unknown",
+        ),
     }
 
 
 @app.get("/readyz")
 def readyz():
-    if model is None:
-        raise HTTPException(status_code=503, detail="Model is not loaded.")
+    """
+    Report whether the API can safely serve predictions.
+    """
+    if active_serving_bundle is None:
+        raise HTTPException(
+            status_code=503,
+            detail="No complete serving bundle is active.",
+        )
 
-    if store_metadata is None:
-        raise HTTPException(status_code=503, detail="Store metadata is not loaded.")
-
-    if store_state is None:
-        raise HTTPException(status_code=503, detail="Forecasting state is not loaded.")
+    bundle = active_serving_bundle
 
     return {
         "status": "ready",
-        "model_name": MODEL_NAME,
-        "model_type": model_type,
-        "target_transformation": target_transformation,
-        "serving_alias": serving_alias,
-        "model_version": serving_model_version,
-        "model_run_id": serving_model_run_id,
-        "model_uri": model_uri,
-        "store_metadata_loaded": store_metadata is not None,
-        "state_loaded": store_state is not None,
-        "calendar_loaded": known_calendar is not None,
+        "serving_bundle_loaded": True,
+        "model_name": bundle.model_name,
+        "model_type": bundle.model_type,
+        "target_transformation": (
+            bundle.target_transformation
+        ),
+        "serving_alias": bundle.serving_alias,
+        "model_version": bundle.model_version,
+        "model_run_id": bundle.model_run_id,
+        "model_uri": bundle.model_uri,
+        "store_metadata_loaded": (
+            bundle.store_metadata is not None
+        ),
+        "state_loaded": (
+            bundle.store_state is not None
+        ),
+        "calendar_loaded": (
+            bundle.known_calendar is not None
+        ),
     }
 
 @app.post("/admin/reload-model")
@@ -375,44 +407,32 @@ def reload_model(api_key: str = Depends(get_api_key)):
     }
 
 @app.post("/admin/reload-serving-state")
-def reload_serving_state(api_key: str = Depends(get_api_key)):
+def reload_serving_state(
+    api_key: str = Depends(get_api_key),
+):
     """
-    Reload forecasting serving state:
-    - champion model
-    - store metadata
-    - forecasting state snapshot
+    Atomically reload the complete forecasting serving bundle.
     """
-    global store_metadata, store_state, known_calendar
-
     try:
-        model_result = reload_serving_model()
-
-        store_metadata = load_store_metadata(
-            validated_path=VALIDATED_PATH,
-            gcs_bucket=GCS_BUCKET,
-        )
-        known_calendar = load_known_calendar_artifact(
-            features_path=FEATURES_PATH,
-            gcs_bucket=GCS_BUCKET,
-        )
-        store_state = load_store_state(
-            models_path=MODELS_PATH,
-            gcs_bucket=GCS_BUCKET,
-        )
+        result = reload_complete_serving_bundle()
 
     except Exception as error:
-        logger.error("Serving state reload failed: %s", traceback.format_exc())
+        logger.error(
+            "Serving bundle reload failed: %s",
+            traceback.format_exc(),
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Serving state reload failed: {str(error)}",
-        )
+            detail=(
+                "Serving bundle reload failed. "
+                "The previous serving state remains active. "
+                f"Reason: {error}"
+            ),
+        ) from error
 
     return {
         "status": "reloaded",
-        "store_metadata_loaded": store_metadata is not None,
-        "state_loaded": store_state is not None,
-        "calendar_loaded": known_calendar is not None,
-        **model_result,
+        **result,
     }
 
 @app.post("/admin/reload-feature-state")
