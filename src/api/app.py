@@ -2,7 +2,6 @@ import os
 import traceback
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 from uuid import uuid4
 
 import mlflow
@@ -64,7 +63,7 @@ CFG = load_config()
 TRAIN_CFG = load_config("training.yaml")
 MODEL_NAME = CFG["model"]["registry_name"]
 VALIDATED_PATH = get_path("validated_data")
-MODELS_PATH = Path(get_path("models"))
+MODELS_PATH = get_path("models")
 FEATURES_PATH = get_path("features")
 GCS_BUCKET = os.getenv("GCS_BUCKET_NAME", CFG.get("gcp", {}).get("gcs", {}).get("bucket_name"))
 

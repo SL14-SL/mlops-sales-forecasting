@@ -1,6 +1,7 @@
 import json
 import os
 import socket
+import fsspec
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,14 @@ from src.inference.router import load_registry_model
 from src.utils.logger import get_logger
 from src.data.features.calendar import prepare_known_calendar_lookup
 from src.inference.serving_bundle import ServingBundle, validate_serving_bundle
+
+from src.inference.model_loader import (
+    load_model_by_type,
+)
+from src.inference.serving_release import (
+    load_active_serving_manifest,
+    resolve_release_artifact_uri,
+)
 
 logger = get_logger(__name__)
 
@@ -189,51 +198,133 @@ def load_serving_bundle(
     cfg: dict,
     validated_path: str,
     features_path: str,
-    models_path: Path,
+    models_path: str | Path,
     gcs_bucket: str | None,
 ) -> ServingBundle:
     """
-    Load and validate all serving components without changing active state.
+    Load the complete versioned serving release selected by the active pointer.
+
+    The release may be stored locally or on GCS.
     """
-    model_state = reload_serving_model(
-        model_name=model_name,
-        cfg=cfg,
+    # Kept temporarily for call-site compatibility.
+    del validated_path
+    del features_path
+    del gcs_bucket
+
+    resolved_models_path = str(
+        models_path
     )
 
-    candidate_store_metadata = load_store_metadata(
-        validated_path=validated_path,
-        gcs_bucket=gcs_bucket,
+    mlflow.set_tracking_uri(
+        resolve_tracking_uri(cfg)
     )
 
-    candidate_known_calendar = load_known_calendar_artifact(
-        features_path=features_path,
-        gcs_bucket=gcs_bucket,
+    manifest, release_root = (
+        load_active_serving_manifest(
+            models_path=resolved_models_path,
+        )
     )
 
-    candidate_store_state = load_store_state(
-        models_path=models_path,
-        gcs_bucket=gcs_bucket,
+    if manifest.model_name != model_name:
+        raise ValueError(
+            "Serving manifest model name "
+            "does not match configuration: "
+            f"{manifest.model_name} != "
+            f"{model_name}"
+        )
+
+    metadata_uri = (
+        resolve_release_artifact_uri(
+            release_root=release_root,
+            reference=(
+                manifest.store_metadata
+            ),
+        )
+    )
+    state_uri = (
+        resolve_release_artifact_uri(
+            release_root=release_root,
+            reference=manifest.store_state,
+        )
+    )
+    calendar_uri = (
+        resolve_release_artifact_uri(
+            release_root=release_root,
+            reference=(
+                manifest.known_calendar
+            ),
+        )
+    )
+
+    # Immutable model version, not the moving @champion alias.
+    model = load_model_by_type(
+        manifest.model_uri,
+        manifest.model_type,
+    )
+
+    store_metadata = pd.read_parquet(
+        metadata_uri
+    )
+    store_metadata["Store"] = pd.to_numeric(
+        store_metadata["Store"],
+        errors="raise",
+    ).astype(int)
+
+    with fsspec.open(
+        state_uri,
+        "r",
+    ) as file_handle:
+        store_state = json.load(
+            file_handle
+        )
+
+    if not isinstance(store_state, dict):
+        raise ValueError(
+            "Serving release state must "
+            "contain a JSON object."
+        )
+
+    known_calendar = pd.read_parquet(
+        calendar_uri
+    )
+    known_calendar["Store"] = pd.to_numeric(
+        known_calendar["Store"],
+        errors="raise",
+    ).astype(int)
+    known_calendar["Date"] = pd.to_datetime(
+        known_calendar["Date"],
+        errors="raise",
+    )
+    known_calendar = (
+        prepare_known_calendar_lookup(
+            known_calendar
+        )
     )
 
     bundle = ServingBundle(
-        model=model_state["model"],
-        model_name=model_state["model_name"],
-        model_type=model_state["model_type"],
-        target_transformation=model_state[
-            "target_transformation"
-        ],
-        serving_alias=model_state["serving_alias"],
-        model_uri=model_state["model_uri"],
-        model_version=model_state[
-            "serving_model_version"
-        ],
-        model_run_id=model_state[
-            "serving_model_run_id"
-        ],
-        store_metadata=candidate_store_metadata,
-        store_state=candidate_store_state,
-        known_calendar=candidate_known_calendar,
+        release_id=manifest.release_id,
+        manifest=manifest,
+        model=model,
+        model_name=manifest.model_name,
+        model_type=manifest.model_type,
+        target_transformation=(
+            manifest.target_transformation
+        ),
+        serving_alias="champion",
+        model_uri=manifest.model_uri,
+        model_version=(
+            manifest.model_version
+        ),
+        model_run_id=(
+            manifest.model_run_id
+        ),
+        store_metadata=store_metadata,
+        store_state=store_state,
+        known_calendar=known_calendar,
     )
 
-    validate_serving_bundle(bundle)
+    validate_serving_bundle(
+        bundle
+    )
+
     return bundle
