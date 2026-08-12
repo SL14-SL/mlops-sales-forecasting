@@ -1,8 +1,12 @@
 import mlflow
 import pandas as pd
 import numpy as np
+
 from sklearn.metrics import mean_squared_error
+
 from mlflow.tracking import MlflowClient
+from mlflow.exceptions import MlflowException
+
 from src.configs.loader import load_config, get_path
 from src.utils.logger import get_logger
 from src.training.utils import build_drop_columns
@@ -16,6 +20,9 @@ logger = get_logger(__name__)
 CFG = load_config()
 TRAIN_CFG = load_config("training.yaml")
 MODEL_NAME = CFG["model"]["registry_name"]
+
+class ModelComparisonError(RuntimeError):
+    """Raised when a safe Champion/Challenger comparison is not possible."""
 
 def align_features_for_evaluation(
     model,
@@ -87,10 +94,23 @@ def evaluate_model(model_alias: str = "champion") -> float:
         logger.warning(f"Could not evaluate {model_alias}: {e}")
         return None
 
-def compare_models(new_run_id: str, val_path: str | None = None):
+def compare_models(
+    new_run_id: str,
+    val_path: str | None = None,
+) -> tuple[bool, dict[str, float]]:
     """
-    Compares the new model (Challenger) with the current best model (Champion).
-    Returns (is_better: bool, metrics: dict).
+    Compare a candidate with the current Champion on the same validation data.
+
+    Returns:
+        A tuple containing whether the candidate is better and the calculated
+        comparison metrics.
+
+    Raises:
+        ModelComparisonError:
+            If the Champion cannot be loaded or evaluated safely.
+
+        OSError, ValueError, KeyError:
+            If validation data or the candidate cannot be evaluated.
     """
     client = MlflowClient()
     
@@ -130,9 +150,14 @@ def compare_models(new_run_id: str, val_path: str | None = None):
     )
     chall_preds = inverse_transform_target(chall_preds, challenger_transform)
 
-    chall_rmse = np.sqrt(mean_squared_error(y_val, chall_preds))
-    metrics = {"challenger_rmse": chall_rmse, "rmse_euro": chall_rmse}
+    chall_rmse = float(
+        np.sqrt(mean_squared_error(y_val, chall_preds))
+    )
 
+    metrics = {
+        "challenger_rmse": chall_rmse,
+        "rmse_euro": chall_rmse,
+    }
     # 3. Evaluate the current Champion
     try:
         champion_uri = f"models:/{MODEL_NAME}@champion"
@@ -164,7 +189,10 @@ def compare_models(new_run_id: str, val_path: str | None = None):
         else:
             champ_preds = raw_champion_predictions
 
-        champ_rmse = np.sqrt(mean_squared_error(y_val, champ_preds))
+        champ_rmse = float(
+            np.sqrt(mean_squared_error(y_val, champ_preds))
+        )
+
         metrics["champion_rmse"] = champ_rmse
         
         logger.info("--- Fair 'Real-Scale' Comparison ---")
@@ -174,9 +202,39 @@ def compare_models(new_run_id: str, val_path: str | None = None):
         is_better = chall_rmse < champ_rmse
         return is_better, metrics
 
-    except Exception as e:
-        logger.warning(f"Comparison skipped (Reason: {e}). Challenger wins by default.")
-        return True, metrics
+    except Exception as error:
+        logger.exception(
+            "Champion evaluation failed. "
+            "Candidate promotion is blocked | "
+            f"candidate_run_id={new_run_id}"
+        )
+
+        raise ModelComparisonError(
+            "Champion/Challenger comparison failed. "
+            "Candidate promotion was blocked."
+        ) from error
+
+def champion_exists() -> bool:
+    """
+    Return whether the configured model has a Champion alias.
+
+    A missing alias is an expected bootstrap condition. Registry connection
+    errors and other unexpected failures are propagated.
+    """
+    client = MlflowClient()
+
+    try:
+        client.get_model_version_by_alias(
+            MODEL_NAME,
+            "champion",
+        )
+        return True
+
+    except MlflowException as error:
+        if error.error_code == "RESOURCE_DOES_NOT_EXIST":
+            return False
+
+        raise
 
 if __name__ == "__main__":
     import sys

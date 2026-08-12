@@ -5,6 +5,7 @@ import time
 import shutil
 import logging
 import warnings
+import json
 
 from datetime import datetime
 
@@ -38,7 +39,7 @@ from src.data.versioning import make_dataset_version, snapshot_current_datasets,
 
 from src.training.train import train
 from src.training.register import register_model
-from src.training.evaluate import compare_models, evaluate_model
+from src.training.evaluate import compare_models, evaluate_model, champion_exists
 from src.training.policy import should_refresh_api, should_skip_training, get_run_strategy
 
 from src.monitoring.drift import fetch_current_data, detect_ks_drift
@@ -202,6 +203,54 @@ def task_eval_and_reg(new_run_id: str) -> bool:
     )
     return False
 
+@task(name="Bootstrap Initial Champion")
+def task_bootstrap_champion(
+    candidate_run_id: str,
+    is_drift_run: bool,
+) -> str:
+    """
+    Create the first Champion in an empty model registry.
+
+    Bootstrap is rejected when a Champion already exists.
+    """
+    p_logger = get_run_logger()
+
+    if champion_exists():
+        raise RuntimeError(
+            "Bootstrap rejected: a Champion already exists."
+        )
+
+    p_logger.info(
+        "No Champion exists. Starting explicit initial bootstrap | "
+        f"candidate_run_id={candidate_run_id}"
+    )
+
+    _, final_run_id = train(
+        is_drift_run=is_drift_run,
+        run_role="final_refit",
+        candidate_run_id=candidate_run_id,
+    )
+
+    # Check again immediately before changing the alias.
+    # This reduces the risk of two concurrent bootstrap runs.
+    if champion_exists():
+        raise RuntimeError(
+            "Bootstrap aborted: a Champion was created concurrently."
+        )
+
+    register_model(
+        final_run_id,
+        alias="champion",
+    )
+
+    p_logger.info(
+        "Initial Champion created | "
+        f"candidate_run_id={candidate_run_id} | "
+        f"final_run_id={final_run_id}"
+    )
+
+    return final_run_id
+
 @task(name="Final Model Refit")
 def task_final_refit(
     candidate_run_id: str,
@@ -360,7 +409,16 @@ def task_verify_health():
 
 
 @flow(name="End-to-End Demand Forecasting Pipeline")
-def training_pipeline(force_run: bool = False):
+def training_pipeline(
+    force_run: bool = False,
+    bootstrap: bool = False,
+):
+    if bootstrap and champion_exists():
+        raise RuntimeError(
+            "Bootstrap rejected: a Champion already exists. "
+            "Use the regular forced training flow instead."
+        )
+    
     p_logger = get_run_logger()
     p_logger.info(f"Starting Pipeline (Env: {ENV_CFG['environment']})")
     
@@ -381,11 +439,12 @@ def training_pipeline(force_run: bool = False):
 
     #task_archive_logs() 
 
-    candidate_accepted = task_eval_and_reg(run_id)
     serving_run_id = run_id
+    candidate_accepted = False
+    new_champion_crowned = False
 
-    if candidate_accepted:
-        serving_run_id = task_final_refit(
+    if bootstrap:
+        serving_run_id = task_bootstrap_champion(
             candidate_run_id=run_id,
             is_drift_run=drift_detected,
         )
@@ -395,16 +454,33 @@ def training_pipeline(force_run: bool = False):
             dataset_manifest,
         )
 
-    new_champion_crowned = candidate_accepted
+        candidate_accepted = True
+        new_champion_crowned = True
+
+    else:
+        candidate_accepted = task_eval_and_reg(run_id)
+
+        if candidate_accepted:
+            serving_run_id = task_final_refit(
+                candidate_run_id=run_id,
+                is_drift_run=drift_detected,
+            )
+
+            task_log_dataset_metadata(
+                serving_run_id,
+                dataset_manifest,
+            )
+
+            new_champion_crowned = True
 
     if should_refresh_api(new_champion_crowned):
         p_logger.info("🚀 New Champion detected. Refreshing API...")
-        
+        task_refresh_api()
+        task_verify_health()
     else:
         p_logger.info("✅ No API refresh needed. Current Champion is still the best.")
 
-    task_refresh_api()
-    task_verify_health()
+    
     p_logger.info("Pipeline execution finished successfully.")
 
     return {
@@ -422,8 +498,11 @@ def training_pipeline(force_run: bool = False):
 
 if __name__ == "__main__":
     force = "--force" in sys.argv
-    import json
+    bootstrap = "--bootstrap" in sys.argv
 
-    result = training_pipeline(force_run=force)
+    result = training_pipeline(
+        force_run=force,
+        bootstrap=bootstrap,
+    )
     print("TRAINING_RESULT_JSON=" + json.dumps(result))
     

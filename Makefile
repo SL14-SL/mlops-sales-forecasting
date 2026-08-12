@@ -13,11 +13,11 @@ PREFECT_POOL ?= local-pool
         refresh-api prefect-pool prefect-setup prefect-worker auto-retrain \
         snapshot-demo-baseline reset-lifecycle-run \
         demo-promo-without-retraining demo-promo-with-retraining \
-        controlled-retraining-experiment
+        controlled-retraining-experiment train-bootstrap
 
 # --- Main Entry Point ---
 
-all: setup dev-up wait-prefect prefect-pool prefect-setup train-force test ## Run the complete pipeline
+all: setup dev-up wait-prefect prefect-pool prefect-setup train-bootstrap test ## Run the complete pipeline
 	@echo "✨ Full build successful! API, MLflow, and Prefect are running."
 
 help: ## Display this help screen
@@ -117,6 +117,10 @@ train: wait-prefect ## Execute the training flow inside the API container
 train-force: wait-prefect ## Execute forced training flow inside the API container
 	@echo "🧠 Starting forced training flow inside API container..."
 	$(COMPOSE_RUN_API) uv run python flows/training_flow.py --force
+
+train-bootstrap: wait-prefect ## Create the initial Champion in an empty registry
+	@echo "🌱 Bootstrapping initial Champion..."
+	$(COMPOSE_RUN_API) uv run python flows/training_flow.py --force --bootstrap
 
 auto-retrain: wait-prefect ## Run auto retrain flow once manually inside the API container
 	@echo "🤖 Running auto retrain flow once inside API container..."

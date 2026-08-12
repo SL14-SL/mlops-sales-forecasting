@@ -194,8 +194,8 @@ def test_training_pipeline_force_run_without_promotion(
     )
     mock_final_refit.assert_not_called()
 
-    mock_refresh_api.assert_called_once()
-    mock_verify_health.assert_called_once()
+    mock_refresh_api.assert_not_called()
+    mock_verify_health.assert_not_called()
 
     assert result == {
         "run_id": "run_123",
@@ -396,8 +396,8 @@ def test_training_pipeline_drift_without_final_refit(
     )
     mock_final_refit.assert_not_called()
 
-    mock_refresh_api.assert_called_once()
-    mock_verify_health.assert_called_once()
+    mock_refresh_api.assert_not_called()
+    mock_verify_health.assert_not_called()
 
     assert result == {
         "run_id": "candidate_run_789",
@@ -405,3 +405,102 @@ def test_training_pipeline_drift_without_final_refit(
         "final_refit_run_id": None,
         "champion_promoted": False,
     }
+
+def test_candidate_evaluation_error_does_not_register_or_promote(
+    monkeypatch,
+):
+    comparison_error = RuntimeError(
+        "Champion evaluation unavailable"
+    )
+
+    mock_compare_models = MagicMock(
+        side_effect=comparison_error,
+    )
+    mock_register_model = MagicMock()
+
+    monkeypatch.setattr(
+        training_flow,
+        "compare_models",
+        mock_compare_models,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "register_model",
+        mock_register_model,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Champion evaluation unavailable",
+    ):
+        training_flow.task_eval_and_reg.fn(
+            "candidate-run-123",
+        )
+
+    mock_compare_models.assert_called_once_with(
+        "candidate-run-123",
+    )
+    mock_register_model.assert_not_called()
+
+def test_bootstrap_rejected_when_champion_exists(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        training_flow,
+        "champion_exists",
+        MagicMock(return_value=True),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Champion already exists",
+    ):
+        training_flow.training_pipeline.fn(
+            force_run=True,
+            bootstrap=True,
+        )
+
+def test_bootstrap_creates_initial_final_refit_champion(
+    monkeypatch,
+):
+    champion_checks = MagicMock(
+        side_effect=[False, False],
+    )
+    mock_train = MagicMock(
+        return_value=(MagicMock(), "final-run-123"),
+    )
+    mock_register = MagicMock()
+
+    monkeypatch.setattr(
+        training_flow,
+        "champion_exists",
+        champion_checks,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "train",
+        mock_train,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "register_model",
+        mock_register,
+    )
+
+    result = training_flow.task_bootstrap_champion.fn(
+        candidate_run_id="candidate-run-123",
+        is_drift_run=False,
+    )
+
+    assert result == "final-run-123"
+
+    mock_train.assert_called_once_with(
+        is_drift_run=False,
+        run_role="final_refit",
+        candidate_run_id="candidate-run-123",
+    )
+
+    mock_register.assert_called_once_with(
+        "final-run-123",
+        alias="champion",
+    )
