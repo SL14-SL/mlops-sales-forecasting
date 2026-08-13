@@ -30,6 +30,7 @@ def log_prediction(
     input_data,
     prediction: float,
     *,
+    release_id: str | None = None,
     model_alias: str | None = None,
     model_version: str | None = None,
     model_run_id: str | None = None,
@@ -68,6 +69,7 @@ def log_prediction(
             "model_version": model_version,
             "model_run_id": model_run_id,
             "request_id": request_id,
+            "release_id": release_id,
         }
 
         log_entry = {

@@ -17,7 +17,7 @@ import mlflow
 from google.cloud import storage
 
 # --- INTERNAL CONFIG BOOTSTRAP ---
-from src.configs.loader import load_config, get_path, file_exists, ensure_dir
+from src.configs.loader import load_config, get_path, file_exists, ensure_dir, join_uri
 
 # Load config early so environment variables (Prefect, MLflow) are set
 ENV_CFG = load_config()
@@ -44,6 +44,8 @@ from src.training.policy import should_refresh_api, should_skip_training, get_ru
 
 from src.monitoring.drift import fetch_current_data, detect_ks_drift
 from src.monitoring.feature_drift import run_feature_drift_check
+
+from src.inference.serving_release import publish_serving_release
 
 from src.utils.logger import get_logger
 
@@ -207,7 +209,7 @@ def task_eval_and_reg(new_run_id: str) -> bool:
 def task_bootstrap_champion(
     candidate_run_id: str,
     is_drift_run: bool,
-) -> str:
+) -> dict[str,str]:
     """
     Create the first Champion in an empty model registry.
 
@@ -238,8 +240,8 @@ def task_bootstrap_champion(
             "Bootstrap aborted: a Champion was created concurrently."
         )
 
-    register_model(
-        final_run_id,
+    model_version = register_model(
+        final_run_id, 
         alias="champion",
     )
 
@@ -249,13 +251,15 @@ def task_bootstrap_champion(
         f"final_run_id={final_run_id}"
     )
 
-    return final_run_id
-
+    return {
+        "run_id": final_run_id,
+        "model_version": str(model_version.version),
+    }
 @task(name="Final Model Refit")
 def task_final_refit(
     candidate_run_id: str,
     is_drift_run: bool,
-) -> str:
+) -> dict[str,str]:
     """
     Refit an accepted candidate on train and validation data.
     """
@@ -273,8 +277,8 @@ def task_final_refit(
         candidate_run_id=candidate_run_id,
     )
 
-    register_model(
-        final_run_id,
+    model_version = register_model(
+        final_run_id, 
         alias="champion",
     )
 
@@ -283,7 +287,121 @@ def task_final_refit(
         f"final_run_id={final_run_id}"
     )
 
-    return final_run_id
+    return {
+        "run_id": final_run_id,
+        "model_version": str(model_version.version),
+    }
+
+@task(name="Publish Serving Release")
+def task_publish_serving_release(
+    *,
+    final_run_id: str,
+    model_version: str,
+    dataset_manifest: dict,
+) -> str:
+    """
+    Publish the promoted model and its inference artifacts as one immutable
+    serving release.
+
+    Works with local paths and gs:// paths.
+    """
+    p_logger = get_run_logger()
+
+    client = mlflow.MlflowClient()
+    run = client.get_run(
+        final_run_id
+    )
+
+    model_type = (
+        run.data.tags.get("model_type")
+        or run.data.params.get("model_type")
+        or "xgboost"
+    )
+
+    target_transformation = (
+        run.data.tags.get(
+            "target_transformation"
+        )
+        or run.data.params.get(
+            "target_transformation"
+        )
+        or "none"
+    )
+
+    config_hash = run.data.params.get(
+        "config_hash"
+    )
+
+    snapshots = dataset_manifest.get(
+        "snapshots",
+        {},
+    )
+
+    # Prefer the versioned dataset snapshot. This prevents the release from
+    # reading store metadata that changed after this training run.
+    store_metadata_source = snapshots.get(
+        "validated_store"
+    )
+
+    if not store_metadata_source:
+        store_metadata_source = join_uri(
+            get_path("validated_data"),
+            "store.parquet",
+        )
+
+    store_state_source = join_uri(
+        get_path("models"),
+        "latest_state.json",
+    )
+
+    known_calendar_source = join_uri(
+        get_path("features"),
+        "known_calendar.parquet",
+    )
+
+    manifest = publish_serving_release(
+        models_path=get_path("models"),
+        model_name=MODEL_NAME,
+        model_version=model_version,
+        model_run_id=final_run_id,
+        model_type=model_type,
+        target_transformation=(
+            target_transformation
+        ),
+        dataset_version=(
+            dataset_manifest.get(
+                "dataset_version"
+            )
+        ),
+        config_hash=config_hash,
+        git_commit=(
+            dataset_manifest.get(
+                "git_commit"
+            )
+            or os.getenv(
+                "GIT_COMMIT_SHA"
+            )
+        ),
+        store_metadata_source=(
+            store_metadata_source
+        ),
+        store_state_source=(
+            store_state_source
+        ),
+        known_calendar_source=(
+            known_calendar_source
+        ),
+    )
+
+    p_logger.info(
+        "Serving release published | "
+        f"release_id={manifest.release_id} | "
+        f"model_version={model_version} | "
+        f"dataset_version={manifest.dataset_version}"
+    )
+
+    return manifest.release_id
+
 
 @task(name="Archive Logs")
 def task_archive_logs():
@@ -440,13 +558,24 @@ def training_pipeline(
     #task_archive_logs() 
 
     serving_run_id = run_id
+    serving_model_version = None
+    release_id = None
     candidate_accepted = False
     new_champion_crowned = False
 
     if bootstrap:
-        serving_run_id = task_bootstrap_champion(
-            candidate_run_id=run_id,
-            is_drift_run=drift_detected,
+        promotion_result = (
+            task_bootstrap_champion(
+                candidate_run_id=run_id,
+                is_drift_run=drift_detected,
+            )
+        )
+
+        serving_run_id = (
+            promotion_result["run_id"]
+        )
+        serving_model_version = (
+            promotion_result["model_version"]
         )
 
         task_log_dataset_metadata(
@@ -454,16 +583,39 @@ def training_pipeline(
             dataset_manifest,
         )
 
+        release_id = (
+            task_publish_serving_release(
+                final_run_id=serving_run_id,
+                model_version=(
+                    serving_model_version
+                ),
+                dataset_manifest=(
+                    dataset_manifest
+                ),
+            )
+        )
+
         candidate_accepted = True
         new_champion_crowned = True
 
     else:
-        candidate_accepted = task_eval_and_reg(run_id)
+        candidate_accepted = task_eval_and_reg(
+            run_id
+        )
 
         if candidate_accepted:
-            serving_run_id = task_final_refit(
-                candidate_run_id=run_id,
-                is_drift_run=drift_detected,
+            promotion_result = (
+                task_final_refit(
+                    candidate_run_id=run_id,
+                    is_drift_run=drift_detected,
+                )
+            )
+
+            serving_run_id = (
+                promotion_result["run_id"]
+            )
+            serving_model_version = (
+                promotion_result["model_version"]
             )
 
             task_log_dataset_metadata(
@@ -471,16 +623,44 @@ def training_pipeline(
                 dataset_manifest,
             )
 
+            release_id = (
+                task_publish_serving_release(
+                    final_run_id=serving_run_id,
+                    model_version=(
+                        serving_model_version
+                    ),
+                    dataset_manifest=(
+                        dataset_manifest
+                    ),
+                )
+            )
+
             new_champion_crowned = True
 
-    if should_refresh_api(new_champion_crowned):
-        p_logger.info("🚀 New Champion detected. Refreshing API...")
+    if should_refresh_api(
+        new_champion_crowned
+    ):
+        if not release_id:
+            raise RuntimeError(
+                "Champion was promoted but no serving "
+                "release was published."
+            )
+
+        p_logger.info(
+            "New serving release published. "
+            "Refreshing API | "
+            f"release_id={release_id}"
+        )
+
         task_refresh_api()
         task_verify_health()
-    else:
-        p_logger.info("✅ No API refresh needed. Current Champion is still the best.")
 
-    
+    else:
+        p_logger.info(
+            "No API refresh needed. "
+            "Current serving release remains active."
+        )
+        
     p_logger.info("Pipeline execution finished successfully.")
 
     return {
@@ -491,6 +671,10 @@ def training_pipeline(
             if candidate_accepted
             else None
         ),
+        "model_version": (
+            serving_model_version
+        ),
+        "release_id": release_id,
         "champion_promoted": bool(
             new_champion_crowned
         ),

@@ -129,6 +129,7 @@ def test_training_pipeline_force_run_without_promotion(
     mock_final_refit = MagicMock()
     mock_refresh_api = MagicMock()
     mock_verify_health = MagicMock(return_value=True)
+    mock_publish_release = MagicMock()
 
     monkeypatch.setattr(
         "flows.training_flow.task_check_drift",
@@ -170,10 +171,14 @@ def test_training_pipeline_force_run_without_promotion(
         "flows.training_flow.task_verify_health",
         mock_verify_health,
     )
-
+    monkeypatch.setattr(
+        "flows.training_flow.task_publish_serving_release",
+        mock_publish_release,
+    )
     result = training_flow.training_pipeline.fn(
         force_run=True,
     )
+    
 
     mock_check_drift.assert_called_once()
     mock_evaluate_champion.assert_not_called()
@@ -196,11 +201,14 @@ def test_training_pipeline_force_run_without_promotion(
 
     mock_refresh_api.assert_not_called()
     mock_verify_health.assert_not_called()
+    mock_publish_release.assert_not_called()
 
     assert result == {
         "run_id": "run_123",
         "candidate_run_id": "run_123",
         "final_refit_run_id": None,
+        "model_version": None,
+        "release_id": None,
         "champion_promoted": False,
     }
 
@@ -222,11 +230,22 @@ def test_training_pipeline_drift_with_final_refit(
     mock_log_dataset_metadata = MagicMock()
     mock_eval_and_reg = MagicMock(return_value=True)
     mock_final_refit = MagicMock(
-        return_value="final_run_456",
+        return_value={
+            "run_id": "final_run_456",
+            "model_version": "8",
+        },
     )
     mock_refresh_api = MagicMock()
     mock_verify_health = MagicMock(return_value=True)
 
+    mock_publish_release = MagicMock(
+        return_value="release-test-v8",
+    )
+    monkeypatch.setattr(
+        "flows.training_flow."
+        "task_publish_serving_release",
+        mock_publish_release,
+    )
     monkeypatch.setattr(
         "flows.training_flow.task_check_drift",
         mock_check_drift,
@@ -290,6 +309,12 @@ def test_training_pipeline_drift_with_final_refit(
         is_drift_run=True,
     )
 
+    mock_publish_release.assert_called_once_with(
+        final_run_id="final_run_456",
+        model_version="8",
+        dataset_manifest=dataset_manifest,
+    )
+
     assert mock_log_dataset_metadata.call_args_list == [
         call(
             "candidate_run_456",
@@ -306,8 +331,14 @@ def test_training_pipeline_drift_with_final_refit(
 
     assert result == {
         "run_id": "final_run_456",
-        "candidate_run_id": "candidate_run_456",
-        "final_refit_run_id": "final_run_456",
+        "candidate_run_id": (
+            "candidate_run_456"
+        ),
+        "final_refit_run_id": (
+            "final_run_456"
+        ),
+        "model_version": "8",
+        "release_id": "release-test-v8",
         "champion_promoted": True,
     }
 
@@ -331,6 +362,7 @@ def test_training_pipeline_drift_without_final_refit(
     mock_final_refit = MagicMock()
     mock_refresh_api = MagicMock()
     mock_verify_health = MagicMock(return_value=True)
+    mock_publish_release = MagicMock()
 
     monkeypatch.setattr(
         "flows.training_flow.task_check_drift",
@@ -372,6 +404,11 @@ def test_training_pipeline_drift_without_final_refit(
         "flows.training_flow.task_verify_health",
         mock_verify_health,
     )
+    monkeypatch.setattr(
+        training_flow,
+        "task_publish_serving_release",
+        mock_publish_release,
+    )
 
     result = training_flow.training_pipeline.fn(
         force_run=False,
@@ -398,11 +435,16 @@ def test_training_pipeline_drift_without_final_refit(
 
     mock_refresh_api.assert_not_called()
     mock_verify_health.assert_not_called()
+    mock_publish_release.assert_not_called()
 
     assert result == {
         "run_id": "candidate_run_789",
-        "candidate_run_id": "candidate_run_789",
+        "candidate_run_id": (
+            "candidate_run_789"
+        ),
         "final_refit_run_id": None,
+        "model_version": None,
+        "release_id": None,
         "champion_promoted": False,
     }
 
@@ -466,10 +508,20 @@ def test_bootstrap_creates_initial_final_refit_champion(
     champion_checks = MagicMock(
         side_effect=[False, False],
     )
+
     mock_train = MagicMock(
-        return_value=(MagicMock(), "final-run-123"),
+        return_value=(
+            MagicMock(),
+            "final-run-123",
+        ),
     )
-    mock_register = MagicMock()
+
+    registered_version = MagicMock()
+    registered_version.version = "1"
+
+    mock_register = MagicMock(
+        return_value=registered_version,
+    )
 
     monkeypatch.setattr(
         training_flow,
@@ -487,12 +539,21 @@ def test_bootstrap_creates_initial_final_refit_champion(
         mock_register,
     )
 
-    result = training_flow.task_bootstrap_champion.fn(
-        candidate_run_id="candidate-run-123",
-        is_drift_run=False,
+    result = (
+        training_flow
+        .task_bootstrap_champion
+        .fn(
+            candidate_run_id="candidate-run-123",
+            is_drift_run=False,
+        )
     )
 
-    assert result == "final-run-123"
+    assert result == {
+        "run_id": "final-run-123",
+        "model_version": "1",
+    }
+
+    assert champion_checks.call_count == 2
 
     mock_train.assert_called_once_with(
         is_drift_run=False,
@@ -504,3 +565,226 @@ def test_bootstrap_creates_initial_final_refit_champion(
         "final-run-123",
         alias="champion",
     )
+
+
+def test_publication_failure_does_not_reload_api(
+    monkeypatch,
+):
+    dataset_manifest = {
+        "dataset_version": "ds-test",
+        "git_commit": "abc123",
+        "snapshots": {
+            "validated_store": (
+                "data/versioning/"
+                "ds-test/validated/store.parquet"
+            ),
+        },
+    }
+
+    monkeypatch.setattr(
+        training_flow,
+        "task_check_drift",
+        MagicMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_prepare_data",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_snapshot_dataset",
+        MagicMock(
+            return_value=dataset_manifest
+        ),
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_train",
+        MagicMock(
+            return_value="candidate-run"
+        ),
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_log_dataset_metadata",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_eval_and_reg",
+        MagicMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_final_refit",
+        MagicMock(
+            return_value={
+                "run_id": "final-run",
+                "model_version": "9",
+            }
+        ),
+    )
+
+    publication_error = RuntimeError(
+        "GCS release publication failed"
+    )
+
+    monkeypatch.setattr(
+        training_flow,
+        "task_publish_serving_release",
+        MagicMock(
+            side_effect=publication_error
+        ),
+    )
+
+    mock_refresh = MagicMock()
+    mock_health = MagicMock()
+
+    monkeypatch.setattr(
+        training_flow,
+        "task_refresh_api",
+        mock_refresh,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_verify_health",
+        mock_health,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "GCS release publication failed"
+        ),
+    ):
+        training_flow.training_pipeline.fn(
+            force_run=False,
+        )
+
+    mock_refresh.assert_not_called()
+    mock_health.assert_not_called()
+
+
+def test_training_pipeline_bootstrap_publishes_release(
+    monkeypatch,
+):
+    dataset_manifest = {
+        "dataset_version": "ds-bootstrap-001",
+        "git_commit": "abc123",
+    }
+
+    mock_champion_exists = MagicMock(
+        return_value=False,
+    )
+    mock_check_drift = MagicMock(
+        return_value=False,
+    )
+    mock_prepare_data = MagicMock()
+    mock_snapshot_dataset = MagicMock(
+        return_value=dataset_manifest,
+    )
+    mock_train = MagicMock(
+        return_value="candidate-bootstrap-run",
+    )
+    mock_log_dataset_metadata = MagicMock()
+    mock_bootstrap = MagicMock(
+        return_value={
+            "run_id": "final-bootstrap-run",
+            "model_version": "1",
+        },
+    )
+    mock_publish = MagicMock(
+        return_value="release-bootstrap-v1",
+    )
+    mock_refresh = MagicMock()
+    mock_health = MagicMock(
+        return_value=True,
+    )
+
+    monkeypatch.setattr(
+        training_flow,
+        "champion_exists",
+        mock_champion_exists,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_check_drift",
+        mock_check_drift,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_prepare_data",
+        mock_prepare_data,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_snapshot_dataset",
+        mock_snapshot_dataset,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_train",
+        mock_train,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_log_dataset_metadata",
+        mock_log_dataset_metadata,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_bootstrap_champion",
+        mock_bootstrap,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_publish_serving_release",
+        mock_publish,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_refresh_api",
+        mock_refresh,
+    )
+    monkeypatch.setattr(
+        training_flow,
+        "task_verify_health",
+        mock_health,
+    )
+
+    result = training_flow.training_pipeline.fn(
+        force_run=True,
+        bootstrap=True,
+    )
+
+    mock_bootstrap.assert_called_once_with(
+        candidate_run_id=(
+            "candidate-bootstrap-run"
+        ),
+        is_drift_run=False,
+    )
+
+    mock_publish.assert_called_once_with(
+        final_run_id="final-bootstrap-run",
+        model_version="1",
+        dataset_manifest=dataset_manifest,
+    )
+
+    mock_refresh.assert_called_once()
+    mock_health.assert_called_once()
+
+    assert result == {
+        "run_id": "final-bootstrap-run",
+        "candidate_run_id": (
+            "candidate-bootstrap-run"
+        ),
+        "final_refit_run_id": (
+            "final-bootstrap-run"
+        ),
+        "model_version": "1",
+        "release_id": (
+            "release-bootstrap-v1"
+        ),
+        "champion_promoted": True,
+    }

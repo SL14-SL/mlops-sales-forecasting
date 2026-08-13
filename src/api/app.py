@@ -151,6 +151,7 @@ def activate_serving_bundle(
     known_calendar = bundle.known_calendar
 
     return {
+        "release_id": bundle.release_id,
         "model_name": bundle.model_name,
         "serving_alias": bundle.serving_alias,
         "model_version": bundle.model_version,
@@ -381,6 +382,7 @@ def readyz():
         "calendar_loaded": (
             bundle.known_calendar is not None
         ),
+        "release_id": bundle.release_id,
     }
 
 @app.post("/admin/reload-model")
@@ -496,6 +498,11 @@ def health(response: Response):
         "model_uri": model_uri,
         "model_version": serving_model_version,
         "model_run_id": serving_model_run_id,
+        "release_id": (
+            active_serving_bundle.release_id
+            if active_serving_bundle is not None
+            else None
+        ),
 
     }
 
@@ -626,6 +633,11 @@ def predict(payload: PredictionRequest):
                 model_run_id=serving_model_run_id,
                 request_id=request_id,
                 environment=environment,
+                release_id=(
+                    active_serving_bundle.release_id
+                    if active_serving_bundle is not None
+                    else None
+                ),
             )
         timings["log_prediction"] = _ms_since(t)
 
