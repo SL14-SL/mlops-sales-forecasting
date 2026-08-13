@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Any
@@ -14,7 +13,6 @@ from src.configs.loader import (
     file_exists,
     get_path,
     join_uri,
-    read_text,
 )
 from src.data.validation.validate import (
     validate_train,
@@ -25,14 +23,12 @@ from src.monitoring.config import (
 from src.monitoring.retraining_policy import (
     RetrainingSignals,
 )
+from src.monitoring.retraining_state import (
+    load_retraining_state,
+)
 from src.monitoring.signal_evaluation import (
     evaluate_performance_degradation,
     evaluate_persistent_feature_drift,
-)
-
-
-RETRAINING_STATE_FILENAME = (
-    "retraining_state.json"
 )
 
 
@@ -154,28 +150,6 @@ def _read_ground_truth_batches(
             f"Ground-Truth batches."
         ),
     )
-
-
-def _load_retraining_state(
-    path: str,
-) -> dict[str, Any]:
-    if not file_exists(path):
-        return {}
-
-    try:
-        payload = json.loads(read_text(path))
-
-        if isinstance(payload, dict):
-            return payload
-
-    except (
-        json.JSONDecodeError,
-        OSError,
-        TypeError,
-    ):
-        pass
-
-    return {}
 
 
 def _cooldown_active(
@@ -300,13 +274,7 @@ def collect_retraining_signals(
         )
     )
 
-    state_path = join_uri(
-        monitoring_path,
-        RETRAINING_STATE_FILENAME,
-    )
-    retraining_state = _load_retraining_state(
-        state_path
-    )
+    retraining_state = load_retraining_state()
 
     cooldown_active = _cooldown_active(
         retraining_state,

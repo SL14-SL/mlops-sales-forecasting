@@ -1,4 +1,3 @@
-import json
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -37,7 +36,10 @@ def test_collects_normalized_retraining_signals(
                 "Customers",
                 "Customers",
             ],
-            "drift_detected": [True, True],
+            "drift_detected": [
+                True,
+                True,
+            ],
         }
     )
 
@@ -47,16 +49,27 @@ def test_collects_normalized_retraining_signals(
                 "2026-08-12T00:00:00Z",
                 "2026-08-13T00:00:00Z",
             ],
-            "rmse": [1400.0, 1420.0],
-            "mae": [1000.0, 1010.0],
-            "bias": [100.0, 120.0],
+            "rmse": [
+                1400.0,
+                1420.0,
+            ],
+            "mae": [
+                1000.0,
+                1010.0,
+            ],
+            "bias": [
+                100.0,
+                120.0,
+            ],
         }
     )
 
     monkeypatch.setattr(
         signal_collector,
         "get_retraining_settings",
-        MagicMock(return_value=settings()),
+        MagicMock(
+            return_value=settings()
+        ),
     )
     monkeypatch.setattr(
         signal_collector,
@@ -64,7 +77,9 @@ def test_collects_normalized_retraining_signals(
         MagicMock(
             side_effect=lambda name: {
                 "raw_data": "data/raw",
-                "monitoring": "data/monitoring",
+                "monitoring": (
+                    "data/monitoring"
+                ),
             }[name]
         ),
     )
@@ -102,12 +117,13 @@ def test_collects_normalized_retraining_signals(
     )
     monkeypatch.setattr(
         signal_collector,
-        "_load_retraining_state",
+        "load_retraining_state",
         MagicMock(return_value={}),
     )
 
     signals = (
-        signal_collector.collect_retraining_signals(
+        signal_collector
+        .collect_retraining_signals(
             evaluated_at=pd.Timestamp(
                 "2026-08-13T01:00:00Z"
             )
@@ -119,7 +135,10 @@ def test_collects_normalized_retraining_signals(
     )
     assert signals.new_training_rows == 800
     assert signals.data_quality_ok is True
-    assert signals.performance_degraded is True
+    assert (
+        signals.performance_degraded
+        is True
+    )
     assert (
         signals.feature_drift_persistent
         is True
@@ -164,58 +183,103 @@ def test_expired_cooldown_is_inactive():
     assert result is False
 
 
-def test_invalid_state_does_not_activate_cooldown(
+def test_missing_retraining_state_has_no_cooldown(
     monkeypatch,
 ):
     monkeypatch.setattr(
         signal_collector,
-        "file_exists",
-        MagicMock(return_value=True),
-    )
-    monkeypatch.setattr(
-        signal_collector,
-        "read_text",
-        MagicMock(return_value="not-json"),
+        "load_retraining_state",
+        MagicMock(return_value={}),
     )
 
     state = (
-        signal_collector._load_retraining_state(
-            "data/monitoring/"
-            "retraining_state.json"
-        )
+        signal_collector
+        .load_retraining_state()
     )
 
-    assert state == {}
-
-
-def test_state_loader_reads_valid_json(
-    monkeypatch,
-):
-    payload = {
-        "last_decision_id": "retrain-123",
-        "last_retrained_at_utc": (
+    result = signal_collector._cooldown_active(
+        state,
+        evaluated_at=pd.Timestamp(
             "2026-08-13T00:00:00Z"
         ),
-    }
+        cooldown_hours=168,
+    )
+
+    assert result is False
+
+
+def test_rows_above_budget_are_reported(
+    monkeypatch,
+):
+    empty_history = pd.DataFrame()
 
     monkeypatch.setattr(
         signal_collector,
-        "file_exists",
-        MagicMock(return_value=True),
-    )
-    monkeypatch.setattr(
-        signal_collector,
-        "read_text",
+        "get_retraining_settings",
         MagicMock(
-            return_value=json.dumps(payload)
+            return_value=settings()
         ),
     )
+    monkeypatch.setattr(
+        signal_collector,
+        "get_path",
+        MagicMock(
+            side_effect=lambda name: {
+                "raw_data": "data/raw",
+                "monitoring": (
+                    "data/monitoring"
+                ),
+            }[name]
+        ),
+    )
+    monkeypatch.setattr(
+        signal_collector,
+        "_list_files",
+        MagicMock(
+            return_value=[
+                "data/raw/new_batches/"
+                "ground_truth_001.csv",
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        signal_collector,
+        "_read_ground_truth_batches",
+        MagicMock(
+            return_value=(
+                1_000_001,
+                "batch-too-large",
+                True,
+                "Ground Truth is valid.",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        signal_collector,
+        "_read_parquet_if_available",
+        MagicMock(
+            side_effect=[
+                empty_history,
+                empty_history,
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        signal_collector,
+        "load_retraining_state",
+        MagicMock(return_value={}),
+    )
 
-    result = (
-        signal_collector._load_retraining_state(
-            "data/monitoring/"
-            "retraining_state.json"
+    signals = (
+        signal_collector
+        .collect_retraining_signals(
+            evaluated_at=pd.Timestamp(
+                "2026-08-13T01:00:00Z"
+            )
         )
     )
 
-    assert result == payload
+    assert signals.new_training_rows == (
+        1_000_001
+    )
+    assert signals.budget_available is False
