@@ -12,7 +12,7 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.status import HTTP_403_FORBIDDEN
 
-from src.api.schema import PredictionRequest, PredictionResponse
+from src.api.schema import PredictionRequest, PredictionResponse, ServingRollbackRequest
 from src.configs.loader import load_config, get_path
 
 from src.monitoring.prediction_logger import log_prediction
@@ -34,10 +34,13 @@ from src.inference.adapters import (
 from src.inference.model_manager import (
     reload_serving_model as reload_model_state,
     load_store_state,
+    load_serving_bundle_for_release
 )
 from src.inference.model_manager import (
     load_serving_bundle,
 )
+
+from src.inference.serving_release import activate_release_pointer, list_serving_release_manifests, load_active_release_id
 
 from src.inference.serving_bundle import ServingBundle
 
@@ -505,6 +508,172 @@ def health(response: Response):
         ),
 
     }
+
+@app.get("/admin/serving-releases")
+def list_serving_releases(
+    api_key: str = Depends(get_api_key),
+):
+    active_release_id = (
+        load_active_release_id(
+            models_path=MODELS_PATH,
+        )
+    )
+
+    manifests = (
+        list_serving_release_manifests(
+            models_path=MODELS_PATH,
+        )
+    )
+
+    return {
+        "active_release_id": (
+            active_release_id
+        ),
+        "releases": [
+            {
+                "release_id": (
+                    manifest.release_id
+                ),
+                "active": (
+                    manifest.release_id
+                    == active_release_id
+                ),
+                "created_at_utc": (
+                    manifest.created_at_utc
+                ),
+                "model_name": (
+                    manifest.model_name
+                ),
+                "model_version": (
+                    manifest.model_version
+                ),
+                "model_run_id": (
+                    manifest.model_run_id
+                ),
+                "dataset_version": (
+                    manifest.dataset_version
+                ),
+                "git_commit": (
+                    manifest.git_commit
+                ),
+            }
+            for manifest in manifests
+        ],
+    }
+
+@app.post("/admin/rollback-serving-release")
+def rollback_serving_release(
+    payload: ServingRollbackRequest,
+    api_key: str = Depends(get_api_key),
+):
+    """
+    Validate and atomically activate a previously published release.
+    """
+    previous_release_id = (
+        load_active_release_id(
+            models_path=MODELS_PATH,
+        )
+    )
+
+    if payload.release_id == previous_release_id:
+        return {
+            "status": "unchanged",
+            "release_id": previous_release_id,
+            "previous_release_id": (
+                previous_release_id
+            ),
+        }
+
+    pointer_changed = False
+
+    try:
+        # Fully load model and artifacts before changing the pointer.
+        candidate_bundle = (
+            load_serving_bundle_for_release(
+                release_id=payload.release_id,
+                model_name=MODEL_NAME,
+                cfg=CFG,
+                models_path=MODELS_PATH,
+            )
+        )
+
+        # The target bundle is valid. Persist the new active release.
+        activate_release_pointer(
+            models_path=MODELS_PATH,
+            release_id=payload.release_id,
+            operation="rollback",
+            previous_release_id=(
+                previous_release_id
+            ),
+        )
+        pointer_changed = True
+
+        # Activate the already validated bundle in this API process.
+        result = activate_serving_bundle(
+            candidate_bundle
+        )
+
+    except Exception as error:
+        if pointer_changed:
+            try:
+                activate_release_pointer(
+                    models_path=MODELS_PATH,
+                    release_id=(
+                        previous_release_id
+                    ),
+                    operation=(
+                        "rollback_reverted"
+                    ),
+                    previous_release_id=(
+                        payload.release_id
+                    ),
+                )
+
+            except Exception:
+                logger.exception(
+                    "CRITICAL: rollback pointer "
+                    "could not be restored | "
+                    "expected_release_id=%s",
+                    previous_release_id,
+                )
+
+        logger.exception(
+            "Serving release rollback failed | "
+            "target_release_id=%s | "
+            "previous_release_id=%s | "
+            "pointer_changed=%s",
+            payload.release_id,
+            previous_release_id,
+            pointer_changed,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Serving release rollback failed. "
+                f"Reason: {error}"
+            ),
+        ) from error
+
+    logger.warning(
+        "Serving release rollback completed | "
+        "previous_release_id=%s | "
+        "active_release_id=%s | "
+        "model_version=%s",
+        previous_release_id,
+        candidate_bundle.release_id,
+        candidate_bundle.model_version,
+    )
+
+    return {
+        "status": "rolled_back",
+        "previous_release_id": (
+            previous_release_id
+        ),
+        **result,
+    }
+
+
 
 MAX_BATCH_ROWS = 5000
 

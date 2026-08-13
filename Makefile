@@ -13,7 +13,8 @@ PREFECT_POOL ?= local-pool
         refresh-api prefect-pool prefect-setup prefect-worker auto-retrain \
         snapshot-demo-baseline reset-lifecycle-run \
         demo-promo-without-retraining demo-promo-with-retraining \
-        controlled-retraining-experiment train-bootstrap
+        controlled-retraining-experiment train-bootstrap \
+		list-serving-releases rollback-serving
 
 # --- Main Entry Point ---
 
@@ -410,3 +411,21 @@ controlled-retraining-experiment: wait-prefect ## Run both controlled variants a
 	@echo "📄 Results are available under results/"
 	@echo "============================================================"
 
+
+
+list-serving-releases: ## List published serving releases
+	@curl -fsS \
+		http://localhost:8000/admin/serving-releases \
+		-H "X-API-KEY: $(API_KEY)" \
+		| jq .
+
+rollback-serving: ## Roll back to RELEASE_ID
+	@test -n "$(RELEASE_ID)" || \
+		(echo "❌ RELEASE_ID is required."; exit 1)
+	@echo "↩️ Rolling back serving release to $(RELEASE_ID)..."
+	@curl -fsS -X POST \
+		http://localhost:8000/admin/rollback-serving-release \
+		-H "Content-Type: application/json" \
+		-H "X-API-KEY: $(API_KEY)" \
+		-d '{"release_id":"$(RELEASE_ID)"}' \
+		| jq .

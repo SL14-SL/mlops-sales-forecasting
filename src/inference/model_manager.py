@@ -21,6 +21,7 @@ from src.inference.model_loader import (
 from src.inference.serving_release import (
     load_active_serving_manifest,
     resolve_release_artifact_uri,
+    load_serving_manifest,
 )
 
 logger = get_logger(__name__)
@@ -192,25 +193,17 @@ def reload_serving_model(
         "model_name": model_name,
     }
 
-def load_serving_bundle(
+def load_serving_bundle_for_release(
     *,
+    release_id: str,
     model_name: str,
     cfg: dict,
-    validated_path: str,
-    features_path: str,
     models_path: str | Path,
-    gcs_bucket: str | None,
 ) -> ServingBundle:
     """
-    Load the complete versioned serving release selected by the active pointer.
-
-    The release may be stored locally or on GCS.
+    Load and validate one concrete serving release without changing the
+    active release pointer.
     """
-    # Kept temporarily for call-site compatibility.
-    del validated_path
-    del features_path
-    del gcs_bucket
-
     resolved_models_path = str(
         models_path
     )
@@ -220,15 +213,16 @@ def load_serving_bundle(
     )
 
     manifest, release_root = (
-        load_active_serving_manifest(
+        load_serving_manifest(
             models_path=resolved_models_path,
+            release_id=release_id,
         )
     )
 
     if manifest.model_name != model_name:
         raise ValueError(
-            "Serving manifest model name "
-            "does not match configuration: "
+            "Serving manifest model name does "
+            "not match configuration: "
             f"{manifest.model_name} != "
             f"{model_name}"
         )
@@ -236,9 +230,7 @@ def load_serving_bundle(
     metadata_uri = (
         resolve_release_artifact_uri(
             release_root=release_root,
-            reference=(
-                manifest.store_metadata
-            ),
+            reference=manifest.store_metadata,
         )
     )
     state_uri = (
@@ -250,13 +242,10 @@ def load_serving_bundle(
     calendar_uri = (
         resolve_release_artifact_uri(
             release_root=release_root,
-            reference=(
-                manifest.known_calendar
-            ),
+            reference=manifest.known_calendar,
         )
     )
 
-    # Immutable model version, not the moving @champion alias.
     model = load_model_by_type(
         manifest.model_uri,
         manifest.model_type,
@@ -295,6 +284,7 @@ def load_serving_bundle(
         known_calendar["Date"],
         errors="raise",
     )
+
     known_calendar = (
         prepare_known_calendar_lookup(
             known_calendar
@@ -312,12 +302,8 @@ def load_serving_bundle(
         ),
         serving_alias="champion",
         model_uri=manifest.model_uri,
-        model_version=(
-            manifest.model_version
-        ),
-        model_run_id=(
-            manifest.model_run_id
-        ),
+        model_version=manifest.model_version,
+        model_run_id=manifest.model_run_id,
         store_metadata=store_metadata,
         store_state=store_state,
         known_calendar=known_calendar,
@@ -328,3 +314,37 @@ def load_serving_bundle(
     )
 
     return bundle
+
+
+def load_serving_bundle(
+    *,
+    model_name: str,
+    cfg: dict,
+    validated_path: str,
+    features_path: str,
+    models_path: str | Path,
+    gcs_bucket: str | None,
+) -> ServingBundle:
+    """
+    Load the currently active versioned serving release.
+    """
+    del validated_path
+    del features_path
+    del gcs_bucket
+
+    resolved_models_path = str(
+        models_path
+    )
+
+    manifest, _ = (
+        load_active_serving_manifest(
+            models_path=resolved_models_path,
+        )
+    )
+
+    return load_serving_bundle_for_release(
+        release_id=manifest.release_id,
+        model_name=model_name,
+        cfg=cfg,
+        models_path=resolved_models_path,
+    )

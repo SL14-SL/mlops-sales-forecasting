@@ -14,6 +14,7 @@ from src.configs.loader import (
     read_text,
     remove_file,
     write_text,
+    list_files,
 )
 from src.inference.serving_bundle import (
     ServingArtifactReference,
@@ -325,15 +326,24 @@ def publish_serving_release(
             )
 
         # Commit point: update pointer only after complete publication.
-        write_json(
-            paths["active_pointer"],
-            {
-                "schema_version": 1,
-                "release_id": release_id,
-                "updated_at_utc": datetime.now(
-                    timezone.utc
-                ).isoformat(),
-            },
+        previous_release_id = None
+
+        if file_exists(
+            paths["active_pointer"]
+        ):
+            previous_release_id = (
+                load_active_release_id(
+                    models_path=models_path,
+                )
+            )
+
+        activate_release_pointer(
+            models_path=models_path,
+            release_id=release_id,
+            operation="promotion",
+            previous_release_id=(
+                previous_release_id
+            ),
         )
 
         return manifest
@@ -451,47 +461,22 @@ def parse_serving_manifest(
 
     return manifest
 
-
-def load_active_serving_manifest(
+def load_serving_manifest(
     *,
     models_path: str,
+    release_id: str,
 ) -> tuple[
     ServingReleaseManifest,
     str,
 ]:
-    pointer_path = join_uri(
-        models_path,
-        ACTIVE_RELEASE_FILE_NAME,
-    )
-
-    if not file_exists(pointer_path):
-        raise FileNotFoundError(
-            "Active serving release pointer "
-            f"not found: {pointer_path}"
-        )
-
-    pointer = load_json(
-        pointer_path
-    )
-
-    release_id = pointer.get(
-        "release_id"
-    )
-
-    if not release_id:
-        raise ValueError(
-            "Active serving release pointer "
-            "has no release_id."
-        )
-
     paths = build_release_paths(
         models_path=models_path,
-        release_id=str(release_id),
+        release_id=release_id,
     )
 
     if not file_exists(paths["manifest"]):
         raise FileNotFoundError(
-            "Active serving manifest not found: "
+            "Serving release manifest not found: "
             f"{paths['manifest']}"
         )
 
@@ -501,13 +486,30 @@ def load_active_serving_manifest(
 
     if manifest.release_id != release_id:
         raise ValueError(
-            "Active pointer release ID does "
-            "not match the manifest."
+            "Requested release ID does not "
+            "match the manifest."
         )
 
     return (
         manifest,
         paths["release_root"],
+    )
+
+
+def load_active_serving_manifest(
+    *,
+    models_path: str,
+) -> tuple[
+    ServingReleaseManifest,
+    str,
+]:
+    release_id = load_active_release_id(
+        models_path=models_path,
+    )
+
+    return load_serving_manifest(
+        models_path=models_path,
+        release_id=release_id,
     )
 
 
@@ -550,3 +552,121 @@ def resolve_release_artifact_uri(
         )
 
     return artifact_uri
+
+def load_active_release_id(
+    *,
+    models_path: str,
+) -> str:
+    pointer_path = join_uri(
+        models_path,
+        ACTIVE_RELEASE_FILE_NAME,
+    )
+
+    if not file_exists(pointer_path):
+        raise FileNotFoundError(
+            "Active serving release pointer "
+            f"not found: {pointer_path}"
+        )
+
+    pointer = load_json(
+        pointer_path
+    )
+
+    release_id = pointer.get(
+        "release_id"
+    )
+
+    if not release_id:
+        raise ValueError(
+            "Active serving release pointer "
+            "has no release_id."
+        )
+
+    return str(release_id)
+
+
+def activate_release_pointer(
+    *,
+    models_path: str,
+    release_id: str,
+    operation: str = "activation",
+    previous_release_id: str | None = None,
+) -> None:
+    """
+    Update the active release pointer.
+
+    The caller must validate the target release before calling this function.
+    """
+    paths = build_release_paths(
+        models_path=models_path,
+        release_id=release_id,
+    )
+
+    if not file_exists(paths["manifest"]):
+        raise FileNotFoundError(
+            "Cannot activate release without manifest: "
+            f"{paths['manifest']}"
+        )
+
+    write_json(
+        paths["active_pointer"],
+        {
+            "schema_version": 1,
+            "release_id": release_id,
+            "previous_release_id": (
+                previous_release_id
+            ),
+            "operation": operation,
+            "updated_at_utc": datetime.now(
+                timezone.utc
+            ).isoformat(),
+        },
+    )
+
+    # Confirm that storage returns the newly written pointer.
+    stored_release_id = load_active_release_id(
+        models_path=models_path,
+    )
+
+    if stored_release_id != release_id:
+        raise RuntimeError(
+            "Active release pointer verification failed: "
+            f"expected={release_id}, "
+            f"actual={stored_release_id}"
+        )
+
+
+def list_serving_release_manifests(
+    *,
+    models_path: str,
+) -> list[ServingReleaseManifest]:
+    pattern = join_uri(
+        models_path,
+        RELEASES_DIRECTORY_NAME,
+        "*",
+        MANIFEST_FILE_NAME,
+    )
+
+    manifest_paths = list_files(
+        pattern
+    )
+
+    manifests: list[
+        ServingReleaseManifest
+    ] = []
+
+    for manifest_path in manifest_paths:
+        manifests.append(
+            parse_serving_manifest(
+                load_json(manifest_path)
+            )
+        )
+
+    return sorted(
+        manifests,
+        key=lambda manifest: (
+            manifest.created_at_utc
+        ),
+        reverse=True,
+    )
+

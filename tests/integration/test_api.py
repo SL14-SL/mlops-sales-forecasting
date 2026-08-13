@@ -409,3 +409,118 @@ def test_predict_uses_active_bundle_instead_of_legacy_globals(
         response.json()["metadata"]["release_id"]
         == "release-test-v1"
     )
+
+def test_rollback_validates_target_before_changing_pointer(
+    api_client,
+    api_headers,
+    monkeypatch,
+):
+
+    app_module = sys.modules["src.api.app"]
+
+    mock_pointer = MagicMock(
+        return_value="release-current"
+    )
+    mock_load_target = MagicMock(
+        side_effect=ValueError(
+            "checksum mismatch"
+        )
+    )
+    mock_activate_pointer = MagicMock()
+
+    monkeypatch.setattr(
+        app_module,
+        "load_active_release_id",
+        mock_pointer,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "load_serving_bundle_for_release",
+        mock_load_target,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "activate_release_pointer",
+        mock_activate_pointer,
+    )
+
+    response = api_client.post(
+        "/admin/rollback-serving-release",
+        headers=api_headers,
+        json={
+            "release_id": "release-broken",
+        },
+    )
+
+    assert response.status_code == 500
+    mock_activate_pointer.assert_not_called()
+
+def test_rollback_activates_validated_release(
+    api_client,
+    api_headers,
+    monkeypatch,
+):
+
+    app_module = sys.modules["src.api.app"]
+
+    target_bundle = MagicMock()
+    target_bundle.release_id = "release-old"
+    target_bundle.model_version = "3"
+
+    monkeypatch.setattr(
+        app_module,
+        "load_active_release_id",
+        MagicMock(
+            return_value="release-current"
+        ),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "load_serving_bundle_for_release",
+        MagicMock(
+            return_value=target_bundle
+        ),
+    )
+
+    mock_pointer_update = MagicMock()
+    mock_bundle_activation = MagicMock(
+        return_value={
+            "release_id": "release-old",
+            "model_version": "3",
+        }
+    )
+
+    monkeypatch.setattr(
+        app_module,
+        "activate_release_pointer",
+        mock_pointer_update,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "activate_serving_bundle",
+        mock_bundle_activation,
+    )
+
+    response = api_client.post(
+        "/admin/rollback-serving-release",
+        headers=api_headers,
+        json={
+            "release_id": "release-old",
+        },
+    )
+
+    assert response.status_code == 200
+
+    mock_pointer_update.assert_called_once_with(
+        models_path=app_module.MODELS_PATH,
+        release_id="release-old",
+        operation="rollback",
+        previous_release_id=(
+            "release-current"
+        ),
+    )
+
+    mock_bundle_activation.assert_called_once_with(
+        target_bundle
+    )
+

@@ -7,6 +7,8 @@ from src.inference.serving_release import (
     load_active_serving_manifest,
     publish_serving_release,
     resolve_release_artifact_uri,
+    activate_release_pointer,
+    load_active_release_id,
 )
 
 
@@ -244,4 +246,68 @@ def test_release_artifact_cannot_escape_release_prefix(
         resolve_release_artifact_uri(
             release_root=str(tmp_path),
             reference=reference,
+        )
+
+
+def test_activate_release_pointer_changes_active_release(
+    serving_sources,
+):
+    first_release = publish_test_release(
+        serving_sources
+    )
+
+    second_release = publish_serving_release(
+        models_path=serving_sources[
+            "models_path"
+        ],
+        model_name="forecast-model",
+        model_version="9",
+        model_run_id="run-9",
+        model_type="xgboost",
+        target_transformation="log1p",
+        dataset_version="dataset-2",
+        config_hash="hash-2",
+        git_commit="def456",
+        store_metadata_source=(
+            serving_sources["metadata"]
+        ),
+        store_state_source=(
+            serving_sources["state"]
+        ),
+        known_calendar_source=(
+            serving_sources["calendar"]
+        ),
+    )
+
+    activate_release_pointer(
+        models_path=serving_sources[
+            "models_path"
+        ],
+        release_id=first_release.release_id,
+        operation="rollback",
+        previous_release_id=(
+            second_release.release_id
+        ),
+    )
+
+    assert load_active_release_id(
+        models_path=serving_sources[
+            "models_path"
+        ],
+    ) == first_release.release_id
+
+
+def test_activate_release_pointer_rejects_missing_release(
+    serving_sources,
+):
+    with pytest.raises(
+        FileNotFoundError,
+        match="without manifest",
+    ):
+        activate_release_pointer(
+            models_path=serving_sources[
+                "models_path"
+            ],
+            release_id="missing-release",
+            operation="rollback",
         )

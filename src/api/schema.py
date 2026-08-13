@@ -32,3 +32,14 @@ class PredictionResponse(BaseModel):
     predictions: list[float]
     status: str = "success"
     metadata: dict[str, Any] | None = None
+
+
+class ServingRollbackRequest(BaseModel):
+    release_id: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Previously published serving "
+            "release to activate."
+        ),
+    )
