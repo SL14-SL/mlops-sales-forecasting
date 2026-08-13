@@ -26,6 +26,13 @@ def evaluate_persistent_feature_drift(
     as drifted in every one of the latest N evaluation windows.
     """
 
+    if history.empty:
+        return SignalEvaluation(
+            triggered=False,
+            window_end=None,
+            reason="No feature drift history available.",
+        )
+    
     required_columns = {
         "timestamp",
         "feature",
@@ -43,13 +50,6 @@ def evaluate_persistent_feature_drift(
                 "Feature drift history is missing columns: "
                 f"{sorted(missing_columns)}."
             ),
-        )
-
-    if history.empty:
-        return SignalEvaluation(
-            triggered=False,
-            window_end=None,
-            reason="No feature drift history available.",
         )
 
     frame = history.copy()
@@ -172,6 +172,13 @@ def evaluate_performance_degradation(
     or when absolute bias exceeds its limit.
     """
 
+    if history.empty:
+        return SignalEvaluation(
+            triggered=False,
+            window_end=None,
+            reason="No performance history available.",
+        )
+    
     required_columns = {
         "window_end",
         "rmse",
@@ -190,13 +197,6 @@ def evaluate_performance_degradation(
                 "Performance history is missing columns: "
                 f"{sorted(missing_columns)}."
             ),
-        )
-
-    if history.empty:
-        return SignalEvaluation(
-            triggered=False,
-            window_end=None,
-            reason="No performance history available.",
         )
 
     frame = history.copy()
