@@ -515,101 +515,203 @@ MAX_BATCH_ROWS = 5000
     response_model=PredictionResponse,
 )
 def predict(payload: PredictionRequest):
-    if model is None or store_metadata is None:
-        logger.error("Predict called but model/metadata is missing!")
-        raise HTTPException(
-            status_code=503,
-            detail="Model or metadata not ready. Ensure '@champion' alias is set in MLflow or local fallback is available.",
-        )
-
     request_started = time.perf_counter()
     timings: dict[str, float] = {}
 
     request_id = (
         payload.context.get("request_id")
-        if payload.context and payload.context.get("request_id")
+        if (
+            payload.context
+            and payload.context.get(
+                "request_id"
+            )
+        )
         else str(uuid4())
     )
-    environment = os.getenv("APP_ENV", "dev")
+
+    environment = os.getenv(
+        "APP_ENV",
+        "dev",
+    )
+
+    # Capture exactly one immutable serving snapshot for this request.
+    request_bundle = active_serving_bundle
+
+    if request_bundle is None:
+        logger.error(
+            "Predict called without an active serving bundle."
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No complete serving bundle is active."
+            ),
+        )
 
     try:
         if len(payload.inputs) > MAX_BATCH_ROWS:
             raise HTTPException(
                 status_code=413,
-                detail=f"Batch too large. Max supported rows: {MAX_BATCH_ROWS}",
+                detail=(
+                    "Batch too large. "
+                    f"Max supported rows: "
+                    f"{MAX_BATCH_ROWS}"
+                ),
             )
 
         t = time.perf_counter()
-        input_df = request_to_dataframe(payload.inputs)
-        timings["request_to_dataframe"] = _ms_since(t)
+        input_df = request_to_dataframe(
+            payload.inputs
+        )
+        timings[
+            "request_to_dataframe"
+        ] = _ms_since(t)
 
         t = time.perf_counter()
-        validated_input_df = validate_prediction_input(input_df)
-        timings["validate_prediction_input"] = _ms_since(t)
+        validated_input_df = (
+            validate_prediction_input(
+                input_df
+            )
+        )
+        timings[
+            "validate_prediction_input"
+        ] = _ms_since(t)
 
         t = time.perf_counter()
+
         try:
-            dq_summary = log_data_quality_runtime(
-                validated_input_df,
-                reference_categories=dq_reference_categories,
+            dq_summary = (
+                log_data_quality_runtime(
+                    validated_input_df,
+                    reference_categories=(
+                        dq_reference_categories
+                    ),
+                )
             )
+
         except Exception as dq_error:
-            dq_summary = {"quality_status": "error", "error": str(dq_error)}
-            logger.warning(f"Data quality logging failed: {dq_error}")
-        timings["log_data_quality"] = _ms_since(t)
+            dq_summary = {
+                "quality_status": "error",
+                "error": str(dq_error),
+            }
+            logger.warning(
+                "Data quality logging failed: %s",
+                dq_error,
+            )
+
+        timings[
+            "log_data_quality"
+        ] = _ms_since(t)
 
         predictions: list[float] = []
-
         t_batch = time.perf_counter()
 
         for row in payload.inputs:
-            #  Single-Request-Semantik pro Zeile
-            row_df = request_to_dataframe([row])
-            row_validated_df = validate_prediction_input(row_df)
-
-            store_id = resolve_forecasting_store_id(row_validated_df)
-            open_flags = resolve_open_flags(row_validated_df)
-
-            #  Single-Store-Logik
-            features_df = merge_request_with_metadata(
-                validated_df=row_validated_df,
-                store_metadata=store_metadata,
-                store_id=store_id,
+            row_df = request_to_dataframe(
+                [row]
             )
-            if known_calendar is not None:
-                features_df = merge_request_with_calendar(
-                    features_df,
-                    known_calendar,
+
+            row_validated_df = (
+                validate_prediction_input(
+                    row_df
                 )
-            processed_df = preprocess_data(features_df, mode="inference")
-
-            processed_df = inject_forecasting_state_features(
-                processed_df=processed_df,
-                store_state=store_state or {},
-                store_id=store_id,
             )
 
-            processed_df = finalize_forecasting_feature_frame(processed_df)
-
-            processed_df = align_features_for_model(
-                processed_df=processed_df,
-                model=model,
-                model_type=model_type,
+            store_id = (
+                resolve_forecasting_store_id(
+                    row_validated_df
+                )
             )
 
-            raw_pred = model.predict(processed_df)
+            open_flags = resolve_open_flags(
+                row_validated_df
+            )
+
+            # Every inference dependency comes from the same bundle.
+            features_df = (
+                merge_request_with_metadata(
+                    validated_df=(
+                        row_validated_df
+                    ),
+                    store_metadata=(
+                        request_bundle
+                        .store_metadata
+                    ),
+                    store_id=store_id,
+                )
+            )
+
+            features_df = (
+                merge_request_with_calendar(
+                    features_df,
+                    request_bundle
+                    .known_calendar,
+                )
+            )
+
+            processed_df = preprocess_data(
+                features_df,
+                mode="inference",
+            )
+
+            processed_df = (
+                inject_forecasting_state_features(
+                    processed_df=processed_df,
+                    store_state=(
+                        request_bundle
+                        .store_state
+                    ),
+                    store_id=store_id,
+                )
+            )
+
+            processed_df = (
+                finalize_forecasting_feature_frame(
+                    processed_df
+                )
+            )
+
+            processed_df = (
+                align_features_for_model(
+                    processed_df=processed_df,
+                    model=(
+                        request_bundle.model
+                    ),
+                    model_type=(
+                        request_bundle
+                        .model_type
+                    ),
+                )
+            )
+
+            raw_predictions = (
+                request_bundle.model.predict(
+                    processed_df
+                )
+            )
 
             row_predictions = [
-                float(inverse_transform_target(float(pred), target_transformation))
-                for pred in raw_pred
+                float(
+                    inverse_transform_target(
+                        float(prediction),
+                        request_bundle
+                        .target_transformation,
+                    )
+                )
+                for prediction
+                in raw_predictions
             ]
 
-            row_predictions = apply_prediction_postprocessing(
-                row_predictions,
-                open_flags,
+            row_predictions = (
+                apply_prediction_postprocessing(
+                    row_predictions,
+                    open_flags,
+                )
             )
 
-            predictions.extend(row_predictions)
+            predictions.extend(
+                row_predictions
+            )
 
         timings["predict_rows_single_logic"] = _ms_since(t_batch)
 
@@ -624,20 +726,19 @@ def predict(payload: PredictionRequest):
             )
 
         t = time.perf_counter()
-        for features, pred in zip(payload.inputs, rounded_predictions):
+        for features, pred in zip(
+            payload.inputs,
+            rounded_predictions,
+        ):
             log_prediction(
                 features,
                 float(pred),
-                model_alias=serving_alias,
-                model_version=serving_model_version,
-                model_run_id=serving_model_run_id,
+                release_id=request_bundle.release_id,
+                model_alias=request_bundle.serving_alias,
+                model_version=request_bundle.model_version,
+                model_run_id=request_bundle.model_run_id,
                 request_id=request_id,
                 environment=environment,
-                release_id=(
-                    active_serving_bundle.release_id
-                    if active_serving_bundle is not None
-                    else None
-                ),
             )
         timings["log_prediction"] = _ms_since(t)
 
@@ -648,12 +749,32 @@ def predict(payload: PredictionRequest):
             extra={
                 "timing_ms": timings,
                 "rows": len(rounded_predictions),
-                "unique_stores": int(validated_input_df["Store"].nunique())
-                if "Store" in validated_input_df.columns
-                else None,
+                "unique_stores": (
+                    int(
+                        validated_input_df[
+                            "Store"
+                        ].nunique()
+                    )
+                    if "Store"
+                    in validated_input_df.columns
+                    else None
+                ),
                 "path": "/predict",
-                "model_type": model_type,
-                "serving_alias": serving_alias,
+                "release_id": (
+                    request_bundle.release_id
+                ),
+                "model_type": (
+                    request_bundle.model_type
+                ),
+                "model_version": (
+                    request_bundle.model_version
+                ),
+                "model_run_id": (
+                    request_bundle.model_run_id
+                ),
+                "serving_alias": (
+                    request_bundle.serving_alias
+                ),
                 "request_id": request_id,
             },
         )
@@ -663,14 +784,40 @@ def predict(payload: PredictionRequest):
             "status": "success",
             "metadata": {
                 "rows": len(rounded_predictions),
-                "unique_stores": int(validated_input_df["Store"].nunique())
-                if "Store" in validated_input_df.columns
-                else None,
-                "model_name": MODEL_NAME,
-                "model_type": model_type,
-                "target_transformation": target_transformation,
-                "serving_alias": serving_alias,
-                "model_uri": model_uri,
+                "unique_stores": (
+                    int(
+                        validated_input_df[
+                            "Store"
+                        ].nunique()
+                    )
+                    if "Store"
+                    in validated_input_df.columns
+                    else None
+                ),
+                "release_id": (
+                    request_bundle.release_id
+                ),
+                "model_name": (
+                    request_bundle.model_name
+                ),
+                "model_type": (
+                    request_bundle.model_type
+                ),
+                "model_version": (
+                    request_bundle.model_version
+                ),
+                "model_run_id": (
+                    request_bundle.model_run_id
+                ),
+                "target_transformation": (
+                    request_bundle.target_transformation
+                ),
+                "serving_alias": (
+                    request_bundle.serving_alias
+                ),
+                "model_uri": (
+                    request_bundle.model_uri
+                ),
                 "request_id": request_id,
                 "timing_ms": timings,
                 "data_quality": dq_summary,
@@ -678,15 +825,22 @@ def predict(payload: PredictionRequest):
         }
 
     except HTTPException:
-        timings["total"] = _ms_since(request_started)
+        timings["total"] = _ms_since(
+            request_started
+        )
+
         logger.error(
             "Prediction failed with HTTPException",
             extra={
                 "timing_ms": timings,
                 "path": "/predict",
                 "request_id": request_id,
+                "release_id": (
+                    request_bundle.release_id
+                ),
             },
         )
+
         raise
 
     except Exception as e:

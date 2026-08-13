@@ -1,7 +1,10 @@
 import mlflow
 import pandas as pd
 import numpy as np
-
+from mlflow.protos.databricks_pb2 import (
+    ErrorCode,
+    RESOURCE_DOES_NOT_EXIST,
+)
 from sklearn.metrics import mean_squared_error
 
 from mlflow.tracking import MlflowClient
@@ -216,25 +219,37 @@ def compare_models(
 
 def champion_exists() -> bool:
     """
-    Return whether the configured model has a Champion alias.
+    Return whether the configured registered model has a Champion alias.
 
-    A missing alias is an expected bootstrap condition. Registry connection
-    errors and other unexpected failures are propagated.
+    A missing registered model is an expected bootstrap condition.
+    Unexpected registry errors are propagated.
     """
     client = MlflowClient()
 
     try:
-        client.get_model_version_by_alias(
-            MODEL_NAME,
-            "champion",
+        registered_model = (
+            client.get_registered_model(
+                MODEL_NAME
+            )
         )
-        return True
 
     except MlflowException as error:
-        if error.error_code == "RESOURCE_DOES_NOT_EXIST":
+        missing_model_codes = {
+            RESOURCE_DOES_NOT_EXIST,
+            ErrorCode.Name(
+                RESOURCE_DOES_NOT_EXIST
+            ),
+        }
+
+        if error.error_code in missing_model_codes:
             return False
 
         raise
+
+    aliases = registered_model.aliases or {}
+
+    return "champion" in aliases
+
 
 if __name__ == "__main__":
     import sys

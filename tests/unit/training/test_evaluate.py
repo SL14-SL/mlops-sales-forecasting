@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-
+from mlflow.protos.databricks_pb2 import (
+    RESOURCE_DOES_NOT_EXIST,
+    INTERNAL_ERROR
+)
 import numpy as np
 import pandas as pd
 import pytest
@@ -11,6 +14,7 @@ from src.training.evaluate import (
     align_features_for_evaluation,
 )
 
+from mlflow.exceptions import MlflowException
 
 class FakeBooster:
     def __init__(self, feature_names):
@@ -165,3 +169,91 @@ def test_compare_models_blocks_promotion_when_champion_cannot_be_loaded(
         )
 
     assert load_model.call_count == 2
+
+def test_champion_exists_returns_true_when_alias_is_present(
+    monkeypatch,
+):
+    client = MagicMock()
+    client.get_registered_model.return_value = (
+        SimpleNamespace(
+            aliases={
+                "champion": "3",
+            }
+        )
+    )
+
+    monkeypatch.setattr(
+        evaluate,
+        "MlflowClient",
+        MagicMock(return_value=client),
+    )
+
+    assert evaluate.champion_exists() is True
+
+    client.get_registered_model.assert_called_once_with(
+        evaluate.MODEL_NAME
+    )
+
+def test_champion_exists_returns_false_when_alias_is_missing(
+    monkeypatch,
+):
+    client = MagicMock()
+    client.get_registered_model.return_value = (
+        SimpleNamespace(
+            aliases={
+                "challenger": "2",
+            }
+        )
+    )
+
+    monkeypatch.setattr(
+        evaluate,
+        "MlflowClient",
+        MagicMock(return_value=client),
+    )
+
+    assert evaluate.champion_exists() is False
+
+def test_champion_exists_returns_false_when_model_is_missing(
+    monkeypatch,
+):
+    client = MagicMock()
+    client.get_registered_model.side_effect = (
+        MlflowException(
+            "Registered model not found.",
+            error_code=RESOURCE_DOES_NOT_EXIST,
+        )
+    )
+
+    monkeypatch.setattr(
+        evaluate,
+        "MlflowClient",
+        MagicMock(return_value=client),
+    )
+
+    assert evaluate.champion_exists() is False
+
+def test_champion_exists_propagates_registry_errors(
+    monkeypatch,
+):
+    client = MagicMock()
+    client.get_registered_model.side_effect = (
+        MlflowException(
+            "Registry unavailable.",
+            error_code=INTERNAL_ERROR,
+        )
+    )
+
+    monkeypatch.setattr(
+        evaluate,
+        "MlflowClient",
+        MagicMock(return_value=client),
+    )
+
+    with pytest.raises(
+        MlflowException,
+        match="Registry unavailable",
+    ):
+        evaluate.champion_exists()
+
+    

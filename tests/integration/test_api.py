@@ -4,6 +4,9 @@ from unittest.mock import patch
 from unittest.mock import MagicMock
 import sys
 
+from src.data.features.calendar import build_known_calendar, prepare_known_calendar_lookup
+
+
 @pytest.fixture(autouse=True)
 def mock_api_dependencies(
     monkeypatch,
@@ -48,6 +51,9 @@ def mock_api_dependencies(
     )
 
     mocked_bundle = MagicMock()
+    mocked_bundle.release_id = (
+        "release-test-v1"
+    )
     mocked_bundle.model = mock_xgb_model
     mocked_bundle.model_name = (
         "sales-forecasting-model-dev"
@@ -62,13 +68,39 @@ def mock_api_dependencies(
     mocked_bundle.model_run_id = "test-run-1"
     mocked_bundle.store_metadata = sample_store_metadata
     mocked_bundle.store_state = sample_store_state
-    mocked_bundle.known_calendar = pd.DataFrame(
+    calendar_source = pd.DataFrame(
         {
-            "Store": [1],
-            "Date": [
-                pd.Timestamp("2026-02-27"),
+            "Store": [
+                1,
+                1,
+                1,
+            ],
+            "Date": pd.to_datetime(
+                [
+                    "2015-07-31",
+                    "2026-02-27",
+                    "2026-03-06",
+                ]
+            ),
+            "StateHoliday": [
+                "0",
+                "0",
+                "0",
+            ],
+            "SchoolHoliday": [
+                1,
+                0,
+                0,
             ],
         }
+    )
+
+    mocked_bundle.known_calendar = (
+        prepare_known_calendar_lookup(
+            build_known_calendar(
+                calendar_source
+            )
+        )
     )
 
     with (
@@ -163,6 +195,13 @@ def test_predict_endpoint_success(api_client, api_headers, sample_prediction_pay
     assert len(body["predictions"]) == 1
     assert "metadata" in body
     assert body["metadata"]["rows"] == 1
+    assert body["metadata"]["release_id"] == (
+    "release-test-v1"
+    )
+    assert body["metadata"]["model_version"] == "1"
+    assert body["metadata"]["model_run_id"] == (
+        "test-run-1"
+    )
 
 
 def test_predict_endpoint_requires_api_key(api_client, sample_prediction_payload):
@@ -337,3 +376,36 @@ def test_readyz_reports_active_bundle(api_client):
     assert body["serving_bundle_loaded"] is True
     assert body["model_version"] == "1"
     assert body["model_run_id"] == "test-run-1"
+
+def test_predict_uses_active_bundle_instead_of_legacy_globals(
+    api_client,
+    api_headers,
+    sample_prediction_payload,
+    monkeypatch,
+):
+    app_module = sys.modules[
+        "src.api.app"
+    ]
+
+    monkeypatch.setattr(
+        app_module,
+        "model",
+        None,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "store_metadata",
+        None,
+    )
+
+    response = api_client.post(
+        "/predict",
+        json=sample_prediction_payload,
+        headers=api_headers,
+    )
+
+    assert response.status_code == 200
+    assert (
+        response.json()["metadata"]["release_id"]
+        == "release-test-v1"
+    )

@@ -128,10 +128,10 @@ auto-retrain: wait-prefect ## Run auto retrain flow once manually inside the API
 
 predict-test: ## Send a sample prediction request and format output
 	@echo "🧪 Sending test prediction request..."
-	@curl -s -X POST http://localhost:8000/predict \
+	@curl -fsS -X POST http://localhost:8000/predict \
 		-H "Content-Type: application/json" \
 		-H "X-API-KEY: $(API_KEY)" \
-		-d '{"inputs":[{"Store":1,"DayOfWeek":1,"Date":"2026-03-08","Open":1,"Customers":500,"Promo":1,"StateHoliday":"0","SchoolHoliday":0}]}' \
+		-d '{"inputs":[{"Store":1,"DayOfWeek":5,"Date":"2015-07-31","Open":1,"Customers":500,"Promo":1,"StateHoliday":"0","SchoolHoliday":0}]}' \
 		| jq .
 
 demo-forecasting-lifecycle: wait-prefect ## Run forecasting lifecycle demo inside the API container
