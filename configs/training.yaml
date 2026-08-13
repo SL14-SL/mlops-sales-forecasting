@@ -88,7 +88,7 @@ features:
 
 promotion:
   minimum_validation_rows: 1000
-
+  minimum_segment_rows: 100
   # Candidate must improve overall RMSE by at least 0.5%.
   minimum_relative_rmse_improvement: 0.005
 

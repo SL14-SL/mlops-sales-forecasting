@@ -109,6 +109,7 @@ def test_compare_models_blocks_promotion_when_champion_cannot_be_loaded(
         {
             "feature": [1.0, 2.0, 3.0],
             "Sales": [100.0, 200.0, 300.0],
+            "Promo": [1, 1, 0]
         }
     )
 
@@ -256,4 +257,78 @@ def test_champion_exists_propagates_registry_errors(
     ):
         evaluate.champion_exists()
 
-    
+def test_calculate_promotion_metrics_by_promo_segment():
+    frame = pd.DataFrame(
+        {
+            "Promo": [
+                1,
+                1,
+                0,
+                0,
+            ],
+        }
+    )
+
+    metrics, segment_rows = (
+        evaluate.calculate_promotion_metrics(
+            y_true=pd.Series(
+                [
+                    100.0,
+                    200.0,
+                    100.0,
+                    200.0,
+                ]
+            ),
+            predictions=np.array(
+                [
+                    110.0,
+                    190.0,
+                    130.0,
+                    170.0,
+                ]
+            ),
+            evaluation_frame=frame,
+        )
+    )
+
+    assert segment_rows == {
+        "promo": 2,
+        "non_promo": 2,
+    }
+
+    assert metrics["promo_rmse"] == pytest.approx(
+        10.0
+    )
+
+    assert metrics[
+        "non_promo_rmse"
+    ] == pytest.approx(
+        30.0
+    )
+
+    assert metrics[
+        "overall_bias"
+    ] == pytest.approx(
+        0.0
+    )
+
+def test_calculate_promotion_metrics_requires_promo_column():
+    with pytest.raises(
+        ValueError,
+        match="required segment column",
+    ):
+        evaluate.calculate_promotion_metrics(
+            y_true=pd.Series(
+                [100.0]
+            ),
+            predictions=np.array(
+                [100.0]
+            ),
+            evaluation_frame=(
+                pd.DataFrame(
+                    {
+                        "other": [1],
+                    }
+                )
+            ),
+        )

@@ -175,34 +175,90 @@ def task_train(is_drift_run: bool):
     return run_id
 
 @task(name="Candidate Evaluation")
-def task_eval_and_reg(new_run_id: str) -> bool:
+def task_eval_and_reg(
+    new_run_id: str,
+) -> bool:
     """
-    Evaluate the candidate and register it only when it is rejected.
+    Evaluate the Candidate against the current Champion.
+
+    The Candidate is accepted only when it passes every configured promotion
+    gate. Rejected Candidates are retained in MLflow under the Challenger
+    alias for audit, analysis and possible shadow evaluation.
+
+    Comparison or policy errors propagate and block all registry changes.
     """
     p_logger = get_run_logger()
-    is_better, metrics = compare_models(new_run_id)
 
-    if metrics and "rmse_euro" in metrics:
+    candidate_accepted, metrics = (
+        compare_models(
+            new_run_id
+        )
+    )
+
+    candidate_metrics = metrics.get(
+        "candidate_metrics",
+        {},
+    )
+
+    champion_metrics = metrics.get(
+        "champion_metrics",
+        {},
+    )
+
+    promotion_decision = metrics.get(
+        "promotion_decision",
+        {},
+    )
+
+    p_logger.info(
+        "Promotion policy evaluated | "
+        "candidate_run_id=%s | "
+        "accepted=%s | "
+        "candidate_rmse=%s | "
+        "champion_rmse=%s | "
+        "reasons=%s",
+        new_run_id,
+        promotion_decision.get(
+            "accepted"
+        ),
+        candidate_metrics.get(
+            "overall_rmse"
+        ),
+        champion_metrics.get(
+            "overall_rmse"
+        ),
+        promotion_decision.get(
+            "reasons",
+            [],
+        ),
+    )
+
+    # Compatibility output for the current lifecycle scripts.
+    if "rmse_euro" in metrics:
         print(
-            f"Challenger RMSE: "
+            "Challenger RMSE: "
             f"{metrics['rmse_euro']}"
         )
 
-    if is_better:
+    if candidate_accepted:
         p_logger.info(
-            "Candidate outperforms Champion | "
+            "Candidate passed all promotion gates | "
             f"candidate_run_id={new_run_id}"
         )
         return True
 
     p_logger.info(
-        "Champion remains superior. "
-        "Registering candidate as Challenger."
+        "Candidate rejected by promotion policy. "
+        "Registering it as Challenger | "
+        f"candidate_run_id={new_run_id} | "
+        f"reasons={promotion_decision.get('reasons', [])}"
     )
+
     register_model(
         new_run_id,
         alias="challenger",
     )
+
     return False
 
 @task(name="Bootstrap Initial Champion")

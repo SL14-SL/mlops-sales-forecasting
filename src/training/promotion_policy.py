@@ -55,6 +55,7 @@ def evaluate_promotion_policy(
     candidate_metrics: dict[str, float],
     champion_metrics: dict[str, float],
     validation_rows: int,
+    segment_rows: dict[str, int],
     config: dict[str, Any],
 ) -> PromotionDecision:
     """
@@ -73,12 +74,47 @@ def evaluate_promotion_policy(
             f"{validation_rows}/{minimum_rows}"
         )
 
+    minimum_segment_rows = int(
+        config.get(
+            "minimum_segment_rows",
+            100,
+        )
+    )
+    required_segments = [
+        str(segment)
+        for segment in config.get(
+            "required_segments",
+                [
+                    "promo",
+                    "non_promo",
+                ],
+            )
+        ]
+    
     required_metric_names = {
         "overall_rmse",
-        "promo_rmse",
-        "non_promo_rmse",
         "overall_bias",
+        *{
+            f"{segment}_rmse"
+            for segment in required_segments
+        },
     }
+    
+    for segment in required_segments:
+        row_count = int(
+            segment_rows.get(
+                segment,
+                0,
+            )
+        )
+
+        if row_count < minimum_segment_rows:
+            raise ValueError(
+                "Not enough validation rows for "
+                f"segment '{segment}': "
+                f"{row_count}/{minimum_segment_rows}"
+            )
+
 
     missing_candidate = (
         required_metric_names
@@ -155,14 +191,6 @@ def evaluate_promotion_policy(
             "maximum_segment_rmse_regression",
             0.02,
         )
-    )
-
-    required_segments = config.get(
-        "required_segments",
-        [
-            "promo",
-            "non_promo",
-        ],
     )
 
     for segment in required_segments:
