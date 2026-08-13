@@ -85,3 +85,19 @@ features:
     - Promo2SinceYear
 
   drop_columns: []
+
+promotion:
+  minimum_validation_rows: 1000
+
+  # Candidate must improve overall RMSE by at least 0.5%.
+  minimum_relative_rmse_improvement: 0.005
+
+  # Candidate may not make a relevant segment more than 2% worse.
+  maximum_segment_rmse_regression: 0.02
+
+  # Prevent accepting a model with materially worse systematic error.
+  maximum_absolute_bias_regression: 100.0
+
+  required_segments:
+    - promo
+    - non_promo
