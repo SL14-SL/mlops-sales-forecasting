@@ -12,6 +12,22 @@ feature_drift:
   p_value_threshold: 0.01
   stat_threshold: 0.10
 
+retraining:
+  minimum_new_training_rows: 500
+  cooldown_hours: 168
+  maximum_new_training_rows: 1000000
+
+  drift:
+    lookback_days: 14
+    consecutive_windows: 2
+
+  performance:
+    consecutive_windows: 2
+    rmse_limit: 1375.0
+    mae_limit: 990.0
+    absolute_bias_limit: 900.0
+  
+
 data_quality:
   enabled: true
   persist_history: false

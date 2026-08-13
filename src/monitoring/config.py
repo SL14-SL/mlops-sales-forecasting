@@ -38,3 +38,76 @@ def get_serving_settings() -> dict:
             ["/metrics", "/monitoring/summary", "/docs", "/openapi.json", "/redoc"],
         ),
     }
+
+def get_retraining_settings() -> dict:
+    cfg = get_monitoring_config().get(
+        "retraining",
+        {},
+    )
+
+    drift_cfg = cfg.get("drift", {})
+    performance_cfg = cfg.get(
+        "performance",
+        {},
+    )
+
+    return {
+        "minimum_new_training_rows": int(
+            cfg.get(
+                "minimum_new_training_rows",
+                500,
+            )
+        ),
+        "cooldown_hours": int(
+            cfg.get(
+                "cooldown_hours",
+                168,
+            )
+        ),
+        "maximum_new_training_rows": int(
+            cfg.get(
+                "maximum_new_training_rows",
+                1_000_000,
+            )
+        ),
+        "drift": {
+            "lookback_days": int(
+                drift_cfg.get(
+                    "lookback_days",
+                    14,
+                )
+            ),
+            "consecutive_windows": int(
+                drift_cfg.get(
+                    "consecutive_windows",
+                    2,
+                )
+            ),
+        },
+        "performance": {
+            "consecutive_windows": int(
+                performance_cfg.get(
+                    "consecutive_windows",
+                    2,
+                )
+            ),
+            "rmse_limit": float(
+                performance_cfg.get(
+                    "rmse_limit",
+                    1375.0,
+                )
+            ),
+            "mae_limit": float(
+                performance_cfg.get(
+                    "mae_limit",
+                    990.0,
+                )
+            ),
+            "absolute_bias_limit": float(
+                performance_cfg.get(
+                    "absolute_bias_limit",
+                    900.0,
+                )
+            ),
+        },
+    }
