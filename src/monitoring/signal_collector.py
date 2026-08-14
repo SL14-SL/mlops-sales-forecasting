@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import io
 from datetime import datetime, timezone
-from pathlib import PurePosixPath
 from typing import Any
 
 import fsspec
@@ -74,24 +73,33 @@ def _read_parquet_if_available(
 
 def _read_ground_truth_batches(
     batch_files: list[str],
-) -> tuple[int, str | None, bool, str | None]:
+    *,
+    processed_batch_ids: set[str],
+) -> tuple[
+    int,
+    str | None,
+    tuple[str, ...],
+    bool,
+    str | None,
+]:
     """
-    Validate all currently available Ground-Truth batches.
+    Validate all available Ground-Truth batches.
 
-    The returned fingerprint is deterministic for the same file names
-    and file contents and therefore works locally and with GCS.
+    Rows are counted as new only when their content-based batch ID was
+    not recorded by a previous successful retraining run.
     """
 
     if not batch_files:
         return (
             0,
             None,
+            (),
             True,
             "No Ground-Truth batches available.",
         )
 
-    fingerprint = hashlib.sha256()
-    total_rows = 0
+    total_new_rows = 0
+    current_batch_ids: set[str] = set()
 
     for batch_path in batch_files:
         try:
@@ -101,17 +109,12 @@ def _read_ground_truth_batches(
             ) as file:
                 raw_content = file.read()
 
-            # Do not include a local/GCS prefix in the identity.
-            file_name = PurePosixPath(
-                batch_path
-            ).name
-
-            fingerprint.update(
-                file_name.encode("utf-8")
+            batch_id = (
+                "gt-"
+                + hashlib.sha256(
+                    raw_content
+                ).hexdigest()[:20]
             )
-            fingerprint.update(b"\0")
-            fingerprint.update(raw_content)
-            fingerprint.update(b"\0")
 
             batch_df = pd.read_csv(
                 io.BytesIO(raw_content),
@@ -122,12 +125,28 @@ def _read_ground_truth_batches(
             validated_df = validate_train(
                 batch_df
             )
-            total_rows += len(validated_df)
+
+            is_new_batch = (
+                batch_id
+                not in processed_batch_ids
+                and batch_id
+                not in current_batch_ids
+            )
+
+            if is_new_batch:
+                total_new_rows += len(
+                    validated_df
+                )
+
+            current_batch_ids.add(batch_id)
 
         except Exception as error:
             return (
-                total_rows,
+                total_new_rows,
                 None,
+                tuple(
+                    sorted(current_batch_ids)
+                ),
                 False,
                 (
                     "Ground-Truth batch validation "
@@ -136,18 +155,42 @@ def _read_ground_truth_batches(
                 ),
             )
 
+    sorted_batch_ids = tuple(
+        sorted(current_batch_ids)
+    )
+
+    fingerprint_payload = "|".join(
+        sorted_batch_ids
+    )
     dataset_version = (
         "batch-"
-        f"{fingerprint.hexdigest()[:16]}"
+        + hashlib.sha256(
+            fingerprint_payload.encode(
+                "utf-8"
+            )
+        ).hexdigest()[:16]
+    )
+
+    processed_count = len(
+        current_batch_ids
+        & processed_batch_ids
+    )
+    new_count = (
+        len(current_batch_ids)
+        - processed_count
     )
 
     return (
-        total_rows,
+        total_new_rows,
         dataset_version,
+        sorted_batch_ids,
         True,
         (
-            f"Validated {len(batch_files)} "
-            f"Ground-Truth batches."
+            f"Validated "
+            f"{len(current_batch_ids)} unique "
+            "Ground-Truth batches "
+            f"({new_count} new, "
+            f"{processed_count} already processed)."
         ),
     )
 
@@ -201,6 +244,17 @@ def collect_retraining_signals(
     raw_path = get_path("raw_data")
     monitoring_path = get_path("monitoring")
 
+    retraining_state = (
+        load_retraining_state()
+    )
+
+    processed_batch_ids = set(
+        retraining_state.get(
+            "processed_batch_ids",
+            [],
+        )
+    )
+
     batch_pattern = join_uri(
         raw_path,
         "new_batches",
@@ -211,10 +265,14 @@ def collect_retraining_signals(
     (
         new_training_rows,
         dataset_version,
+        batch_ids,
         data_quality_ok,
         data_quality_reason,
     ) = _read_ground_truth_batches(
-        batch_files
+        batch_files,
+        processed_batch_ids=(
+            processed_batch_ids
+        ),
     )
 
     drift_path = join_uri(
@@ -274,8 +332,6 @@ def collect_retraining_signals(
         )
     )
 
-    retraining_state = load_retraining_state()
-
     cooldown_active = _cooldown_active(
         retraining_state,
         evaluated_at=evaluation_time,
@@ -319,4 +375,5 @@ def collect_retraining_signals(
         data_quality_reason=(
             data_quality_reason
         ),
+        batch_ids=batch_ids,
     )

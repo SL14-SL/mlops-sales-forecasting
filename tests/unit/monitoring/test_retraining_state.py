@@ -24,6 +24,10 @@ def decision() -> RetrainingDecision:
         ),
         evidence={
             "dataset_version": "batch-v1",
+            "batch_ids": (
+                "gt-batch-001",
+                "gt-batch-002",
+            ),
             "performance_window_end": (
                 "2026-08-13T00:00:00Z"
             ),
@@ -111,6 +115,12 @@ def test_successful_retraining_is_persisted(
     assert persisted["last_decision_id"] == (
         "retrain-test-123"
     )
+    assert persisted[
+        "processed_batch_ids"
+    ] == [
+        "gt-batch-001",
+        "gt-batch-002",
+    ]
 
 
 def test_result_without_candidate_is_rejected(

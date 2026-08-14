@@ -124,6 +124,12 @@ def record_successful_retraining(
                 False,
             )
         ),
+        "processed_batch_ids": list(
+            decision.evidence.get(
+                "batch_ids",
+                (),
+            )
+        )
     }
 
     write_text(

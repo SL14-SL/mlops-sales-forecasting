@@ -33,6 +33,8 @@ class RetrainingSignals:
     cooldown_active: bool
     budget_available: bool
 
+    batch_ids: tuple[str, ...] = ()
+
     performance_window_end: str | None = None
     drift_window_end: str | None = None
 
@@ -75,6 +77,9 @@ def _build_decision_id(
         ),
         "feature_drift_persistent": (
             signals.feature_drift_persistent
+        ),
+        "batch_ids": list(
+            signals.batch_ids
         ),
     }
 

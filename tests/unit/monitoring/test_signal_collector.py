@@ -93,17 +93,20 @@ def test_collects_normalized_retraining_signals(
             ]
         ),
     )
+    mock_batch_reader = MagicMock(
+        return_value=(
+            800,
+            "batch-test-001",
+            ("gt-batch-001",),
+            True,
+            "Ground Truth is valid.",
+        )
+    )
+
     monkeypatch.setattr(
         signal_collector,
         "_read_ground_truth_batches",
-        MagicMock(
-            return_value=(
-                800,
-                "batch-test-001",
-                True,
-                "Ground Truth is valid.",
-            )
-        ),
+        mock_batch_reader,
     )
     monkeypatch.setattr(
         signal_collector,
@@ -128,6 +131,18 @@ def test_collects_normalized_retraining_signals(
                 "2026-08-13T01:00:00Z"
             )
         )
+    )
+
+    mock_batch_reader.assert_called_once_with(
+        [
+            "data/raw/new_batches/"
+            "ground_truth_001.csv",
+        ],
+        processed_batch_ids=set(),
+    )
+
+    assert signals.batch_ids == (
+        "gt-batch-001",
     )
 
     assert signals.dataset_version == (
@@ -249,6 +264,7 @@ def test_rows_above_budget_are_reported(
             return_value=(
                 1_000_001,
                 "batch-too-large",
+                ("gt-batch-too-large",),
                 True,
                 "Ground Truth is valid.",
             )
@@ -283,3 +299,53 @@ def test_rows_above_budget_are_reported(
         1_000_001
     )
     assert signals.budget_available is False
+
+def test_processed_batch_rows_are_not_new(
+    tmp_path,
+):
+    batch_path = (
+        tmp_path
+        / "ground_truth_test.csv"
+    )
+    batch_path.write_text(
+        (
+            "Store,Date,Sales,Customers,"
+            "Open,Promo,StateHoliday,"
+            "SchoolHoliday,DayOfWeek\n"
+            "1,2015-04-28,1000,100,"
+            "1,0,0,0,2\n"
+        ),
+        encoding="utf-8",
+    )
+
+    first_result = (
+        signal_collector
+        ._read_ground_truth_batches(
+            [str(batch_path)],
+            processed_batch_ids=set(),
+        )
+    )
+
+    first_rows = first_result[0]
+    batch_ids = first_result[2]
+
+    assert first_result[3] is True
+    assert batch_ids
+
+    second_result = (
+        signal_collector
+        ._read_ground_truth_batches(
+            [str(batch_path)],
+            processed_batch_ids=set(
+                batch_ids
+            ),
+        )
+    )
+
+    second_rows = second_result[0]
+    second_batch_ids = second_result[2]
+
+    assert first_rows == 1
+    assert second_rows == 0
+    assert second_batch_ids == batch_ids
+    assert second_result[3] is True
