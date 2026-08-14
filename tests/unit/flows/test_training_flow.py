@@ -48,7 +48,7 @@ def test_training_pipeline_stable_system_only_evaluates_champion(
     mock_eval_and_reg = MagicMock()
     mock_final_refit = MagicMock()
     mock_refresh_api = MagicMock()
-    mock_verify_health = MagicMock()
+    mock_verify_release = MagicMock()
 
     monkeypatch.setattr(
         "flows.training_flow.task_check_drift",
@@ -87,8 +87,8 @@ def test_training_pipeline_stable_system_only_evaluates_champion(
         mock_refresh_api,
     )
     monkeypatch.setattr(
-        "flows.training_flow.task_verify_health",
-        mock_verify_health,
+        "flows.training_flow.task_verify_serving_release",
+        mock_verify_release,
     )
 
     result = training_flow.training_pipeline.fn(
@@ -107,7 +107,7 @@ def test_training_pipeline_stable_system_only_evaluates_champion(
     mock_eval_and_reg.assert_not_called()
     mock_final_refit.assert_not_called()
     mock_refresh_api.assert_not_called()
-    mock_verify_health.assert_not_called()
+    mock_verify_release.assert_not_called()
 
 
 def test_training_pipeline_force_run_without_promotion(
@@ -128,7 +128,7 @@ def test_training_pipeline_force_run_without_promotion(
     mock_eval_and_reg = MagicMock(return_value=False)
     mock_final_refit = MagicMock()
     mock_refresh_api = MagicMock()
-    mock_verify_health = MagicMock(return_value=True)
+    mock_verify_release = MagicMock(return_value=True)
     mock_publish_release = MagicMock()
 
     monkeypatch.setattr(
@@ -168,8 +168,8 @@ def test_training_pipeline_force_run_without_promotion(
         mock_refresh_api,
     )
     monkeypatch.setattr(
-        "flows.training_flow.task_verify_health",
-        mock_verify_health,
+        "flows.training_flow.task_verify_serving_release",
+        mock_verify_release,
     )
     monkeypatch.setattr(
         "flows.training_flow.task_publish_serving_release",
@@ -200,7 +200,7 @@ def test_training_pipeline_force_run_without_promotion(
     mock_final_refit.assert_not_called()
 
     mock_refresh_api.assert_not_called()
-    mock_verify_health.assert_not_called()
+    mock_verify_release.assert_not_called()
     mock_publish_release.assert_not_called()
 
     assert result == {
@@ -236,7 +236,7 @@ def test_training_pipeline_drift_with_final_refit(
         },
     )
     mock_refresh_api = MagicMock()
-    mock_verify_health = MagicMock(return_value=True)
+    mock_verify_release = MagicMock(return_value=True)
 
     mock_publish_release = MagicMock(
         return_value="release-test-v8",
@@ -283,8 +283,8 @@ def test_training_pipeline_drift_with_final_refit(
         mock_refresh_api,
     )
     monkeypatch.setattr(
-        "flows.training_flow.task_verify_health",
-        mock_verify_health,
+        "flows.training_flow.task_verify_serving_release",
+        mock_verify_release,
     )
 
     result = training_flow.training_pipeline.fn(
@@ -327,7 +327,7 @@ def test_training_pipeline_drift_with_final_refit(
     ]
 
     mock_refresh_api.assert_called_once()
-    mock_verify_health.assert_called_once()
+    mock_verify_release.assert_called_once()
 
     assert result == {
         "run_id": "final_run_456",
@@ -361,7 +361,7 @@ def test_training_pipeline_drift_without_final_refit(
     mock_eval_and_reg = MagicMock(return_value=False)
     mock_final_refit = MagicMock()
     mock_refresh_api = MagicMock()
-    mock_verify_health = MagicMock(return_value=True)
+    mock_verify_release = MagicMock(return_value=True)
     mock_publish_release = MagicMock()
 
     monkeypatch.setattr(
@@ -401,8 +401,8 @@ def test_training_pipeline_drift_without_final_refit(
         mock_refresh_api,
     )
     monkeypatch.setattr(
-        "flows.training_flow.task_verify_health",
-        mock_verify_health,
+        "flows.training_flow.task_verify_serving_release",
+        mock_verify_release,
     )
     monkeypatch.setattr(
         training_flow,
@@ -434,7 +434,7 @@ def test_training_pipeline_drift_without_final_refit(
     mock_final_refit.assert_not_called()
 
     mock_refresh_api.assert_not_called()
-    mock_verify_health.assert_not_called()
+    mock_verify_release.assert_not_called()
     mock_publish_release.assert_not_called()
 
     assert result == {
@@ -648,7 +648,7 @@ def test_publication_failure_does_not_reload_api(
     )
     monkeypatch.setattr(
         training_flow,
-        "task_verify_health",
+        "task_verify_serving_release",
         mock_health,
     )
 
@@ -749,7 +749,7 @@ def test_training_pipeline_bootstrap_publishes_release(
     )
     monkeypatch.setattr(
         training_flow,
-        "task_verify_health",
+        "task_verify_serving_release",
         mock_health,
     )
 

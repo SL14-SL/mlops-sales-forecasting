@@ -1,7 +1,6 @@
 # --- STANDARD LIBRARY IMPORTS ---
 import sys
 import os
-import time
 import shutil
 import logging
 import warnings
@@ -36,6 +35,8 @@ from src.data.features.calendar import (
 )
 from src.data.splits.split import split as split_logic
 from src.data.versioning import make_dataset_version, snapshot_current_datasets, log_dataset_manifest_to_mlflow
+
+from src.deployment.verification import verify_serving_release
 
 from src.training.train import train
 from src.training.register import register_model
@@ -556,30 +557,70 @@ def task_refresh_api() -> None:
 
     response.raise_for_status()
     p_logger.info(f"API serving state reload successful: {response.json()}")
+
     
-@task(name="Verify API Health")
-def task_verify_health():
+@task(name="Verify Serving Release")
+def task_verify_serving_release(
+    expected_release_id: str,
+) -> dict:
+    """
+    Verify that the API activated the expected complete serving release.
+    """
+
     p_logger = get_run_logger()
 
-    api_url = ENV_CFG["api"]["url"].rsplit("/", 1)[0] + "/health"
-    p_logger.info(f"Checking API health at: {api_url}")
+    api_url = ENV_CFG.get(
+        "api",
+        {},
+    ).get(
+        "url",
+        "http://api:8080/predict",
+    )
 
-    for i in range(20):  # 20 Versuche
-        try:
-            r = requests.get(api_url, timeout=10)
+    if api_url.endswith("/predict"):
+        api_base_url = (
+            api_url.removesuffix(
+                "/predict"
+            )
+        )
+    else:
+        api_base_url = api_url.rstrip("/")
 
-            if r.status_code == 200:
-                p_logger.info("API is healthy.")
-                return True
+    p_logger.info(
+        "Verifying serving release | "
+        f"expected_release_id="
+        f"{expected_release_id} | "
+        f"api_base_url={api_base_url}"
+    )
 
-            p_logger.warning(f"Attempt {i+1}: status {r.status_code}")
+    result = verify_serving_release(
+        api_base_url=api_base_url,
+        expected_release_id=(
+            expected_release_id
+        ),
+    )
 
-        except requests.exceptions.RequestException as e:
-            p_logger.warning(f"Attempt {i+1}: not reachable ({e})")
+    p_logger.info(
+        "Serving release verified | "
+        f"release_id="
+        f"{result.release_id} | "
+        f"model_version="
+        f"{result.model_version} | "
+        f"model_run_id="
+        f"{result.model_run_id} | "
+        f"attempts={result.attempts}"
+    )
 
-        time.sleep(10)
-
-    raise Exception("API did not recover after refresh!")
+    return {
+        "release_id": result.release_id,
+        "model_version": (
+            result.model_version
+        ),
+        "model_run_id": (
+            result.model_run_id
+        ),
+        "attempts": result.attempts,
+    }
 
 
 @flow(name="End-to-End Demand Forecasting Pipeline")
@@ -709,7 +750,9 @@ def training_pipeline(
         )
 
         task_refresh_api()
-        task_verify_health()
+        task_verify_serving_release(
+            expected_release_id=release_id,
+        )
 
     else:
         p_logger.info(
