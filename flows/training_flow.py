@@ -14,6 +14,7 @@ import pandas as pd
 import mlflow
 
 from google.cloud import storage
+from mlflow.tracking import MlflowClient
 
 # --- INTERNAL CONFIG BOOTSTRAP ---
 from src.configs.loader import load_config, get_path, file_exists, ensure_dir, join_uri
@@ -46,7 +47,7 @@ from src.training.policy import should_refresh_api, should_skip_training, get_ru
 from src.monitoring.drift import fetch_current_data, detect_ks_drift
 from src.monitoring.feature_drift import run_feature_drift_check
 
-from src.inference.serving_release import publish_serving_release
+from src.inference.serving_release import publish_serving_release, load_serving_release_manifest, load_active_release_id
 
 from src.utils.logger import get_logger
 
@@ -63,6 +64,84 @@ logging.getLogger("alembic").setLevel(logging.ERROR)
 tracking_uri = ENV_CFG["tracking"]["mlflow_tracking_uri"]
 mlflow.set_tracking_uri(tracking_uri)
 logger.info(f"Using MLflow tracking URI: {tracking_uri}")
+
+def deploy_and_verify_release(
+    *,
+    release_id: str,
+    previous_release_id: str | None,
+) -> dict:
+    """
+    Reload and verify a newly published release.
+
+    If verification fails, restore the previous serving release and MLflow
+    Champion alias, then verify the rollback.
+    """
+    try:
+        task_refresh_api()
+
+        verification = (
+            task_verify_serving_release(
+                expected_release_id=release_id,
+            )
+        )
+
+        return {
+            "deployment_status": "verified",
+            "release_id": release_id,
+            "verification": verification,
+            "rolled_back": False,
+        }
+
+    except Exception as deployment_error:
+        logger.exception(
+            "Serving release deployment failed | "
+            "release_id=%s | "
+            "previous_release_id=%s",
+            release_id,
+            previous_release_id,
+        )
+
+        if previous_release_id is None:
+            raise RuntimeError(
+                "Serving release verification failed "
+                "and no previous release is available "
+                "for rollback."
+            ) from deployment_error
+
+        try:
+            rollback_result = (
+                task_rollback_serving_release(
+                    previous_release_id=(
+                        previous_release_id
+                    ),
+                )
+            )
+
+            rollback_verification = (
+                task_verify_serving_release(
+                    expected_release_id=(
+                        previous_release_id
+                    ),
+                )
+            )
+
+        except Exception as rollback_error:
+            raise RuntimeError(
+                "Serving release verification failed "
+                "and automatic rollback also failed."
+            ) from rollback_error
+
+        raise RuntimeError(
+            "New serving release failed verification. "
+            "Automatic rollback completed successfully | "
+            f"failed_release_id={release_id} | "
+            "restored_release_id="
+            f"{previous_release_id} | "
+            f"rollback_result={rollback_result} | "
+            "rollback_verification="
+            f"{rollback_verification}"
+        ) from deployment_error
+    
 
 @task(name="Check Data Drift")
 def task_check_drift():
@@ -348,6 +427,131 @@ def task_final_refit(
         "run_id": final_run_id,
         "model_version": str(model_version.version),
     }
+
+@task(name="Resolve Previous Serving Release")
+def task_resolve_previous_release() -> str | None:
+    """
+    Resolve the currently active serving release before publishing a new one.
+
+    During bootstrap no previous release exists.
+    """
+    p_logger = get_run_logger()
+
+    try:
+        release_id = load_active_release_id(
+            models_path=get_path("models"),
+        )
+
+    except FileNotFoundError:
+        p_logger.info(
+            "No previous serving release exists. "
+            "This is expected during bootstrap."
+        )
+        return None
+
+    p_logger.info(
+        "Previous serving release resolved | "
+        f"release_id={release_id}"
+    )
+
+    return release_id
+
+@task(name="Rollback Serving Release")
+def task_rollback_serving_release(
+    *,
+    previous_release_id: str,
+) -> dict:
+    """
+    Roll back both the serving release and the MLflow Champion alias.
+
+    The serving rollback endpoint validates and activates the previous
+    immutable release. Afterwards the MLflow Champion alias is restored to
+    the exact model version referenced by that release.
+    """
+    p_logger = get_run_logger()
+
+    cfg = load_config()
+    api_url = cfg.get(
+        "api",
+        {},
+    ).get(
+        "url",
+        "http://api:8080/predict",
+    )
+
+    if api_url.endswith("/predict"):
+        api_base_url = api_url.removesuffix(
+            "/predict"
+        )
+    else:
+        api_base_url = api_url.rstrip("/")
+
+    api_key = os.getenv("API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "API_KEY environment variable is not set."
+        )
+
+    p_logger.warning(
+        "Starting automatic serving rollback | "
+        f"target_release_id={previous_release_id}"
+    )
+
+    response = requests.post(
+        (
+            f"{api_base_url}"
+            "/admin/rollback-serving-release"
+        ),
+        json={
+            "release_id": previous_release_id,
+        },
+        headers={
+            "X-API-KEY": api_key,
+        },
+        timeout=30,
+    )
+
+    response.raise_for_status()
+    rollback_result = response.json()
+
+    previous_manifest = (
+        load_serving_release_manifest(
+            models_path=get_path("models"),
+            release_id=previous_release_id,
+        )
+    )
+
+    client = MlflowClient()
+
+    client.set_registered_model_alias(
+        name=previous_manifest.model_name,
+        alias="champion",
+        version=str(
+            previous_manifest.model_version
+        ),
+    )
+
+    p_logger.warning(
+        "Automatic rollback completed | "
+        f"release_id={previous_release_id} | "
+        "model_version="
+        f"{previous_manifest.model_version}"
+    )
+
+    return {
+        "release_id": previous_release_id,
+        "model_name": (
+            previous_manifest.model_name
+        ),
+        "model_version": str(
+            previous_manifest.model_version
+        ),
+        "model_run_id": (
+            previous_manifest.model_run_id
+        ),
+        "api_result": rollback_result,
+    }
+
 
 @task(name="Publish Serving Release")
 def task_publish_serving_release(
@@ -659,8 +863,13 @@ def training_pipeline(
     release_id = None
     candidate_accepted = False
     new_champion_crowned = False
+    previous_release_id = None
+    deployment_result = None
 
     if bootstrap:
+        previous_release_id = (
+            task_resolve_previous_release()
+        )
         promotion_result = (
             task_bootstrap_champion(
                 candidate_run_id=run_id,
@@ -701,6 +910,9 @@ def training_pipeline(
         )
 
         if candidate_accepted:
+            previous_release_id = (
+                task_resolve_previous_release()
+            )
             promotion_result = (
                 task_final_refit(
                     candidate_run_id=run_id,
@@ -745,13 +957,19 @@ def training_pipeline(
 
         p_logger.info(
             "New serving release published. "
-            "Refreshing API | "
-            f"release_id={release_id}"
+            "Deploying and verifying API | "
+            f"release_id={release_id} | "
+            "previous_release_id="
+            f"{previous_release_id}"
         )
 
-        task_refresh_api()
-        task_verify_serving_release(
-            expected_release_id=release_id,
+        deployment_result = (
+            deploy_and_verify_release(
+                release_id=release_id,
+                previous_release_id=(
+                    previous_release_id
+                ),
+            )
         )
 
     else:
@@ -777,6 +995,7 @@ def training_pipeline(
         "champion_promoted": bool(
             new_champion_crowned
         ),
+        "deployment": deployment_result,
     }
 
 if __name__ == "__main__":

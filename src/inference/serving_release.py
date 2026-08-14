@@ -512,6 +512,30 @@ def load_active_serving_manifest(
         release_id=release_id,
     )
 
+def load_serving_release_manifest(
+    *,
+    models_path: str,
+    release_id: str,
+) -> ServingReleaseManifest:
+    """
+    Load one immutable serving release manifest by release ID.
+    """
+    paths = build_release_paths(
+        models_path=models_path,
+        release_id=release_id,
+    )
+
+    manifest_path = paths["manifest"]
+
+    if not file_exists(manifest_path):
+        raise FileNotFoundError(
+            "Serving release manifest not found: "
+            f"{manifest_path}"
+        )
+
+    return parse_serving_manifest(
+        load_json(manifest_path)
+    )
 
 def resolve_release_artifact_uri(
     *,
