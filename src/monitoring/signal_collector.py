@@ -13,6 +13,9 @@ from src.configs.loader import (
     get_path,
     join_uri,
 )
+from src.inference.serving_release import (
+    load_active_serving_manifest,
+)
 from src.data.validation.validate import (
     validate_train,
 )
@@ -223,6 +226,85 @@ def _cooldown_active(
         hours=cooldown_hours
     )
 
+def _resolve_last_training_at_utc(
+    state: dict[str, Any],
+    *,
+    models_path: str,
+) -> str | None:
+    """
+    Resolve the latest successful training timestamp.
+
+    Prefer the retraining state because it also represents rejected
+    Candidates. Fall back to the active serving release for bootstrap.
+    """
+
+    state_timestamp = state.get(
+        "last_retrained_at_utc"
+    )
+
+    if state_timestamp:
+        return str(state_timestamp)
+
+    try:
+        manifest, _ = (
+            load_active_serving_manifest(
+                models_path=models_path
+            )
+        )
+    except (
+        FileNotFoundError,
+        KeyError,
+        OSError,
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+    return manifest.created_at_utc
+
+
+def _scheduled_retraining_due(
+    last_training_at_utc: str | None,
+    *,
+    evaluated_at: pd.Timestamp,
+    interval_hours: int,
+) -> tuple[bool, float | None]:
+    """
+    Determine whether the regular model refresh interval elapsed.
+
+    Missing or invalid timestamps do not force training.
+    """
+
+    if not last_training_at_utc:
+        return False, None
+
+    parsed = pd.to_datetime(
+        last_training_at_utc,
+        utc=True,
+        errors="coerce",
+    )
+
+    if pd.isna(parsed):
+        return False, None
+
+    elapsed = evaluated_at - parsed
+
+    # Protect against incorrectly future-dated state.
+    if elapsed < pd.Timedelta(0):
+        return False, None
+
+    elapsed_hours = (
+        elapsed.total_seconds() / 3600.0
+    )
+
+    return (
+        elapsed
+        >= pd.Timedelta(
+            hours=interval_hours
+        ),
+        elapsed_hours / 24.0,
+    )
+
 
 def collect_retraining_signals(
     *,
@@ -243,9 +325,17 @@ def collect_retraining_signals(
 
     raw_path = get_path("raw_data")
     monitoring_path = get_path("monitoring")
+    models_path = get_path("models")
 
     retraining_state = (
         load_retraining_state()
+    )
+
+    last_training_at_utc = (
+        _resolve_last_training_at_utc(
+            retraining_state,
+            models_path=models_path,
+        )
     )
 
     processed_batch_ids = set(
@@ -332,11 +422,29 @@ def collect_retraining_signals(
         )
     )
 
+    effective_training_state = {
+        **retraining_state,
+        "last_retrained_at_utc": (
+            last_training_at_utc
+        ),
+    }
+
     cooldown_active = _cooldown_active(
-        retraining_state,
+        effective_training_state,
         evaluated_at=evaluation_time,
         cooldown_hours=settings[
             "cooldown_hours"
+        ],
+    )
+
+    (
+        scheduled_retraining_due,
+        days_since_last_training,
+    ) = _scheduled_retraining_due(
+        last_training_at_utc,
+        evaluated_at=evaluation_time,
+        interval_hours=settings[
+            "scheduled_interval_hours"
         ],
     )
 
@@ -376,4 +484,10 @@ def collect_retraining_signals(
             data_quality_reason
         ),
         batch_ids=batch_ids,
+        scheduled_retraining_due=(
+            scheduled_retraining_due
+        ),
+        days_since_last_training=(
+            days_since_last_training
+        ),
     )

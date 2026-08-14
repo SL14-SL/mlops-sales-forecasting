@@ -34,6 +34,8 @@ class RetrainingSignals:
     budget_available: bool
 
     batch_ids: tuple[str, ...] = ()
+    scheduled_retraining_due: bool = False
+    days_since_last_training: float | None = None
 
     performance_window_end: str | None = None
     drift_window_end: str | None = None
@@ -80,6 +82,9 @@ def _build_decision_id(
         ),
         "batch_ids": list(
             signals.batch_ids
+        ),
+        "scheduled_retraining_due": (
+            signals.scheduled_retraining_due
         ),
     }
 
@@ -166,6 +171,14 @@ def decide_retraining(
     trigger_types: list[str] = []
     reasons: list[str] = []
 
+    if signals.scheduled_retraining_due:
+        trigger_types.append(
+            "scheduled_refresh",
+        )
+        reasons.append(
+            "Scheduled model refresh interval reached."
+        )
+
     if signals.performance_degraded:
         trigger_types.append("performance_degradation")
         reasons.append(
@@ -193,7 +206,7 @@ def decide_retraining(
         action=RetrainingAction.SKIP,
         decision_id=decision_id,
         reasons=(
-            "No persistent performance degradation "
+            "No scheduled refresh, persistent performance degradation "
             "or feature drift detected.",
         ),
         trigger_types=(),

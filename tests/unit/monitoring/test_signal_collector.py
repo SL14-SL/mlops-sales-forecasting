@@ -10,6 +10,7 @@ def settings() -> dict:
         "minimum_new_training_rows": 500,
         "cooldown_hours": 168,
         "maximum_new_training_rows": 1_000_000,
+        "scheduled_interval_hours": 168,
         "drift": {
             "lookback_days": 14,
             "consecutive_windows": 2,
@@ -80,6 +81,7 @@ def test_collects_normalized_retraining_signals(
                 "monitoring": (
                     "data/monitoring"
                 ),
+                "models": "models",
             }[name]
         ),
     )
@@ -124,6 +126,16 @@ def test_collects_normalized_retraining_signals(
         MagicMock(return_value={}),
     )
 
+    monkeypatch.setattr(
+        signal_collector,
+        "_resolve_last_training_at_utc",
+        MagicMock(
+            return_value=(
+                  "2026-08-01T01:00:00Z"
+            ),
+        ),   
+    )
+
     signals = (
         signal_collector
         .collect_retraining_signals(
@@ -160,6 +172,11 @@ def test_collects_normalized_retraining_signals(
     )
     assert signals.cooldown_active is False
     assert signals.budget_available is True
+    assert (
+        signals.scheduled_retraining_due
+        is True
+    )
+    assert signals.days_since_last_training == 12.0
 
 
 def test_recent_retraining_activates_cooldown():
@@ -244,6 +261,7 @@ def test_rows_above_budget_are_reported(
                 "monitoring": (
                     "data/monitoring"
                 ),
+                "models": "models",
             }[name]
         ),
     )
@@ -284,6 +302,12 @@ def test_rows_above_budget_are_reported(
         signal_collector,
         "load_retraining_state",
         MagicMock(return_value={}),
+    )
+
+    monkeypatch.setattr(
+        signal_collector,
+        "_resolve_last_training_at_utc",
+        MagicMock(return_value=None),
     )
 
     signals = (
@@ -349,3 +373,112 @@ def test_processed_batch_rows_are_not_new(
     assert second_rows == 0
     assert second_batch_ids == batch_ids
     assert second_result[3] is True
+
+
+def test_scheduled_refresh_is_due():
+    due, days = (
+        signal_collector
+        ._scheduled_retraining_due(
+            "2026-08-01T00:00:00Z",
+            evaluated_at=pd.Timestamp(
+                "2026-08-08T00:00:00Z"
+            ),
+            interval_hours=168,
+        )
+    )
+
+    assert due is True
+    assert days == 7.0
+
+
+def test_scheduled_refresh_is_not_due_early():
+    due, days = (
+        signal_collector
+        ._scheduled_retraining_due(
+            "2026-08-01T00:00:00Z",
+            evaluated_at=pd.Timestamp(
+                "2026-08-07T23:59:00Z"
+            ),
+            interval_hours=168,
+        )
+    )
+
+    assert due is False
+    assert days is not None
+    assert days < 7.0
+
+
+def test_missing_training_timestamp_is_not_due():
+    due, days = (
+        signal_collector
+        ._scheduled_retraining_due(
+            None,
+            evaluated_at=pd.Timestamp(
+                "2026-08-08T00:00:00Z"
+            ),
+            interval_hours=168,
+        )
+    )
+
+    assert due is False
+    assert days is None
+
+def test_active_release_is_training_fallback(
+    monkeypatch,
+):
+    manifest = MagicMock()
+    manifest.created_at_utc = (
+        "2026-08-01T00:00:00Z"
+    )
+
+    monkeypatch.setattr(
+        signal_collector,
+        "load_active_serving_manifest",
+        MagicMock(
+            return_value=(
+                manifest,
+                "models/serving_releases/test",
+            )
+        ),
+    )
+
+    result = (
+        signal_collector
+        ._resolve_last_training_at_utc(
+            {},
+            models_path="models",
+        )
+    )
+
+    assert result == (
+        "2026-08-01T00:00:00Z"
+    )
+
+
+def test_retraining_state_wins_over_release(
+    monkeypatch,
+):
+    mock_release_loader = MagicMock()
+
+    monkeypatch.setattr(
+        signal_collector,
+        "load_active_serving_manifest",
+        mock_release_loader,
+    )
+
+    result = (
+        signal_collector
+        ._resolve_last_training_at_utc(
+            {
+                "last_retrained_at_utc": (
+                    "2026-08-10T00:00:00Z"
+                )
+            },
+            models_path="models",
+        )
+    )
+
+    assert result == (
+        "2026-08-10T00:00:00Z"
+    )
+    mock_release_loader.assert_not_called()

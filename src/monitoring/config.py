@@ -64,6 +64,12 @@ def get_retraining_settings() -> dict:
                 168,
             )
         ),
+        "scheduled_interval_hours": int(
+            cfg.get(
+                "scheduled_interval_hours",
+                168,
+            )
+        ),
         "maximum_new_training_rows": int(
             cfg.get(
                 "maximum_new_training_rows",

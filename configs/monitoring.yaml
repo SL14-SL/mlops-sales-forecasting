@@ -15,6 +15,7 @@ feature_drift:
 retraining:
   minimum_new_training_rows: 500
   cooldown_hours: 168
+  scheduled_interval_hours: 168
   maximum_new_training_rows: 1000000
 
   drift:

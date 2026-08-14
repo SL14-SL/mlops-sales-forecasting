@@ -143,3 +143,56 @@ def test_new_monitoring_window_changes_decision_id():
     second = decide_retraining(changed_signals)
 
     assert first.decision_id != second.decision_id
+
+def test_scheduled_refresh_triggers_candidate():
+    signals = replace(
+        valid_signals(),
+        scheduled_retraining_due=True,
+        days_since_last_training=7.0,
+    )
+
+    decision = decide_retraining(signals)
+
+    assert (
+        decision.action
+        == RetrainingAction.TRAIN_CANDIDATE
+    )
+    assert decision.trigger_types == (
+        "scheduled_refresh",
+    )
+
+
+def test_scheduled_refresh_still_requires_new_rows():
+    signals = replace(
+        valid_signals(),
+        new_training_rows=0,
+        scheduled_retraining_due=True,
+        days_since_last_training=7.0,
+    )
+
+    decision = decide_retraining(signals)
+
+    assert decision.action == (
+        RetrainingAction.SKIP
+    )
+    assert (
+        "Insufficient new training rows"
+        in decision.reasons[0]
+    )
+
+
+def test_scheduled_refresh_respects_cooldown():
+    signals = replace(
+        valid_signals(),
+        scheduled_retraining_due=True,
+        cooldown_active=True,
+    )
+
+    decision = decide_retraining(signals)
+
+    assert decision.action == (
+        RetrainingAction.SKIP
+    )
+    assert decision.reasons == (
+        "Retraining cooldown is active.",
+    )
