@@ -14,8 +14,8 @@ push: null
 
 # pull section allows you to provide instructions for cloning this project in remote locations
 pull:
-- prefect.deployments.steps.set_working_directory:
-    directory: .
+  - prefect.deployments.steps.set_working_directory:
+      directory: "{{ $PREFECT_PROJECT_DIR }}" 
 
 # the deployments section allows you to provide configuration for deploying flows
 deployments:
@@ -32,5 +32,5 @@ deployments:
     job_variables: {}
   schedules:
   - cron: 0 3 * * *
-    timezone: null
+    timezone: Europe/Berlin
     day_or: true

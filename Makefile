@@ -5,8 +5,10 @@ export
 .DEFAULT_GOAL := help
 PYTHON_VERSION := 3.12.9
 
+LOCAL_MLFLOW_TRACKING_URI := http://localhost:5000
 LOCAL_PREFECT_API_URL := http://localhost:4221/api
 PREFECT_POOL ?= local-pool
+PREFECT_PROJECT_DIR ?= $(CURDIR)
 
 .PHONY: help setup dev-up dev-down dev train train-force test lint clean \
         ui-prefect ui-mlflow ui-dashboard prefect-status wait-prefect logs \
@@ -49,7 +51,6 @@ dev-up: ## Spin up the full stack (DB, MLflow, API, Prefect) in detached mode
 	mkdir -p data/monitoring
 	UID=$$(id -u) GID=$$(id -g) docker compose up -d --build
 	@echo "✅ Services are live: API (8000), Streamlit (8501), MLflow (5000), Prefect (4221), Grafana (3000), Prometheus (9090)"
-	@uv run --active prefect config set PREFECT_API_URL=$(LOCAL_PREFECT_API_URL)
 
 dev-down: ## Stop all containers and remove networks
 	@echo "🛑 Shutting down services..."
@@ -67,14 +68,18 @@ refresh-api: ## Restart or recreate API service using Docker Compose
 
 # --- Prefect Specifics ---
 
-prefect-status: ## Check if Prefect server is responding
+prefect-status: ## Check local Prefect server and configuration
 	@echo "🔍 Checking Prefect server status..."
-	@uv run --active prefect config view
-	@curl -s $(LOCAL_PREFECT_API_URL)/health || echo "⚠️ Prefect server is not reachable. Run 'make dev-up'."
+	@PREFECT_API_URL="$(LOCAL_PREFECT_API_URL)" \
+		uv run --active prefect config view
+	@PREFECT_API_URL="$(LOCAL_PREFECT_API_URL)" \
+		uv run --active prefect work-pool ls
+	@curl -s "$(LOCAL_PREFECT_API_URL)/health" || \
+		echo "⚠️ Prefect server is not reachable. Run 'make dev-up'."
 
 wait-prefect: ## Wait until Prefect server is reachable
 	@echo "⏳ Waiting for Prefect server ($(LOCAL_PREFECT_API_URL)/health)..."
-	@until curl -s $(LOCAL_PREFECT_API_URL)/health > /dev/null; do \
+	@until curl -s "$(LOCAL_PREFECT_API_URL)/health" > /dev/null; do \
 		sleep 2; \
 		echo "Prefect not ready yet..."; \
 	done
@@ -82,16 +87,35 @@ wait-prefect: ## Wait until Prefect server is reachable
 
 prefect-pool: wait-prefect ## Create local Prefect work pool if missing
 	@echo "🏊 Ensuring Prefect work pool '$(PREFECT_POOL)' exists..."
-	@uv run --active prefect work-pool inspect $(PREFECT_POOL) > /dev/null 2>&1 || \
-		uv run --active prefect work-pool create --type process $(PREFECT_POOL)
+	@PREFECT_API_URL="$(LOCAL_PREFECT_API_URL)" \
+		uv run --active prefect work-pool inspect "$(PREFECT_POOL)" \
+		> /dev/null 2>&1 || \
+		PREFECT_API_URL="$(LOCAL_PREFECT_API_URL)" \
+		uv run --active prefect work-pool create \
+			--type process \
+			"$(PREFECT_POOL)"
 
-prefect-setup: wait-prefect prefect-pool ## Register/update Prefect deployment for auto retraining
+prefect-setup: wait-prefect prefect-pool ## Register/update local Prefect deployment
 	@echo "🧭 Registering Prefect deployment..."
-	@uv run --active python scripts/setup_prefect.py
+	@APP_ENV=dev \
+		PREFECT_API_URL="$(LOCAL_PREFECT_API_URL)" \
+		PREFECT_API_KEY= \
+		PREFECT_PROJECT_DIR="$(PREFECT_PROJECT_DIR)" \
+		MLFLOW_TRACKING_URI="$(LOCAL_MLFLOW_TRACKING_URI)" \
+		uv run --active prefect deploy \
+			flows/auto_retrain_flow.py:auto_retrain_flow \
+			--name auto-retrain \
+			--pool "$(PREFECT_POOL)"
 
-prefect-worker: wait-prefect ## Start Prefect worker for local pool
+prefect-worker: wait-prefect prefect-pool ## Start Prefect worker for local pool
 	@echo "👷 Starting Prefect worker for pool '$(PREFECT_POOL)'..."
-	uv run --active prefect worker start --pool $(PREFECT_POOL)
+	APP_ENV=dev \
+		PREFECT_API_URL="$(LOCAL_PREFECT_API_URL)" \
+		PREFECT_API_KEY= \
+		PREFECT_PROJECT_DIR="$(PREFECT_PROJECT_DIR)" \
+		MLFLOW_TRACKING_URI="$(LOCAL_MLFLOW_TRACKING_URI)" \
+		uv run --active prefect worker start \
+			--pool "$(PREFECT_POOL)"
 
 # --- UI Quicklinks ---
 
