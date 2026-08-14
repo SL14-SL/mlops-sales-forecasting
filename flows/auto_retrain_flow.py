@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from prefect import flow, get_run_logger
+from prefect import flow, get_run_logger, task
 
 from flows.training_flow import (
     training_pipeline,
@@ -17,12 +17,39 @@ from src.monitoring.retraining_state import (
 from src.monitoring.trigger import (
     evaluate_retraining,
 )
+from src.monitoring.monitoring_refresh import (
+    refresh_monitoring_signals,
+)
 
+@task(name="Refresh Monitoring Signals")
+def task_refresh_monitoring_signals():
+    logger = get_run_logger()
+
+    result = refresh_monitoring_signals()
+
+    logger.info(
+        "Monitoring signals refreshed | "
+        f"ground_truth_rows="
+        f"{result.ground_truth_rows} | "
+        f"performance_updated="
+        f"{result.performance_updated} | "
+        f"performance_rows="
+        f"{result.performance_rows} | "
+        f"feature_drift_updated="
+        f"{result.feature_drift_updated} | "
+        f"feature_drift_rows="
+        f"{result.feature_drift_rows} | "
+        f"performance_reason="
+        f"{result.performance_reason}"
+    )
+
+    return result
 
 @flow(name="Auto Retrain Decision Flow")
 def auto_retrain_flow() -> dict[str, Any]:
     logger = get_run_logger()
 
+    task_refresh_monitoring_signals()
     decision = evaluate_retraining()
 
     logger.info(
