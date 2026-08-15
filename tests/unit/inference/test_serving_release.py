@@ -94,6 +94,25 @@ def publish_test_release(
         known_calendar_source=(
             serving_sources["calendar"]
         ),
+        prediction_probe_payload={
+            "inputs": [
+                {
+                    "Store": 1,
+                    "DayOfWeek": 5,
+                    "Date": "2015-04-24",
+                    "Customers": 500,
+                    "Open": 1,
+                    "Promo": 1,
+                    "StateHoliday": "0",
+                    "SchoolHoliday": 0,
+                }
+            ],
+            "context": {
+                "purpose": (
+                    "post_deployment_verification"
+                ),
+            },
+        },
     )
 
 def test_publish_and_load_active_serving_release(
@@ -121,6 +140,54 @@ def test_publish_and_load_active_serving_release(
     assert loaded.model_uri == (
         "models:/forecast-model/8"
     )
+    
+    assert published.schema_version == 2
+    assert loaded.schema_version == 2
+
+    assert (
+        loaded.prediction_probe
+        is not None
+    )
+    assert (
+        loaded.prediction_probe.path
+        == "prediction_probe.json"
+    )
+
+    probe_uri = (
+        resolve_release_artifact_uri(
+            release_root=release_root,
+            reference=(
+                loaded.prediction_probe
+            ),
+        )
+    )
+
+    with open(
+        probe_uri,
+        encoding="utf-8",
+    ) as file_handle:
+        probe_payload = json.load(
+            file_handle
+        )
+
+    assert probe_payload["inputs"] == [
+        {
+            "Store": 1,
+            "DayOfWeek": 5,
+            "Date": "2015-04-24",
+            "Customers": 500,
+            "Open": 1,
+            "Promo": 1,
+            "StateHoliday": "0",
+            "SchoolHoliday": 0,
+        }
+    ]
+
+    assert (
+        probe_payload["context"]["purpose"]
+        == "post_deployment_verification"
+    )
+    
 
     metadata_uri = (
         resolve_release_artifact_uri(
@@ -210,6 +277,14 @@ def test_failed_publication_keeps_active_release(
             known_calendar_source=(
                 serving_sources["calendar"]
             ),
+            prediction_probe_payload={
+                "inputs": [
+                    {
+                        "Store": 1,
+                        "Date": "2015-04-24",
+                    }
+                ]
+            },
         )
 
     active, _ = (
@@ -277,6 +352,14 @@ def test_activate_release_pointer_changes_active_release(
         known_calendar_source=(
             serving_sources["calendar"]
         ),
+        prediction_probe_payload={
+            "inputs": [
+                {
+                    "Store": 1,
+                    "Date": "2015-04-24",
+                }
+            ]
+        },
     )
 
     activate_release_pointer(

@@ -168,6 +168,10 @@ def build_release_paths(
             models_path,
             ACTIVE_RELEASE_FILE_NAME,
         ),
+        "prediction_probe": join_uri(
+            release_root,
+            "prediction_probe.json",
+        ),
     }
 
 def publish_serving_release(
@@ -184,6 +188,7 @@ def publish_serving_release(
     store_metadata_source: str,
     store_state_source: str,
     known_calendar_source: str,
+    prediction_probe_payload: dict[str, Any],
 ) -> ServingReleaseManifest:
     """
     Publish a complete immutable serving release.
@@ -233,6 +238,21 @@ def publish_serving_release(
         ServingArtifactReference,
     ] = {}
 
+    probe_inputs = (
+        prediction_probe_payload.get(
+            "inputs"
+        )
+    )
+
+    if (
+        not isinstance(probe_inputs, list)
+        or not probe_inputs
+    ):
+        raise ValueError(
+            "Prediction probe payload must "
+            "contain non-empty inputs."
+        )
+
     try:
         for artifact_name, source_path in (
             artifact_sources.items()
@@ -271,9 +291,25 @@ def publish_serving_release(
                 }[artifact_name],
                 sha256=target_hash,
             )
+            write_json(
+                paths["prediction_probe"],
+                prediction_probe_payload,
+            )
+
+            prediction_probe_hash = sha256_uri(
+                paths["prediction_probe"]
+            )
+
+            artifact_references[
+                "prediction_probe"
+            ] = ServingArtifactReference(
+                path="prediction_probe.json",
+                sha256=prediction_probe_hash,
+            )
+
 
         manifest = ServingReleaseManifest(
-            schema_version=1,
+            schema_version=2,
             release_id=release_id,
             created_at_utc=datetime.now(
                 timezone.utc
@@ -302,6 +338,9 @@ def publish_serving_release(
             ],
             known_calendar=artifact_references[
                 "known_calendar"
+            ],
+            prediction_probe=artifact_references[
+                "prediction_probe"
             ],
         )
 
@@ -356,6 +395,7 @@ def publish_serving_release(
             "store_metadata",
             "store_state",
             "known_calendar",
+            "prediction_probe",
         ):
             remove_file(
                 paths[key]
@@ -395,10 +435,31 @@ def _parse_artifact_reference(
 def parse_serving_manifest(
     payload: dict[str, Any],
 ) -> ServingReleaseManifest:
+    schema_version = int(
+        payload["schema_version"]
+    )
+
+    if schema_version not in {
+        1,
+        2,
+    }:
+        raise ValueError(
+            "Unsupported serving manifest "
+            f"schema version: {schema_version}"
+        )
+
+    prediction_probe = None
+
+    if schema_version >= 2:
+        prediction_probe = (
+            _parse_artifact_reference(
+                payload,
+                "prediction_probe",
+            )
+        )
+
     manifest = ServingReleaseManifest(
-        schema_version=int(
-            payload["schema_version"]
-        ),
+        schema_version=schema_version,
         release_id=str(
             payload["release_id"]
         ),
@@ -421,7 +482,9 @@ def parse_serving_manifest(
             payload["model_type"]
         ),
         target_transformation=str(
-            payload["target_transformation"]
+            payload[
+                "target_transformation"
+            ]
         ),
         dataset_version=payload.get(
             "dataset_version"
@@ -450,14 +513,8 @@ def parse_serving_manifest(
                 "known_calendar",
             )
         ),
+        prediction_probe=prediction_probe,
     )
-
-    if manifest.schema_version != 1:
-        raise ValueError(
-            "Unsupported serving manifest "
-            f"schema version: "
-            f"{manifest.schema_version}"
-        )
 
     return manifest
 

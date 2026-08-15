@@ -38,6 +38,7 @@ from src.data.splits.split import split as split_logic
 from src.data.versioning import make_dataset_version, snapshot_current_datasets, log_dataset_manifest_to_mlflow
 
 from src.deployment.verification import verify_serving_release
+from src.deployment.prediction_probe import build_prediction_probe
 
 from src.training.train import train
 from src.training.register import register_model
@@ -598,6 +599,26 @@ def task_publish_serving_release(
         {},
     )
 
+    prediction_probe_source = (
+        snapshots.get(
+            "validated_train"
+        )
+    )
+
+    if not prediction_probe_source:
+        prediction_probe_source = join_uri(
+            get_path("validated_data"),
+            "train.parquet",
+        )
+
+    prediction_probe_payload = (
+        build_prediction_probe(
+            validated_data_path=(
+                prediction_probe_source
+            ),
+        )
+    )
+
     # Prefer the versioned dataset snapshot. This prevents the release from
     # reading store metadata that changed after this training run.
     store_metadata_source = snapshots.get(
@@ -651,6 +672,9 @@ def task_publish_serving_release(
         ),
         known_calendar_source=(
             known_calendar_source
+        ),
+        prediction_probe_payload=(
+            prediction_probe_payload
         ),
     )
 

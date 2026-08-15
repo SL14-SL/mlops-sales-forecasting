@@ -36,6 +36,10 @@ class ServingReleaseManifest:
     store_state: ServingArtifactReference
     known_calendar: ServingArtifactReference
 
+    prediction_probe: (
+        ServingArtifactReference | None
+    ) = None
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
