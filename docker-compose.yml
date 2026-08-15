@@ -52,6 +52,57 @@ services:
     depends_on:
       db:
         condition: service_healthy
+  prefect-worker:
+    build: .
+    user: "${UID}:${GID}"
+    command:
+      - uv
+      - run
+      - --no-sync
+      - prefect
+      - worker
+      - start
+      - --pool
+      - local-pool
+    environment:
+      PYTHONPATH: /app
+      APP_ENV: dev
+      PREFECT_API_URL: http://prefect:4200/api
+      PREFECT_API_KEY: ""
+      PREFECT_HOME: /tmp/prefect
+      PREFECT_PROJECT_DIR: /app
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      PREDICTION_API_URL: http://api:8080/predict
+      API_KEY: ${API_KEY}
+      GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-local}
+      MPLCONFIGDIR: /tmp/matplotlib
+      UV_CACHE_DIR: /tmp/.uv_cache
+      PYTHONPYCACHEPREFIX: /tmp/pycache
+      UV_NO_SYNC: "1"
+    volumes:
+      - ./src:/app/src
+      - ./configs:/app/configs
+      - ./flows:/app/flows
+      - ./scripts:/app/scripts
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./mlruns:/app/mlruns
+      - ./mlruns_artifacts:/app/mlruns_artifacts
+      - ./results:/app/results
+    networks:
+      - mlops-net
+    depends_on:
+      prefect:
+        condition: service_started
+      mlflow:
+        condition: service_started
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+    profiles:
+      - worker
 
   api:
     build: .

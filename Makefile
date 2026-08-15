@@ -20,8 +20,8 @@ PREFECT_PROJECT_DIR ?= $(CURDIR)
 
 # --- Main Entry Point ---
 
-all: setup dev-up wait-prefect prefect-pool prefect-setup train-bootstrap test ## Run the complete pipeline
-	@echo "✨ Full build successful! API, MLflow, and Prefect are running."
+all: setup dev-up wait-prefect prefect-pool prefect-setup prefect-worker train-bootstrap test
+	@echo "✨ Full build successful! API, MLflow and Prefect are running."
 
 help: ## Display this help screen
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -57,8 +57,8 @@ dev-down: ## Stop all containers and remove networks
 	@echo "🛑 Shutting down services..."
 	docker compose down
 
-dev: dev-up wait-prefect prefect-pool prefect-setup ## Start local stack and register Prefect deployment
-	@echo "✅ Dev environment ready. Start worker with 'make prefect-worker'."
+dev: dev-up wait-prefect prefect-pool prefect-setup prefect-worker ## Start complete local environment
+	@echo "✅ Dev environment including Prefect worker is ready."
 
 logs: ## Follow logs from the API service
 	docker compose logs -f api
@@ -119,27 +119,21 @@ prefect-pool: wait-prefect ## Create local Prefect work pool if missing
 			--type process \
 			"$(PREFECT_POOL)"
 
-prefect-setup: wait-prefect prefect-pool ## Register/update local Prefect deployment
+prefect-setup: wait-prefect prefect-pool ## Register/update Prefect deployment for auto retraining
 	@echo "🧭 Registering Prefect deployment..."
-	@APP_ENV=dev \
-		PREFECT_API_URL="$(LOCAL_PREFECT_API_URL)" \
-		PREFECT_API_KEY= \
-		PREFECT_PROJECT_DIR="$(PREFECT_PROJECT_DIR)" \
-		MLFLOW_TRACKING_URI="$(LOCAL_MLFLOW_TRACKING_URI)" \
-		uv run --active prefect deploy \
-			flows/auto_retrain_flow.py:auto_retrain_flow \
-			--name auto-retrain \
-			--pool "$(PREFECT_POOL)"
-
-prefect-worker: wait-prefect prefect-pool ## Start Prefect worker for local pool
-	@echo "👷 Starting Prefect worker for pool '$(PREFECT_POOL)'..."
 	APP_ENV=dev \
 		PREFECT_API_URL="$(LOCAL_PREFECT_API_URL)" \
 		PREFECT_API_KEY= \
-		PREFECT_PROJECT_DIR="$(PREFECT_PROJECT_DIR)" \
-		MLFLOW_TRACKING_URI="$(LOCAL_MLFLOW_TRACKING_URI)" \
-		uv run --active prefect worker start \
-			--pool "$(PREFECT_POOL)"
+		MLFLOW_TRACKING_URI="http://localhost:5000" \
+		uv run --active prefect deploy \
+			--name auto-retrain
+
+prefect-worker: wait-prefect prefect-pool ## Start containerized Prefect worker
+	@echo "👷 Starting Docker Prefect worker for pool '$(PREFECT_POOL)'..."
+	UID=$$(id -u) GID=$$(id -g) \
+		docker compose --profile worker up -d --build prefect-worker
+	@echo "✅ Prefect worker started in Docker."
+
 
 # --- UI Quicklinks ---
 
