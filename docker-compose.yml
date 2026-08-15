@@ -75,6 +75,7 @@ services:
       - ./configs:/app/configs
       - ./flows:/app/flows
       - ./mlruns:/app/mlruns
+      - ./mlruns_artifacts:/app/mlruns_artifacts
       - ./data:/app/data
       - ./models:/app/models
       - ./scripts:/app/scripts
@@ -123,6 +124,8 @@ services:
       - ./data:/app/data
       - ./results:/app/results
       - ./models:/app/models
+      - ./mlruns_artifacts:/app/mlruns_artifacts
+
     networks:
       - mlops-net
     depends_on:

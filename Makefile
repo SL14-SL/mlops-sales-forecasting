@@ -16,7 +16,7 @@ PREFECT_PROJECT_DIR ?= $(CURDIR)
         snapshot-demo-baseline reset-lifecycle-run \
         demo-promo-without-retraining demo-promo-with-retraining \
         controlled-retraining-experiment train-bootstrap \
-		list-serving-releases rollback-serving
+		list-serving-releases rollback-serving reset-local-stack
 
 # --- Main Entry Point ---
 
@@ -39,6 +39,7 @@ setup: ## Initialize local virtual environment using uv
 dev-up: ## Spin up the full stack (DB, MLflow, API, Prefect) in detached mode
 	@echo "🐳 Starting container stack..."
 	mkdir -p mlruns
+	mkdir -p mlruns_artifacts
 	mkdir -p models
 	mkdir -p results
 	mkdir -p prefect_data
@@ -65,6 +66,29 @@ logs: ## Follow logs from the API service
 refresh-api: ## Restart or recreate API service using Docker Compose
 	@echo "🔄 Refreshing API..."
 	docker compose up -d api
+
+reset-local-stack: ## Delete local runtime state for a clean bootstrap (requires CONFIRM_RESET=1)
+	@if [ "$(CONFIRM_RESET)" != "1" ]; then \
+		echo "❌ This deletes local MLflow, Prefect and serving state."; \
+		echo "Run: make reset-local-stack CONFIRM_RESET=1"; \
+		exit 1; \
+	fi
+	@echo "🧹 Stopping containers and removing local database volumes..."
+	docker compose down -v --remove-orphans
+	@echo "🗑️ Removing local runtime artifacts..."
+	rm -rf \
+		./models \
+		./mlruns \
+		./mlruns_artifacts \
+		./prefect_data
+	@echo "📁 Recreating empty runtime directories..."
+	mkdir -p \
+		./models \
+		./mlruns \
+		./mlruns_artifacts \
+		./prefect_data
+	@echo "✅ Local runtime state reset."
+	@echo "Next: make dev-up && make wait-prefect && make train-bootstrap"
 
 # --- Prefect Specifics ---
 
