@@ -37,7 +37,7 @@ from src.data.features.calendar import (
 from src.data.splits.split import split as split_logic
 from src.data.versioning import make_dataset_version, snapshot_current_datasets, log_dataset_manifest_to_mlflow
 
-from src.deployment.verification import verify_serving_release
+from src.deployment.verification import verify_serving_release, verify_prediction_probe
 from src.deployment.prediction_probe import build_prediction_probe
 
 from src.training.train import train
@@ -48,7 +48,12 @@ from src.training.policy import should_refresh_api, should_skip_training, get_ru
 from src.monitoring.drift import fetch_current_data, detect_ks_drift
 from src.monitoring.feature_drift import run_feature_drift_check
 
-from src.inference.serving_release import publish_serving_release, load_serving_release_manifest, load_active_release_id
+from src.inference.serving_release import (
+    publish_serving_release, 
+    load_serving_release_manifest, 
+    load_active_release_id,
+    load_release_prediction_probe,
+)
 
 from src.utils.logger import get_logger
 
@@ -792,9 +797,8 @@ def task_verify_serving_release(
     expected_release_id: str,
 ) -> dict:
     """
-    Verify that the API activated the expected complete serving release.
+    Verify readiness, release lineage and semantic prediction behavior.
     """
-
     p_logger = get_run_logger()
 
     api_url = ENV_CFG.get(
@@ -812,7 +816,9 @@ def task_verify_serving_release(
             )
         )
     else:
-        api_base_url = api_url.rstrip("/")
+        api_base_url = (
+            api_url.rstrip("/")
+        )
 
     p_logger.info(
         "Verifying serving release | "
@@ -821,35 +827,141 @@ def task_verify_serving_release(
         f"api_base_url={api_base_url}"
     )
 
-    result = verify_serving_release(
-        api_base_url=api_base_url,
-        expected_release_id=(
-            expected_release_id
-        ),
+    readiness_result = (
+        verify_serving_release(
+            api_base_url=api_base_url,
+            expected_release_id=(
+                expected_release_id
+            ),
+        )
+    )
+
+    manifest, _ = load_serving_release_manifest(
+        models_path=get_path("models"),
+        release_id=expected_release_id,
+    )
+
+    if (
+        str(readiness_result.model_version)
+        != str(manifest.model_version)
+    ):
+        raise RuntimeError(
+            "Ready endpoint model version does "
+            "not match release manifest | "
+            f"ready={readiness_result.model_version} | "
+            f"manifest={manifest.model_version}"
+        )
+
+    if (
+        readiness_result.model_run_id
+        != manifest.model_run_id
+    ):
+        raise RuntimeError(
+            "Ready endpoint model run ID does "
+            "not match release manifest | "
+            f"ready={readiness_result.model_run_id} | "
+            f"manifest={manifest.model_run_id}"
+        )
+
+    prediction_probe_payload = (
+        load_release_prediction_probe(
+            models_path=get_path("models"),
+            release_id=expected_release_id,
+        )
+    )
+
+    # Backward-compatible rollback verification for schema-v1 releases.
+    if prediction_probe_payload is None:
+        p_logger.warning(
+            "Semantic prediction verification "
+            "skipped for legacy release | "
+            f"release_id={expected_release_id} | "
+            f"schema_version="
+            f"{manifest.schema_version}"
+        )
+
+        return {
+            "release_id": (
+                readiness_result.release_id
+            ),
+            "model_version": (
+                readiness_result.model_version
+            ),
+            "model_run_id": (
+                readiness_result.model_run_id
+            ),
+            "readiness_attempts": (
+                readiness_result.attempts
+            ),
+            "prediction_probe_status": (
+                "skipped_legacy_release"
+            ),
+        }
+
+    api_key = os.getenv(
+        "API_KEY"
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "API_KEY environment variable "
+            "is not set."
+        )
+
+    probe_result = (
+        verify_prediction_probe(
+            api_base_url=api_base_url,
+            api_key=api_key,
+            prediction_probe_payload=(
+                prediction_probe_payload
+            ),
+            expected_release_id=(
+                manifest.release_id
+            ),
+            expected_model_version=(
+                manifest.model_version
+            ),
+            expected_model_run_id=(
+                manifest.model_run_id
+            ),
+        )
     )
 
     p_logger.info(
-        "Serving release verified | "
-        f"release_id="
-        f"{result.release_id} | "
+        "Serving release and prediction "
+        "probe verified | "
+        f"release_id={probe_result.release_id} | "
         f"model_version="
-        f"{result.model_version} | "
+        f"{probe_result.model_version} | "
         f"model_run_id="
-        f"{result.model_run_id} | "
-        f"attempts={result.attempts}"
+        f"{probe_result.model_run_id} | "
+        f"prediction_attempts="
+        f"{probe_result.attempts}"
     )
 
     return {
-        "release_id": result.release_id,
+        "release_id": (
+            readiness_result.release_id
+        ),
         "model_version": (
-            result.model_version
+            readiness_result.model_version
         ),
         "model_run_id": (
-            result.model_run_id
+            readiness_result.model_run_id
         ),
-        "attempts": result.attempts,
+        "readiness_attempts": (
+            readiness_result.attempts
+        ),
+        "prediction_probe_status": (
+            "verified"
+        ),
+        "prediction_probe_attempts": (
+            probe_result.attempts
+        ),
+        "probe_predictions": list(
+            probe_result.predictions
+        ),
     }
-
 
 @flow(name="End-to-End Demand Forecasting Pipeline")
 def training_pipeline(

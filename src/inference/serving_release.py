@@ -552,6 +552,54 @@ def load_serving_manifest(
         paths["release_root"],
     )
 
+def load_release_prediction_probe(
+    *,
+    models_path: str,
+    release_id: str,
+) -> dict[str, Any] | None:
+    """
+    Load and checksum-validate the prediction probe of one release.
+
+    Schema-v1 releases do not contain a prediction probe and return None.
+    """
+    manifest, release_root = (
+        load_serving_manifest(
+            models_path=models_path,
+            release_id=release_id,
+        )
+    )
+
+    if manifest.prediction_probe is None:
+        return None
+
+    probe_uri = (
+        resolve_release_artifact_uri(
+            release_root=release_root,
+            reference=(
+                manifest.prediction_probe
+            ),
+        )
+    )
+
+    probe_payload = load_json(
+        probe_uri
+    )
+
+    inputs = probe_payload.get(
+        "inputs"
+    )
+
+    if (
+        not isinstance(inputs, list)
+        or not inputs
+    ):
+        raise ValueError(
+            "Release prediction probe has "
+            "no usable inputs."
+        )
+
+    return probe_payload
+
 
 def load_active_serving_manifest(
     *,

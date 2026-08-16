@@ -706,6 +706,12 @@ def predict(payload: PredictionRequest):
     # Capture exactly one immutable serving snapshot for this request.
     request_bundle = active_serving_bundle
 
+    is_deployment_probe = bool(
+        payload.context
+        and payload.context.get("purpose")
+        == "post_deployment_verification"
+    )
+
     if request_bundle is None:
         logger.error(
             "Predict called without an active serving bundle."
@@ -895,20 +901,31 @@ def predict(payload: PredictionRequest):
             )
 
         t = time.perf_counter()
-        for features, pred in zip(
-            payload.inputs,
-            rounded_predictions,
-        ):
-            log_prediction(
-                features,
-                float(pred),
-                release_id=request_bundle.release_id,
-                model_alias=request_bundle.serving_alias,
-                model_version=request_bundle.model_version,
-                model_run_id=request_bundle.model_run_id,
-                request_id=request_id,
-                environment=environment,
-            )
+
+        if not is_deployment_probe:
+            for features, pred in zip(
+                payload.inputs,
+                rounded_predictions,
+            ):
+                log_prediction(
+                    features,
+                    float(pred),
+                    release_id=(
+                        request_bundle.release_id
+                    ),
+                    model_alias=(
+                        request_bundle.serving_alias
+                    ),
+                    model_version=(
+                        request_bundle.model_version
+                    ),
+                    model_run_id=(
+                        request_bundle.model_run_id
+                    ),
+                    request_id=request_id,
+                    environment=environment,
+                )
+
         timings["log_prediction"] = _ms_since(t)
 
         timings["total"] = _ms_since(request_started)
@@ -918,6 +935,7 @@ def predict(payload: PredictionRequest):
             extra={
                 "timing_ms": timings,
                 "rows": len(rounded_predictions),
+                "deployment_probe": is_deployment_probe,
                 "unique_stores": (
                     int(
                         validated_input_df[
@@ -990,6 +1008,7 @@ def predict(payload: PredictionRequest):
                 "request_id": request_id,
                 "timing_ms": timings,
                 "data_quality": dq_summary,
+                "deployment_probe": is_deployment_probe,
             },
         }
 

@@ -201,3 +201,170 @@ def test_fails_after_all_attempts(
             ),
             attempts=2,
         )
+
+def test_prediction_probe_succeeds(
+    monkeypatch,
+):
+    response = MagicMock()
+    response.json.return_value = {
+        "status": "success",
+        "predictions": [
+            1234.5,
+        ],
+        "metadata": {
+            "release_id": "release-v2",
+            "model_version": "2",
+            "model_run_id": "run-2",
+        },
+    }
+    response.raise_for_status.return_value = (
+        None
+    )
+
+    post = MagicMock(
+        return_value=response
+    )
+
+    monkeypatch.setattr(
+        verification.requests,
+        "post",
+        post,
+    )
+
+    result = (
+        verification.verify_prediction_probe(
+            api_base_url="http://api:8080",
+            api_key="secret",
+            prediction_probe_payload={
+                "inputs": [
+                    {
+                        "Store": 1,
+                    }
+                ]
+            },
+            expected_release_id=(
+                "release-v2"
+            ),
+            expected_model_version="2",
+            expected_model_run_id="run-2",
+        )
+    )
+
+    assert result.predictions == (
+        1234.5,
+    )
+    assert result.attempts == 1
+
+    post.assert_called_once_with(
+        "http://api:8080/predict",
+        json={
+            "inputs": [
+                {
+                    "Store": 1,
+                }
+            ]
+        },
+        headers={
+            "X-API-KEY": "secret",
+        },
+        timeout=30.0,
+    )
+
+def test_prediction_probe_rejects_wrong_release(
+    monkeypatch,
+):
+    response = MagicMock()
+    response.json.return_value = {
+        "status": "success",
+        "predictions": [
+            1234.5,
+        ],
+        "metadata": {
+            "release_id": "wrong-release",
+            "model_version": "2",
+            "model_run_id": "run-2",
+        },
+    }
+
+    monkeypatch.setattr(
+        verification.requests,
+        "post",
+        MagicMock(
+            return_value=response
+        ),
+    )
+
+    with pytest.raises(
+        verification.ServingVerificationError,
+        match="lineage mismatch",
+    ):
+        verification.verify_prediction_probe(
+            api_base_url="http://api:8080",
+            api_key="secret",
+            prediction_probe_payload={
+                "inputs": [
+                    {
+                        "Store": 1,
+                    }
+                ]
+            },
+            expected_release_id=(
+                "release-v2"
+            ),
+            expected_model_version="2",
+            expected_model_run_id="run-2",
+        )
+
+@pytest.mark.parametrize(
+    "prediction",
+    [
+        float("nan"),
+        float("inf"),
+        -1.0,
+        "not-a-number",
+    ],
+)
+def test_prediction_probe_rejects_invalid_prediction(
+    monkeypatch,
+    prediction,
+):
+    response = MagicMock()
+    response.json.return_value = {
+        "status": "success",
+        "predictions": [
+            prediction,
+        ],
+        "metadata": {
+            "release_id": "release-v2",
+            "model_version": "2",
+            "model_run_id": "run-2",
+        },
+    }
+
+    monkeypatch.setattr(
+        verification.requests,
+        "post",
+        MagicMock(
+            return_value=response
+        ),
+    )
+
+    with pytest.raises(
+        verification.ServingVerificationError,
+    ):
+        verification.verify_prediction_probe(
+            api_base_url="http://api:8080",
+            api_key="secret",
+            prediction_probe_payload={
+                "inputs": [
+                    {
+                        "Store": 1,
+                    }
+                ]
+            },
+            expected_release_id=(
+                "release-v2"
+            ),
+            expected_model_version="2",
+            expected_model_run_id="run-2",
+        )

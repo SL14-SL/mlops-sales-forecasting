@@ -103,6 +103,8 @@ def mock_api_dependencies(
         )
     )
 
+    mock_log_prediction = MagicMock()
+
     with (
         patch(
             "src.api.app.active_serving_bundle",
@@ -138,9 +140,10 @@ def mock_api_dependencies(
         ),
         patch(
             "src.api.app.log_prediction",
+            mock_log_prediction,
         ),
     ):
-        yield
+        yield mock_log_prediction
         
 
 
@@ -524,3 +527,37 @@ def test_rollback_activates_validated_release(
         target_bundle
     )
 
+
+def test_deployment_probe_is_not_logged(
+    api_client,
+    api_headers,
+    sample_prediction_payload,
+    mock_api_dependencies,
+):
+    payload = {
+        **sample_prediction_payload,
+        "context": {
+            "purpose": (
+                "post_deployment_verification"
+            ),
+        },
+    }
+
+    response = api_client.post(
+        "/predict",
+        json=payload,
+        headers=api_headers,
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert (
+        body["metadata"][
+            "deployment_probe"
+        ]
+        is True
+    )
+
+    mock_api_dependencies.assert_not_called()
