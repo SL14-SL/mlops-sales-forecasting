@@ -836,7 +836,7 @@ def task_verify_serving_release(
         )
     )
 
-    manifest, _ = load_serving_release_manifest(
+    manifest = load_serving_release_manifest(
         models_path=get_path("models"),
         release_id=expected_release_id,
     )
