@@ -195,8 +195,24 @@ services:
       - "9090:9090"
     depends_on:
       - api
+      - alertmanager
     networks:
       - mlops-net
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: forecasting-alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    networks:
+      - mlops-net
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:latest
@@ -211,3 +227,6 @@ services:
 networks:
   mlops-net:
     driver: bridge
+
+volumes:
+  alertmanager-data:
