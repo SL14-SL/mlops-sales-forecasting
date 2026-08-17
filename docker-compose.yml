@@ -214,6 +214,46 @@ services:
       - mlops-net
     restart: unless-stopped
 
+  alert-receiver:
+    build: .
+    user: "${UID}:${GID}"
+    command:
+      - uv
+      - run
+      - --no-sync
+      - uvicorn
+      - src.monitoring.alert_receiver:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8090"
+    environment:
+      PYTHONPATH: /app
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      UV_NO_SYNC: "1"
+      UV_CACHE_DIR: /tmp/.uv_cache
+      PYTHONPYCACHEPREFIX: /tmp/pycache
+    volumes:
+      - ./src:/app/src
+    networks:
+      - mlops-net
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://localhost:8090/livez',
+          timeout=3
+          )
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+      
   grafana:
     image: grafana/grafana:latest
     container_name: forecasting-grafana

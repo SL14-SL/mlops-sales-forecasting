@@ -28,5 +28,11 @@ receivers:
   - name: local-observer
 
   - name: critical-observer
+    webhook_configs:
+      - url: http://alert-receiver:8090/alerts
+        send_resolved: true
 
   - name: warning-observer
+    webhook_configs:
+      - url: http://alert-receiver:8090/alerts
+        send_resolved: true
