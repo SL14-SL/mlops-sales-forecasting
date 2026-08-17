@@ -561,3 +561,38 @@ def test_deployment_probe_is_not_logged(
     )
 
     mock_api_dependencies.assert_not_called()
+
+def test_metrics_reports_serving_readiness(
+    api_client,
+):
+    response = api_client.get(
+        "/metrics"
+    )
+
+    assert response.status_code == 200
+    assert (
+        "api_serving_ready 1.0"
+        in response.text
+    )
+
+def test_metrics_reports_missing_serving_bundle(
+    api_client,
+    monkeypatch,
+):
+    app_module = sys.modules["src.api.app"]
+
+    monkeypatch.setattr(
+        app_module,
+        "active_serving_bundle",
+        None,
+    )
+
+    response = api_client.get(
+        "/metrics"
+    )
+
+    assert response.status_code == 200
+    assert (
+        "api_serving_ready 0.0"
+        in response.text
+    )

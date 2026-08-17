@@ -7,7 +7,7 @@ from uuid import uuid4
 import mlflow
 from fastapi import FastAPI, HTTPException, Security, Depends, Response, Request
 from fastapi.security.api_key import APIKeyHeader
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.status import HTTP_403_FORBIDDEN
@@ -18,7 +18,7 @@ from src.configs.loader import load_config, get_path
 from src.monitoring.prediction_logger import log_prediction
 from src.monitoring.data_quality import initialize_data_quality_reference_cache, build_reference_category_cache, log_data_quality_runtime
 from src.monitoring.config import get_serving_settings, get_data_quality_settings
-from src.monitoring.serving import normalize_path, observe_request, get_summary, should_ignore_path
+from src.monitoring.serving import normalize_path, observe_request, get_summary, should_ignore_path, set_serving_readiness
 
 from src.training.target_transform import inverse_transform_target
 from src.inference.pipeline import (
@@ -320,8 +320,12 @@ async def serving_monitoring_middleware(request: Request, call_next):
 if SERVING_CFG.get("metrics_endpoint_enabled", True):
     @app.get("/metrics", include_in_schema=False)
     def metrics():
-        return PlainTextResponse(
-            generate_latest().decode("utf-8"),
+        set_serving_readiness(
+            active_serving_bundle is not None
+        )
+
+        return Response(
+            content=generate_latest(),
             media_type=CONTENT_TYPE_LATEST,
         )
 

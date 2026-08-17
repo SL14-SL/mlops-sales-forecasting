@@ -6,8 +6,7 @@ from collections import Counter, deque
 from time import time
 from typing import Iterable
 
-from prometheus_client import Counter as PromCounter
-from prometheus_client import Histogram
+from prometheus_client import Counter as PromCounter, Gauge, Histogram
 
 DEFAULT_LATENCY_BUCKETS_SECONDS = (
     0.005,
@@ -51,6 +50,14 @@ REQUEST_LATENCY = Histogram(
     "API request latency in seconds",
     ["method", "path"],
     buckets=DEFAULT_LATENCY_BUCKETS_SECONDS,
+)
+
+SERVING_READY = Gauge(
+    "api_serving_ready",
+    (
+        "Whether a complete serving bundle "
+        "is currently active"
+    ),
 )
 
 # Kleine In-Memory Summary für Menschen / lokalen Betrieb
@@ -144,3 +151,15 @@ def get_summary(window_seconds: int = 900) -> dict:
         "status_codes": dict(status_counts),
         "paths": dict(path_counts),
     }
+
+def set_serving_readiness(
+    is_ready: bool,
+) -> None:
+    """
+    Update the current serving-readiness state.
+
+    A value of 1 means a complete serving bundle is active.
+    """
+    SERVING_READY.set(
+        1 if is_ready else 0
+    )
