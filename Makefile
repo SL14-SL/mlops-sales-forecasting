@@ -16,7 +16,8 @@ PREFECT_PROJECT_DIR ?= $(CURDIR)
         snapshot-demo-baseline reset-lifecycle-run \
         demo-promo-without-retraining demo-promo-with-retraining \
         controlled-retraining-experiment train-bootstrap \
-		list-serving-releases rollback-serving reset-local-stack
+		list-serving-releases rollback-serving reset-local-stack \
+		test-serving-e2e
 
 # --- Main Entry Point ---
 
@@ -229,7 +230,15 @@ debug-prod-env: ## Show production environment values loaded by Make
 	@echo "PREDICTION_API_URL=$(PREDICTION_API_URL)"
 	@echo "GCP_PROJECT_ID=$(GCP_PROJECT_ID)"
 	@echo "GCP_BUCKET_NAME=$(GCP_BUCKET_NAME)"
+	
 
+test-serving-e2e: ## Verify the active serving release end to end
+	@echo "🧪 Verifying active serving release end to end..."
+	docker compose exec -T \
+		-e API_BASE_URL=http://localhost:8080 \
+		api \
+		uv run --no-sync python \
+		scripts/test_serving_lifecycle.py
 
 # --- Quality Assurance ---
 
