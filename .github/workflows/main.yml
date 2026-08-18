@@ -222,7 +222,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: mlops-forecasting-api:scan
           format: table
@@ -231,6 +231,7 @@ jobs:
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
 
       - name: Push Container
         run: |
@@ -345,7 +346,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan MLflow image
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: mlops-mlflow:scan
           scan-type: image
@@ -354,6 +355,7 @@ jobs:
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
 
       - name: Push MLflow Image
         run: |
