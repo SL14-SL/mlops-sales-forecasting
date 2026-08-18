@@ -36,6 +36,7 @@ EXPOSE 5000
 CMD ["sh", "-c", "exec mlflow server \
   --host 0.0.0.0 \
   --port ${PORT:-5000} \
+  --workers 1 \
   --backend-store-uri \"$MLFLOW_BACKEND_STORE_URI\" \
   --default-artifact-root \"$MLFLOW_ARTIFACT_ROOT\" \
   --allowed-hosts \"$MLFLOW_SERVER_ALLOWED_HOSTS\""]

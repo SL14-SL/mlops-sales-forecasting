@@ -97,7 +97,7 @@ def main() -> int:
         ),
         attempts=30,
         delay_seconds=2.0,
-        timeout_seconds=10.0,
+        timeout_seconds=100.0,
     )
 
     manifest = load_serving_release_manifest(

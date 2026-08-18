@@ -18,7 +18,8 @@ PREFECT_PROJECT_DIR ?= $(CURDIR)
         controlled-retraining-experiment train-bootstrap \
 		list-serving-releases rollback-serving reset-local-stack \
 		test-serving-e2e test-serving-rollback-e2e \
-		check-prod-env train-bootstrap-prod verify-prod bootstrap-and-verify-prod
+		check-prod-env train-bootstrap-prod verify-prod bootstrap-and-verify-prod \
+		prepare-mlflow-prod-demo
 
 # --- Main Entry Point ---
 
@@ -215,6 +216,26 @@ check-prod-env: ## Validate required production environment variables
 	esac
 	@echo "✅ Production environment is valid."
 
+prepare-mlflow-prod-demo: check-prod-env ## Prepare one warm MLflow instance for the ephemeral demo
+	@echo "🔥 Preparing ephemeral MLflow production demo..."
+	@gcloud run services update \
+		mlflow-server \
+		--project "$(GCP_PROJECT_ID)" \
+		--region "$(GCP_REGION)" \
+		--update-env-vars \
+		MLFLOW_BACKEND_STORE_URI=sqlite:////tmp/mlflow.db \
+		--memory 4Gi \
+		--min 1 \
+		--max 1 \
+		--quiet
+	@echo "⏳ Waiting for MLflow health endpoint..."
+	@until curl -fsS "$(MLFLOW_URL)/health" > /dev/null; do \
+		echo "MLflow is not ready yet..."; \
+		sleep 2; \
+	done
+	@echo "✅ MLflow demo instance is ready."
+
+
 upload-raw-prod: ## Upload raw forecasting data to the production GCS bucket
 	@echo "☁️ Uploading raw data to gs://$(GCP_BUCKET_NAME)/data/raw/"
 	gcloud storage cp data/raw/train.csv data/raw/store.csv data/raw/test.csv \
@@ -236,20 +257,36 @@ train-force-prod: ## Execute forced training flow against production cloud servi
 	API_KEY="$(API_KEY)" \
 	uv run --active python flows/training_flow.py --force
 
-train-bootstrap-prod: check-prod-env ## Bootstrap a Champion in an empty production environment
+train-bootstrap-prod: prepare-mlflow-prod-demo ## Bootstrap a Champion in an empty production environment
 	@echo "🌱 Bootstrapping initial production Champion..."
-	PYTHONPATH=. \
-	APP_ENV=prod \
-	PREFECT_API_URL="$(PREFECT_API_URL)" \
-	PREFECT_API_KEY="$(PREFECT_API_KEY)" \
-	MLFLOW_TRACKING_URI="$(MLFLOW_URL)" \
-	PREDICTION_API_URL="$(PREDICTION_API_URL)" \
-	GCP_BUCKET_NAME="$(GCP_BUCKET_NAME)" \
-	GCP_PROJECT_ID="$(GCP_PROJECT_ID)" \
-	uv run --active python \
-		flows/training_flow.py \
-		--force \
-		--bootstrap
+	@set -eu; \
+		curl -fsS "$(MLFLOW_URL)/health" > /dev/null; \
+		( \
+			while true; do \
+				curl -fsS \
+					"$(MLFLOW_URL)/health" \
+					> /dev/null 2>&1 || true; \
+				sleep 10; \
+			done \
+		) & \
+		heartbeat_pid=$$!; \
+		cleanup() { \
+			kill "$$heartbeat_pid" \
+				2>/dev/null || true; \
+			wait "$$heartbeat_pid" \
+				2>/dev/null || true; \
+		}; \
+		trap cleanup EXIT INT TERM; \
+		PYTHONPATH=. \
+		APP_ENV=prod \
+		MLFLOW_TRACKING_URI="$(MLFLOW_URL)" \
+		PREDICTION_API_URL="$(PREDICTION_API_URL)" \
+		GCP_BUCKET_NAME="$(GCP_BUCKET_NAME)" \
+		GCP_PROJECT_ID="$(GCP_PROJECT_ID)" \
+		uv run --active python \
+			flows/training_flow.py \
+			--force \
+			--bootstrap
 
 verify-prod: check-prod-env ## Verify production liveness, readiness, lineage and prediction
 	@echo "🔍 Verifying production deployment..."

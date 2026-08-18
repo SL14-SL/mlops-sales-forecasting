@@ -426,7 +426,7 @@ jobs:
       GCP_REGION: ${{ vars.GCP_REGION }}
       GCP_ARTIFACT_REPO: ${{ vars.GCP_ARTIFACT_REPO }}
       GCS_BUCKET_NAME: ${{ vars.GCP_BUCKET_NAME }}
-      MLFLOW_BACKEND_STORE_URI: sqlite:///tmp/mlflow.db
+      MLFLOW_BACKEND_STORE_URI: sqlite:////tmp/mlflow.db
       MLFLOW_ARTIFACT_ROOT: gs://${{ vars.GCP_BUCKET_NAME }}/mlruns
       MLFLOW_SERVER_ALLOWED_HOSTS: "*"
 

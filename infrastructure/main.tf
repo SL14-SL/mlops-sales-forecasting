@@ -76,7 +76,7 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
 
       resources {
         limits = {
-          memory = "2Gi"
+          memory = "4Gi"
         }
       }
 
@@ -86,7 +86,7 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
 
       env {
         name  = "MLFLOW_BACKEND_STORE_URI"
-        value = "sqlite:///tmp/mlflow.db"
+        value = "sqlite:////tmp/mlflow.db"
       }
 
       env {
@@ -116,6 +116,11 @@ resource "google_cloud_run_v2_service" "prediction_api" {
   deletion_protection = false
 
   depends_on = [null_resource.wait_for_apis]
+
+  scaling {
+    min_instance_count = 1
+    max_instance_count = 1
+  }
 
   template {
     service_account = google_service_account.mlops_sa.email
@@ -164,7 +169,7 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
     "attribute.repository" = "assertion.repository"
   }
 
-attribute_condition = "attribute.repository == '${var.github_repo}' && assertion.ref == 'refs/heads/main'"
+  attribute_condition = "attribute.repository == '${var.github_repo}' && assertion.ref == 'refs/heads/main'"
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"

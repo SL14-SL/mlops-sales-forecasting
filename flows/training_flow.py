@@ -785,7 +785,7 @@ def task_refresh_api() -> None:
     response = requests.post(
         reload_url,
         headers={"X-API-KEY": api_key},
-        timeout=30,
+        timeout=300,
     )
 
     response.raise_for_status()
