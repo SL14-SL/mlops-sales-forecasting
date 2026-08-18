@@ -17,7 +17,8 @@ PREFECT_PROJECT_DIR ?= $(CURDIR)
         demo-promo-without-retraining demo-promo-with-retraining \
         controlled-retraining-experiment train-bootstrap \
 		list-serving-releases rollback-serving reset-local-stack \
-		test-serving-e2e \ test-serving-rollback-e2e
+		test-serving-e2e test-serving-rollback-e2e \
+		check-prod-env train-bootstrap-prod verify-prod bootstrap-and-verify-prod
 
 # --- Main Entry Point ---
 
@@ -188,6 +189,31 @@ GCP_PROJECT_ID ?= $(shell gh variable get GCP_PROJECT_ID 2>/dev/null)
 GCP_BUCKET_NAME ?= $(shell gh variable get GCP_BUCKET_NAME 2>/dev/null)
 MLFLOW_URL ?= $(shell gh variable get MLFLOW_URL 2>/dev/null)
 PREDICTION_API_URL ?= $(shell gh variable get PREDICTION_API_URL 2>/dev/null)
+PRODUCTION_API_BASE_URL = $(patsubst %/predict,%,$(PREDICTION_API_URL))
+
+check-prod-env: ## Validate required production environment variables
+	@echo "🔎 Validating production environment..."
+	@test -n "$(GCP_PROJECT_ID)" || \
+		(echo "❌ GCP_PROJECT_ID is missing." && exit 1)
+	@test -n "$(GCP_BUCKET_NAME)" || \
+		(echo "❌ GCP_BUCKET_NAME is missing." && exit 1)
+	@test -n "$(MLFLOW_URL)" || \
+		(echo "❌ MLFLOW_URL is missing." && exit 1)
+	@test -n "$(PREDICTION_API_URL)" || \
+		(echo "❌ PREDICTION_API_URL is missing." && exit 1)
+	@test -n "$$API_KEY" || \
+		(echo "❌ API_KEY is missing." && exit 1)
+	@case "$(MLFLOW_URL)" in \
+		http://localhost*|http://mlflow*) \
+			echo "❌ MLFLOW_URL points to a local service."; \
+			exit 1 ;; \
+	esac
+	@case "$(PREDICTION_API_URL)" in \
+		http://localhost*|http://api*) \
+			echo "❌ PREDICTION_API_URL points to a local service."; \
+			exit 1 ;; \
+	esac
+	@echo "✅ Production environment is valid."
 
 upload-raw-prod: ## Upload raw forecasting data to the production GCS bucket
 	@echo "☁️ Uploading raw data to gs://$(GCP_BUCKET_NAME)/data/raw/"
@@ -210,6 +236,35 @@ train-force-prod: ## Execute forced training flow against production cloud servi
 	API_KEY="$(API_KEY)" \
 	uv run --active python flows/training_flow.py --force
 
+train-bootstrap-prod: check-prod-env ## Bootstrap a Champion in an empty production environment
+	@echo "🌱 Bootstrapping initial production Champion..."
+	PYTHONPATH=. \
+	APP_ENV=prod \
+	PREFECT_API_URL="$(PREFECT_API_URL)" \
+	PREFECT_API_KEY="$(PREFECT_API_KEY)" \
+	MLFLOW_TRACKING_URI="$(MLFLOW_URL)" \
+	PREDICTION_API_URL="$(PREDICTION_API_URL)" \
+	GCP_BUCKET_NAME="$(GCP_BUCKET_NAME)" \
+	GCP_PROJECT_ID="$(GCP_PROJECT_ID)" \
+	uv run --active python \
+		flows/training_flow.py \
+		--force \
+		--bootstrap
+
+verify-prod: check-prod-env ## Verify production liveness, readiness, lineage and prediction
+	@echo "🔍 Verifying production deployment..."
+	PYTHONPATH=. \
+	APP_ENV=prod \
+	PRODUCTION_API_URL="$(PRODUCTION_API_BASE_URL)" \
+	MLFLOW_TRACKING_URI="$(MLFLOW_URL)" \
+	PREDICTION_API_URL="$(PREDICTION_API_URL)" \
+	GCP_BUCKET_NAME="$(GCP_BUCKET_NAME)" \
+	GCP_PROJECT_ID="$(GCP_PROJECT_ID)" \
+	uv run --active python \
+		scripts/verify_production_deployment.py
+
+bootstrap-and-verify-prod: train-bootstrap-prod verify-prod ## Bootstrap and verify a fresh production demo
+	@echo "✅ Production bootstrap and semantic verification completed."
 
 demo-forecasting-lifecycle-prod: ## Run forecasting lifecycle demo against production API and GCS
 	@echo "📈 Running forecasting lifecycle demo against production cloud services..."
