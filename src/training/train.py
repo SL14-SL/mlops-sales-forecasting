@@ -10,6 +10,7 @@ import pandas as pd
 from copy import deepcopy
 
 from sklearn.metrics import mean_squared_error
+from mlflow.models import infer_signature
 
 from src.configs.loader import get_path, load_config
 from src.constants import PROJECT_ROOT
@@ -608,10 +609,26 @@ def train(
                 candidate_run_id,
             )
 
+        input_example = (
+            X_train
+            .head(5)
+            .copy()
+        )
+
+        output_example = model.predict(
+            input_example
+        )
+
+        model_signature = infer_signature(
+            model_input=input_example,
+            model_output=output_example,
+        )
+
         log_model_by_type(
             model=model,
             model_type=model_type,
-            input_example=None,
+            input_example=input_example,
+            signature=model_signature,
             metadata={
                 "target_column": target_column,
                 "target_transformation": target_transform,
@@ -627,8 +644,10 @@ def train(
         logger.info(
             "Model logged to MLflow | "
             "run_id=%s | run_role=%s",
+            "signature_input=%s",
             run_id,
             run_role,
+            len(input_example.columns),
         )
 
         if ENV_CFG["environment"] != "prod":
