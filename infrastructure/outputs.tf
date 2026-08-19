@@ -20,8 +20,8 @@ output "service_account_email" {
   value = google_service_account.mlops_sa.email
 }
 
-output "prediction_api_url" {
-  value = google_cloud_run_v2_service.prediction_api.uri
+output "forecasting_api_url" {
+  value = google_cloud_run_v2_service.forecasting_api.uri
 }
 
 # Output the provider name for GitHub Secrets

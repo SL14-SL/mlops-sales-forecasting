@@ -39,4 +39,5 @@ CMD ["sh", "-c", "exec mlflow server \
   --workers 1 \
   --backend-store-uri \"$MLFLOW_BACKEND_STORE_URI\" \
   --default-artifact-root \"$MLFLOW_ARTIFACT_ROOT\" \
-  --allowed-hosts \"$MLFLOW_SERVER_ALLOWED_HOSTS\""]
+  --allowed-hosts \"$MLFLOW_SERVER_ALLOWED_HOSTS\" \
+  --cors-allowed-origins \"$MLFLOW_SERVER_CORS_ALLOWED_ORIGINS\""]

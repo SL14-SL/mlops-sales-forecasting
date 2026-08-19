@@ -68,6 +68,11 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
 
   depends_on = [null_resource.wait_for_apis]
 
+  scaling {
+    min_instance_count = 1
+    max_instance_count = 1
+  }
+
   template {
     service_account = google_service_account.mlops_sa.email
 
@@ -76,6 +81,7 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
 
       resources {
         limits = {
+          cpu    = "1"
           memory = "4Gi"
         }
       }
@@ -93,6 +99,19 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
         name  = "MLFLOW_ARTIFACT_ROOT"
         value = "gs://${google_storage_bucket.artifacts_bucket.name}/mlruns"
       }
+
+      env {
+        name  = "MLFLOW_SERVER_ALLOWED_HOSTS"
+        value = "*"
+      }
+      env {
+        name = "MLFLOW_SERVER_CORS_ALLOWED_ORIGINS"
+
+        value = join(",", [
+          "https://mlflow-server-o3ulg525ta-ew.a.run.app",
+          "https://mlflow-server-365234646295.europe-west1.run.app",
+        ])
+      }
     }
   }
 
@@ -108,9 +127,9 @@ resource "google_cloud_run_v2_service_iam_member" "public_mlflow" {
   member   = "allUsers"
 }
 
-# --- SERVICE 2: Prediction API ---
-resource "google_cloud_run_v2_service" "prediction_api" {
-  name                = "prediction-api"
+# --- SERVICE 2: Forecasting API ---
+resource "google_cloud_run_v2_service" "forecasting_api" {
+  name                = "forecasting-api"
   location            = var.region
   ingress             = "INGRESS_TRAFFIC_ALL"
   deletion_protection = false
@@ -118,8 +137,8 @@ resource "google_cloud_run_v2_service" "prediction_api" {
   depends_on = [null_resource.wait_for_apis]
 
   scaling {
-    min_instance_count = 1
-    max_instance_count = 1
+    min_instance_count = 0
+    max_instance_count = 20
   }
 
   template {
@@ -145,7 +164,7 @@ resource "google_cloud_run_v2_service" "prediction_api" {
   }
 
   lifecycle {
-    ignore_changes = [template[0].containers[0].image]
+    ignore_changes = [template]
   }
 }
 
@@ -203,8 +222,8 @@ resource "google_project_iam_member" "sa_user" {
 
 # --- Public Access ---
 resource "google_cloud_run_v2_service_iam_member" "public_api" {
-  location = google_cloud_run_v2_service.prediction_api.location
-  name     = google_cloud_run_v2_service.prediction_api.name
+  location = google_cloud_run_v2_service.forecasting_api.location
+  name     = google_cloud_run_v2_service.forecasting_api.name
   role     = "roles/run.invoker"
   member   = "allUsers"
 }

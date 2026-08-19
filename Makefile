@@ -218,12 +218,11 @@ check-prod-env: ## Validate required production environment variables
 
 prepare-mlflow-prod-demo: check-prod-env ## Prepare one warm MLflow instance for the ephemeral demo
 	@echo "🔥 Preparing ephemeral MLflow production demo..."
-	@gcloud run services update \
+		@gcloud run services update \
 		mlflow-server \
 		--project "$(GCP_PROJECT_ID)" \
 		--region "$(GCP_REGION)" \
-		--update-env-vars \
-		MLFLOW_BACKEND_STORE_URI=sqlite:////tmp/mlflow.db \
+		--update-env-vars "^@^MLFLOW_BACKEND_STORE_URI=sqlite:////tmp/mlflow.db@MLFLOW_SERVER_CORS_ALLOWED_ORIGINS=https://mlflow-server-o3ulg525ta-ew.a.run.app,https://mlflow-server-365234646295.europe-west1.run.app" \
 		--memory 4Gi \
 		--min 1 \
 		--max 1 \

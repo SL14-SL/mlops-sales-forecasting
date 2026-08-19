@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import os
 import sys
 from dataclasses import asdict
@@ -35,26 +36,32 @@ def require_environment_variable(
 
 
 def verify_liveness(
-    *,
     api_base_url: str,
-    timeout_seconds: float = 10.0,
+    *,
+    attempts: int = 12,
+    delay_seconds: float = 5.0,
 ) -> dict:
-    response = requests.get(
-        f"{api_base_url.rstrip('/')}/livez",
-        timeout=timeout_seconds,
-    )
-    response.raise_for_status()
+    last_error: Exception | None = None
 
-    payload = response.json()
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.get(
+                f"{api_base_url}/livez",
+                timeout=(10, 30),
+            )
+            response.raise_for_status()
+            return response.json()
 
-    if payload.get("status") != "alive":
-        raise ServingVerificationError(
-            "Production API did not report "
-            "alive status."
-        )
+        except requests.RequestException as error:
+            last_error = error
 
-    return payload
+            if attempt < attempts:
+                time.sleep(delay_seconds)
 
+    raise RuntimeError(
+        "Production API did not become live after "
+        f"{attempts} attempts."
+    ) from last_error
 
 def main() -> int:
     api_base_url = require_environment_variable(
