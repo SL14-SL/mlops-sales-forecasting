@@ -183,11 +183,41 @@ def main() -> int:
         ),
     }
 
+    print()
+    print("✅ Production deployment verified")
+    print(
+        "   API: "
+        f"{result['api_base_url']}"
+    )
+    print(
+        "   Release: "
+        f"{result['readiness']['release_id']}"
+    )
+    print(
+        "   Model version: "
+        f"{result['readiness']['model_version']}"
+    )
+    print(
+        "   Model run: "
+        f"{result['readiness']['model_run_id']}"
+    )
+    print(
+        "   Prediction probe: passed "
+        f"after {result['prediction_probe']['attempts']} "
+        "attempt(s)"
+    )
+    print(
+        "   Probe predictions: "
+        f"{result['prediction_probe']['predictions']}"
+    )
+    print
+
     print(
         "PRODUCTION_VERIFICATION_RESULT="
         + json.dumps(
             result,
-            default=list,
+            indent=2,
+            default=str,
             sort_keys=True,
         )
     )

@@ -289,7 +289,7 @@ train-bootstrap-prod: prepare-mlflow-prod-demo ## Bootstrap a Champion in an emp
 
 verify-prod: check-prod-env ## Verify production liveness, readiness, lineage and prediction
 	@echo "🔍 Verifying production deployment..."
-	PYTHONPATH=. \
+	@PYTHONPATH=. \
 	APP_ENV=prod \
 	PRODUCTION_API_URL="$(PRODUCTION_API_BASE_URL)" \
 	MLFLOW_TRACKING_URI="$(MLFLOW_URL)" \
