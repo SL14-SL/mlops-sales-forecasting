@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 import fsspec
 import mlflow
 
-from src.configs.loader import load_config, get_path, file_exists, ensure_dir
+from src.configs.loader import load_config, get_path
+from src.storage.filesystem import file_exists, ensure_dir
+
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)

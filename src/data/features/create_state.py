@@ -3,7 +3,9 @@ import json
 import fsspec
 import pandas as pd
 
-from src.configs.loader import load_config, get_path, file_exists
+from src.configs.loader import load_config, get_path
+from src.storage.filesystem import file_exists
+
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)

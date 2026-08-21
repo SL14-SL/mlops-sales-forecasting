@@ -1,7 +1,8 @@
 import requests
 import os
 
-from src.configs.loader import load_config, get_path, join_uri
+from src.configs.loader import load_config, get_path
+from src.configs.paths import join_uri
 
 ENV_CFG = load_config()
 # ruff: noqa: E402

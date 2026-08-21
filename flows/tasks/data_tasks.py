@@ -7,7 +7,9 @@ import warnings
 from datetime import datetime
 from google.cloud import storage
 
-from src.configs.loader import get_path, file_exists, ensure_dir, load_config
+from src.configs.loader import get_path, load_config
+from src.storage.filesystem import file_exists, ensure_dir
+
 ENV_CFG = load_config()
 
 # ruff: noqa: E402

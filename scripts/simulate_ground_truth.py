@@ -3,7 +3,10 @@ from datetime import datetime
 import pandas as pd
 import argparse
 
-from src.configs.loader import get_path, join_uri, list_files, load_config, file_exists
+from src.configs.loader import get_path, load_config
+from src.storage.filesystem import file_exists, list_files
+from src.configs.paths import join_uri
+
 from src.data.validation.validate import validate_train
 from src.utils.logger import get_logger
 

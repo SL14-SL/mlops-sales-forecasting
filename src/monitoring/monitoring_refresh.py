@@ -6,11 +6,11 @@ from dataclasses import dataclass
 import fsspec
 import pandas as pd
 
-from src.configs.loader import (
-    file_exists,
-    get_path,
-    join_uri,
-)
+from src.configs.loader import get_path
+
+from src.storage.filesystem import file_exists
+from src.configs.paths import join_uri
+
 from src.monitoring.feature_drift import (
     run_feature_drift_check,
 )

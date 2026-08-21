@@ -29,7 +29,7 @@ from flows.tasks.serving_tasks import task_publish_serving_release, task_resolve
 
 from flows.deployment_flow import deploy_and_verify_release
 
-from src.training.evaluate import champion_exists
+from src.training.register import champion_exists
 from src.training.policy import should_refresh_api, should_skip_training, get_run_strategy
 
 

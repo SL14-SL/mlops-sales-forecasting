@@ -9,7 +9,9 @@ from uuid import uuid4
 
 import pandas as pd
 
-from src.configs.loader import ensure_dir, file_exists, get_path, join_uri
+from src.configs.loader import get_path
+from src.configs.paths import join_uri
+from src.storage.filesystem import ensure_dir, file_exists
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)

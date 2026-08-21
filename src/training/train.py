@@ -1,9 +1,7 @@
 import os
-import hashlib
 import json
 import time 
 from datetime import datetime, timezone
-import gcsfs
 import mlflow
 import numpy as np
 import pandas as pd
@@ -13,246 +11,28 @@ from sklearn.metrics import mean_squared_error
 from mlflow.models import infer_signature
 
 from src.configs.loader import get_path, load_config
-from src.constants import PROJECT_ROOT
 from src.training.model_factory import build_model, fit_model, log_model_by_type
 from src.training.target_transform import transform_target, inverse_transform_target
 from src.training.utils import build_drop_columns
 from src.utils.logger import get_logger
 
+from src.training.dataset import normalize_feature_dtypes, load_training_data
+from src.training.weighting import build_recency_weights
+from src.training.refit import build_final_refit_model_config
+from src.training.run_metadata import (
+    build_training_cost_summary,
+    resolve_artifact_location,
+    get_or_create_experiment,
+    build_effective_run_config,
+    config_hash,
+    log_effective_run_config_to_mlflow,
+)
 
 logger = get_logger(__name__)
 
 ENV_CFG = load_config()
 TRAIN_CFG = load_config("training.yaml")
 
-def normalize_feature_dtypes(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize feature dtypes for model training and MLflow signature inference."""
-    df = df.copy()
-
-    object_columns = df.select_dtypes(include=["object"]).columns
-    for col in object_columns:
-        df[col] = df[col].astype("category")
-
-    return df
-
-
-def load_training_data(train_file: str, val_file: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load training and validation data from local filesystem or GCS."""
-    if train_file.startswith("gs://"):
-        fs = gcsfs.GCSFileSystem()
-        df_train = pd.read_parquet(train_file, filesystem=fs)
-        df_val = pd.read_parquet(val_file, filesystem=fs)
-    else:
-        df_train = pd.read_parquet(train_file)
-        df_val = pd.read_parquet(val_file)
-
-    return df_train, df_val
-
-def get_training_cost_config() -> dict:
-    return ENV_CFG.get("costs", {}).get("training", {})
-
-
-def build_training_cost_summary(
-    *,
-    started_at_utc: datetime,
-    finished_at_utc: datetime,
-    duration_seconds: float,
-) -> dict:
-    cost_cfg = get_training_cost_config()
-
-    enabled = cost_cfg.get("enabled", False)
-    hourly_rate = float(cost_cfg.get("estimated_hourly_rate", 0.0))
-    currency = cost_cfg.get("currency", "EUR")
-
-    estimated_cost = 0.0
-    if enabled:
-        estimated_cost = (duration_seconds / 3600.0) * hourly_rate
-
-    return {
-        "enabled": enabled,
-        "currency": currency,
-        "estimated_hourly_rate": hourly_rate,
-        "training_started_at_utc": started_at_utc.isoformat(),
-        "training_finished_at_utc": finished_at_utc.isoformat(),
-        "training_duration_seconds": round(duration_seconds, 3),
-        "training_duration_minutes": round(duration_seconds / 60.0, 3),
-        "estimated_training_cost": round(estimated_cost, 6),
-    }
-
-def resolve_artifact_location() -> str:
-    """Resolve MLflow artifact location by environment."""
-    if ENV_CFG["environment"] == "prod":
-        return get_path("models")
-    return f"file://{PROJECT_ROOT / "mlruns_artifacts"}"
-
-
-def get_or_create_experiment(project_name: str, artifact_location: str) -> None:
-    """Create MLflow experiment if needed and activate it."""
-    if not mlflow.get_experiment_by_name(project_name):
-        logger.info(
-            f"Creating new MLflow experiment: {project_name} at {artifact_location}"
-        )
-        mlflow.create_experiment(project_name, artifact_location=artifact_location)
-
-    mlflow.set_experiment(project_name)
-
-
-def build_effective_run_config() -> dict:
-    seed = ENV_CFG.get("random_seed")
-
-    effective_model_cfg = json.loads(json.dumps(TRAIN_CFG["model"]))
-    params = effective_model_cfg.setdefault("params", {})
-
-    if seed is not None:
-        if effective_model_cfg["type"] == "xgboost":
-            params.setdefault("random_state", seed)
-            params.setdefault("seed", seed)
-        elif effective_model_cfg["type"] == "random_forest":
-            params.setdefault("random_state", seed)
-
-    return {
-        "environment_config": ENV_CFG,
-        "training_config": {
-            **TRAIN_CFG,
-            "model": effective_model_cfg,
-        },
-        "repro": {
-            "seed": seed,
-        },
-    }
-
-
-def config_hash(config: dict) -> str:
-    payload = json.dumps(config, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def log_effective_run_config_to_mlflow(config: dict) -> None:
-    mlflow.log_text(
-        json.dumps(config, indent=2, sort_keys=True, ensure_ascii=False),
-        "run_config/effective_config.json",
-    )
-
-def build_recency_weights(
-    dates: pd.Series,
-    promo_values: pd.Series,
-    weighting_config: dict,
-) -> np.ndarray:
-    """
-    Assign higher sample weights to recent promotional observations.
-    """
-    parsed_dates = pd.to_datetime(
-        dates,
-        errors="raise",
-    )
-
-    if parsed_dates.isna().any():
-        raise ValueError(
-            "Training dates contain missing values."
-        )
-
-    parsed_promo = (
-        pd.to_numeric(
-            promo_values,
-            errors="coerce",
-        )
-        .fillna(0)
-        .eq(1)
-    )
-
-    latest_training_date = parsed_dates.max()
-
-    age_days = (
-        latest_training_date - parsed_dates
-    ).dt.days
-
-    recent_30_day_promo = (
-        parsed_promo
-        & age_days.le(30)
-    )
-
-    recent_60_day_promo = (
-        parsed_promo
-        & age_days.gt(30)
-        & age_days.le(60)
-    )
-
-    recent_120_day_promo = (
-        parsed_promo
-        & age_days.gt(60)
-        & age_days.le(120)
-    )
-
-    weights = np.select(
-        [
-            recent_30_day_promo,
-            recent_60_day_promo,
-            recent_120_day_promo,
-        ],
-        [
-            float(
-                weighting_config.get(
-                    "last_30_days_weight",
-                    10.0,
-                )
-            ),
-            float(
-                weighting_config.get(
-                    "last_60_days_weight",
-                    5.0,
-                )
-            ),
-            float(
-                weighting_config.get(
-                    "last_120_days_weight",
-                    2.0,
-                )
-            ),
-        ],
-        default=float(
-            weighting_config.get(
-                "default_weight",
-                1.0,
-            )
-        ),
-    )
-
-    return weights.astype(np.float32)
-
-def build_final_refit_model_config(
-    candidate_run_id: str,
-) -> tuple[dict, int | None]:
-    """
-    Build a final model configuration using the candidate's best iteration.
-
-    Early stopping is removed because the final model is trained on all
-    available observations without a separate validation set.
-    """
-    model_cfg = deepcopy(TRAIN_CFG["model"])
-    params = model_cfg.setdefault("params", {})
-
-    if model_cfg["type"] != "xgboost":
-        return model_cfg, None
-
-    candidate_uri = f"runs:/{candidate_run_id}/model"
-    candidate_model = mlflow.xgboost.load_model(candidate_uri)
-
-    best_iteration = None
-
-    try:
-        best_iteration = int(candidate_model.best_iteration)
-    except (AttributeError, TypeError, ValueError):
-        logger.warning(
-            "Candidate model does not expose a best iteration. "
-            "Using configured n_estimators for final refit."
-        )
-
-    params.pop("early_stopping_rounds", None)
-
-    if best_iteration is not None:
-        params["n_estimators"] = best_iteration + 1
-
-    return model_cfg, best_iteration
 
 def train(
     train_file: str | None = None,

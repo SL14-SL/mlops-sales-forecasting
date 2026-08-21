@@ -9,7 +9,9 @@ import pandas as pd
 import pytest
 
 import src.training.evaluate as evaluate
-
+import src.training.register as register
+import src.training.model_comparison as model_comparison
+import src.training.evaluate_metrics as evaluate_metrics
 from src.training.evaluate import (
     align_features_for_evaluation,
 )
@@ -131,7 +133,7 @@ def test_compare_models_blocks_promotion_when_champion_cannot_be_loaded(
     )
 
     monkeypatch.setattr(
-        evaluate.mlflow.xgboost,
+        model_comparison.mlflow.xgboost,
         "load_model",
         load_model,
     )
@@ -140,19 +142,19 @@ def test_compare_models_blocks_promotion_when_champion_cannot_be_loaded(
     client.get_run.return_value = _run_metadata()
 
     monkeypatch.setattr(
-        evaluate,
+        model_comparison,
         "MlflowClient",
         MagicMock(return_value=client),
     )
 
     monkeypatch.setattr(
-        evaluate,
+        model_comparison,
         "build_drop_columns",
         MagicMock(return_value=[]),
     )
 
     monkeypatch.setitem(
-        evaluate.TRAIN_CFG,
+        model_comparison.TRAIN_CFG,
         "data",
         {
             **evaluate.TRAIN_CFG["data"],
@@ -161,10 +163,10 @@ def test_compare_models_blocks_promotion_when_champion_cannot_be_loaded(
     )
 
     with pytest.raises(
-        evaluate.ModelComparisonError,
+        model_comparison.ModelComparisonError,
         match="promotion was blocked",
     ):
-        evaluate.compare_models(
+        model_comparison.compare_models(
             new_run_id="candidate-run-123",
             val_path="validation.parquet",
         )
@@ -184,15 +186,15 @@ def test_champion_exists_returns_true_when_alias_is_present(
     )
 
     monkeypatch.setattr(
-        evaluate,
+        register,
         "MlflowClient",
         MagicMock(return_value=client),
     )
 
-    assert evaluate.champion_exists() is True
+    assert register.champion_exists() is True
 
     client.get_registered_model.assert_called_once_with(
-        evaluate.MODEL_NAME
+        register.MODEL_NAME
     )
 
 def test_champion_exists_returns_false_when_alias_is_missing(
@@ -208,12 +210,12 @@ def test_champion_exists_returns_false_when_alias_is_missing(
     )
 
     monkeypatch.setattr(
-        evaluate,
+        register,
         "MlflowClient",
         MagicMock(return_value=client),
     )
 
-    assert evaluate.champion_exists() is False
+    assert register.champion_exists() is False
 
 def test_champion_exists_returns_false_when_model_is_missing(
     monkeypatch,
@@ -227,12 +229,12 @@ def test_champion_exists_returns_false_when_model_is_missing(
     )
 
     monkeypatch.setattr(
-        evaluate,
+        register,
         "MlflowClient",
         MagicMock(return_value=client),
     )
 
-    assert evaluate.champion_exists() is False
+    assert register.champion_exists() is False
 
 def test_champion_exists_propagates_registry_errors(
     monkeypatch,
@@ -246,7 +248,7 @@ def test_champion_exists_propagates_registry_errors(
     )
 
     monkeypatch.setattr(
-        evaluate,
+        register,
         "MlflowClient",
         MagicMock(return_value=client),
     )
@@ -255,7 +257,7 @@ def test_champion_exists_propagates_registry_errors(
         MlflowException,
         match="Registry unavailable",
     ):
-        evaluate.champion_exists()
+        register.champion_exists()
 
 def test_calculate_promotion_metrics_by_promo_segment():
     frame = pd.DataFrame(
@@ -270,7 +272,7 @@ def test_calculate_promotion_metrics_by_promo_segment():
     )
 
     metrics, segment_rows = (
-        evaluate.calculate_promotion_metrics(
+        evaluate_metrics.calculate_promotion_metrics(
             y_true=pd.Series(
                 [
                     100.0,
@@ -317,7 +319,7 @@ def test_calculate_promotion_metrics_requires_promo_column():
         ValueError,
         match="required segment column",
     ):
-        evaluate.calculate_promotion_metrics(
+        evaluate_metrics.calculate_promotion_metrics(
             y_true=pd.Series(
                 [100.0]
             ),

@@ -1,8 +1,8 @@
 from prefect import task, get_run_logger
 
 from src.training.train import train
-from src.training.evaluate import compare_models, evaluate_model, champion_exists
-from src.training.register import register_model
+from src.training.evaluate import compare_models, evaluate_model
+from src.training.register import register_model, champion_exists
 
 
 @task(name="Evaluate Current Champion")

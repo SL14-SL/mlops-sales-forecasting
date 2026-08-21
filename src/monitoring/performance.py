@@ -3,7 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Optional, Dict, Union, List
-from src.configs.loader import ensure_dir, file_exists, path_suffix
+from src.configs.paths import path_suffix
+from src.storage.filesystem import file_exists, ensure_dir
 
 import numpy as np
 import pandas as pd

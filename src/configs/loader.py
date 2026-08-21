@@ -1,77 +1,17 @@
-import glob
-import os
-import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 import yaml
 from dotenv import load_dotenv
 
-
-_ENV_VAR_PATTERN = re.compile(r"\$\{([^}:]+)(?::-([^}]*))?\}")
-
-
-def get_project_root() -> Path:
-    """Find the project root by walking upward until configs/ and src/ exist."""
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        if (parent / "configs").exists() and (parent / "src").exists():
-            return parent
-    return current.parents[2]
+from src.configs.paths import get_project_root
+from src.configs.environment import _detect_environment, _inject_runtime_env, _override_gcs_bucket_paths, _resolve_env_placeholders
 
 
 PROJECT_ROOT = get_project_root()
 
 # Load local environment variables, if present.
 load_dotenv(PROJECT_ROOT / ".env")
-
-
-def _resolve_env_placeholders(value: Any) -> Any:
-    """
-    Recursively resolve ${VAR} and ${VAR:-default} placeholders in YAML content.
-    Leaves unresolved placeholders unchanged if no env var/default is available.
-    """
-    if isinstance(value, dict):
-        return {key: _resolve_env_placeholders(item) for key, item in value.items()}
-
-    if isinstance(value, list):
-        return [_resolve_env_placeholders(item) for item in value]
-
-    if isinstance(value, str):
-
-        def replace(match: re.Match[str]) -> str:
-            var_name = match.group(1)
-            default = match.group(2)
-            env_value = os.getenv(var_name)
-
-            if env_value is not None:
-                return env_value
-            if default is not None:
-                return default
-            return match.group(0)
-
-        return _ENV_VAR_PATTERN.sub(replace, value)
-
-    return value
-
-
-def _detect_environment() -> str:
-    """
-    Determine active environment.
-
-    Priority:
-    1. APP_ENV
-    2. K_SERVICE -> prod
-    3. dev
-    """
-    env = os.getenv("APP_ENV")
-    if env:
-        return env
-
-    if os.getenv("K_SERVICE"):
-        return "prod"
-
-    return "dev"
 
 
 def _load_yaml(config_path: Path) -> dict[str, Any]:
@@ -87,59 +27,22 @@ def _load_yaml(config_path: Path) -> dict[str, Any]:
 
     return config
 
-
-def _override_gcs_bucket_paths(config: dict[str, Any]) -> dict[str, Any]:
+def get_path(name: str, config_name: str | None = None) -> str:
     """
-    Override gs:// bucket prefixes in config['paths'] when GCS_BUCKET_NAME is set.
+    Return a configured path from the selected config.
 
-    Example:
-      gs://old-bucket/data/raw
-    becomes:
-      gs://new-bucket/data/raw
+    Raises KeyError if paths.<name> is missing.
     """
-    env_bucket = os.getenv("GCS_BUCKET_NAME")
-    if not env_bucket:
-        return config
+    config = load_config(config_name)
+    paths = config.get("paths", {})
 
-    bucket_prefix = "" if env_bucket.startswith("gs://") else "gs://"
-    new_base_path = f"{bucket_prefix}{env_bucket}"
-
-    paths = config.get("paths")
     if not isinstance(paths, dict):
-        return config
+        raise KeyError("Config does not contain a valid 'paths' section.")
 
-    for key, path in paths.items():
-        if isinstance(path, str) and path.startswith("gs://"):
-            parts = path.replace("gs://", "", 1).split("/", 1)
-            if len(parts) > 1:
-                paths[key] = f"{new_base_path}/{parts[1]}"
-            else:
-                paths[key] = new_base_path
+    if name not in paths:
+        raise KeyError(f"Path '{name}' not found in config paths.")
 
-    return config
-
-
-def _inject_runtime_env(config: dict[str, Any]) -> None:
-    """
-    Push selected config values into process env for downstream libraries.
-    """
-    services = config.get("services", {})
-    if isinstance(services, dict):
-        prefect_api_url = services.get("prefect_api_url")
-        if prefect_api_url:
-            os.environ.setdefault("PREFECT_API_URL", str(prefect_api_url))
-
-    tracking = config.get("tracking", {})
-    mlflow_tracking_uri = None
-
-    if isinstance(tracking, dict):
-        mlflow_tracking_uri = tracking.get("mlflow_tracking_uri")
-
-    if not mlflow_tracking_uri:
-        mlflow_tracking_uri = config.get("mlflow_tracking_uri")
-
-    if mlflow_tracking_uri and "MLFLOW_TRACKING_URI" not in os.environ:
-        os.environ["MLFLOW_TRACKING_URI"] = str(mlflow_tracking_uri)
+    return str(paths[name])
 
 
 def load_config(config_name: str | None = None) -> dict[str, Any]:
@@ -165,185 +68,3 @@ def load_config(config_name: str | None = None) -> dict[str, Any]:
     return config
 
 
-def get_path(name: str, config_name: str | None = None) -> str:
-    """
-    Return a configured path from the selected config.
-
-    Raises KeyError if paths.<name> is missing.
-    """
-    config = load_config(config_name)
-    paths = config.get("paths", {})
-
-    if not isinstance(paths, dict):
-        raise KeyError("Config does not contain a valid 'paths' section.")
-
-    if name not in paths:
-        raise KeyError(f"Path '{name}' not found in config paths.")
-
-    return str(paths[name])
-
-
-def join_uri(base: str, *parts: str) -> str:
-    """
-    Join local or GCS paths without breaking gs:// URIs.
-    """
-    base = str(base).rstrip("/")
-    suffix = "/".join(str(part).strip("/") for part in parts)
-
-    if not suffix:
-        return base
-
-    return f"{base}/{suffix}"
-
-
-def path_name(path: str) -> str:
-    """
-    Return file name for local or GCS paths.
-    """
-    return PurePosixPath(str(path)).name
-
-
-def path_suffix(path: str) -> str:
-    """
-    Return suffix for local or GCS paths.
-    """
-    return PurePosixPath(str(path)).suffix.lower()
-
-
-def _gcs_fs():
-    try:
-        import gcsfs
-    except ImportError as exc:
-        raise RuntimeError("gcsfs is required for gs:// path operations.") from exc
-
-    return gcsfs.GCSFileSystem()
-
-
-def file_exists(path: str) -> bool:
-    """
-    Check existence for local paths and gs:// paths.
-    """
-    path = str(path)
-
-    if path.startswith("gs://"):
-        fs = _gcs_fs()
-        return fs.exists(path)
-
-    return Path(path).exists()
-
-
-def ensure_dir(path: str) -> None:
-    """
-    Create a directory if it does not exist.
-
-    Local paths are created on disk.
-    gs:// paths are left untouched because bucket/prefix creation is implicit.
-    """
-    path = str(path)
-
-    if path.startswith("gs://"):
-        return
-
-    Path(path).mkdir(parents=True, exist_ok=True)
-
-
-def list_files(path_pattern: str) -> list[str]:
-    """
-    List files for local glob patterns and gs:// glob patterns.
-    """
-    path_pattern = str(path_pattern)
-
-    if path_pattern.startswith("gs://"):
-        fs = _gcs_fs()
-        files = fs.glob(path_pattern)
-
-        return sorted(
-            f"gs://{path}" if not str(path).startswith("gs://") else str(path)
-            for path in files
-        )
-
-    return sorted(glob.glob(path_pattern))
-
-
-def modified_time(path: str) -> float:
-    """
-    Return comparable modification time for local and gs:// paths.
-    """
-    path = str(path)
-
-    if path.startswith("gs://"):
-        fs = _gcs_fs()
-        info = fs.info(path)
-
-        value = (
-            info.get("updated")
-            or info.get("mtime")
-            or info.get("created")
-            or info.get("timeCreated")
-        )
-
-        if value is None:
-            return 0.0
-
-        if hasattr(value, "timestamp"):
-            return float(value.timestamp())
-
-        if isinstance(value, (int, float)):
-            return float(value)
-
-        try:
-            import pandas as pd
-
-            return float(pd.Timestamp(value).timestamp())
-        except Exception:
-            return 0.0
-
-    return Path(path).stat().st_mtime
-
-
-def remove_file(path: str) -> None:
-    """
-    Remove a local or gs:// file if it exists.
-    """
-    path = str(path)
-
-    if path.startswith("gs://"):
-        fs = _gcs_fs()
-        if fs.exists(path):
-            fs.rm(path)
-        return
-
-    local_path = Path(path)
-    if local_path.exists():
-        local_path.unlink()
-
-
-def read_text(path: str) -> str:
-    """
-    Read text from local or gs:// path.
-    """
-    path = str(path)
-
-    if path.startswith("gs://"):
-        fs = _gcs_fs()
-        with fs.open(path, "r") as file:
-            return file.read()
-
-    return Path(path).read_text(encoding="utf-8")
-
-
-def write_text(path: str, text: str) -> None:
-    """
-    Write text to local or gs:// path.
-    """
-    path = str(path)
-
-    if path.startswith("gs://"):
-        fs = _gcs_fs()
-        with fs.open(path, "w") as file:
-            file.write(text)
-        return
-
-    local_path = Path(path)
-    local_path.parent.mkdir(parents=True, exist_ok=True)
-    local_path.write_text(text, encoding="utf-8")

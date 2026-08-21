@@ -4,13 +4,10 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from src.configs.loader import (
-    file_exists,
-    get_path,
-    join_uri,
-    read_text,
-    write_text,
-)
+from src.configs.loader import get_path
+from src.configs.paths import join_uri
+from src.storage.filesystem import file_exists, read_text, write_text
+
 from src.monitoring.retraining_policy import (
     RetrainingDecision,
 )

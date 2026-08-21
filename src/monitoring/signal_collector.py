@@ -8,11 +8,11 @@ from typing import Any
 import fsspec
 import pandas as pd
 
-from src.configs.loader import (
-    file_exists,
-    get_path,
-    join_uri,
-)
+from src.configs.loader import get_path
+
+from src.storage.filesystem import file_exists
+from src.configs.paths import join_uri
+
 from src.inference.serving_release import (
     load_active_serving_manifest,
 )

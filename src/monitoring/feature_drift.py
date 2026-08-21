@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 import pandas as pd
 from scipy.stats import chisquare, ks_2samp
 
-from src.configs.loader import file_exists, get_path
+from src.configs.loader import get_path
+from src.storage.filesystem import file_exists
+
 from src.monitoring.config import get_feature_drift_settings
 from src.utils.logger import get_logger
 
