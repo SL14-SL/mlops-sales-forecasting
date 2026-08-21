@@ -1,8 +1,7 @@
 import pytest
 
 from unittest.mock import MagicMock
-from flows import training_flow
-
+from flows import deployment_flow
 
 
 def test_deploy_and_verify_release_succeeds(
@@ -17,23 +16,23 @@ def test_deploy_and_verify_release_succeeds(
     rollback = MagicMock()
 
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_refresh_api",
         refresh,
     )
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_verify_serving_release",
         verify,
     )
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_rollback_serving_release",
         rollback,
     )
 
     result = (
-        training_flow.deploy_and_verify_release(
+        deployment_flow.deploy_and_verify_release(
             release_id="release-new",
             previous_release_id="release-old",
         )
@@ -71,17 +70,17 @@ def test_failed_verification_rolls_back(
     )
 
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_refresh_api",
         refresh,
     )
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_verify_serving_release",
         verify,
     )
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_rollback_serving_release",
         rollback,
     )
@@ -93,7 +92,7 @@ def test_failed_verification_rolls_back(
             "successfully"
         ),
     ):
-        training_flow.deploy_and_verify_release(
+        deployment_flow.deploy_and_verify_release(
             release_id="release-new",
             previous_release_id="release-old",
         )
@@ -125,12 +124,12 @@ def test_failed_bootstrap_verification_cannot_rollback(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_refresh_api",
         MagicMock(),
     )
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_verify_serving_release",
         MagicMock(
             side_effect=RuntimeError(
@@ -142,7 +141,7 @@ def test_failed_bootstrap_verification_cannot_rollback(
     rollback = MagicMock()
 
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_rollback_serving_release",
         rollback,
     )
@@ -151,7 +150,7 @@ def test_failed_bootstrap_verification_cannot_rollback(
         RuntimeError,
         match="no previous release",
     ):
-        training_flow.deploy_and_verify_release(
+        deployment_flow.deploy_and_verify_release(
             release_id="release-first",
             previous_release_id=None,
         )
@@ -162,12 +161,12 @@ def test_failed_rollback_is_reported(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_refresh_api",
         MagicMock(),
     )
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_verify_serving_release",
         MagicMock(
             side_effect=RuntimeError(
@@ -176,7 +175,7 @@ def test_failed_rollback_is_reported(
         ),
     )
     monkeypatch.setattr(
-        training_flow,
+        deployment_flow,
         "task_rollback_serving_release",
         MagicMock(
             side_effect=RuntimeError(
@@ -191,7 +190,7 @@ def test_failed_rollback_is_reported(
             "automatic rollback also failed"
         ),
     ):
-        training_flow.deploy_and_verify_release(
+        deployment_flow.deploy_and_verify_release(
             release_id="release-new",
             previous_release_id="release-old",
         )

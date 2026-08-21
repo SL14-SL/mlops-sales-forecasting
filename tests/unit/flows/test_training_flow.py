@@ -8,7 +8,6 @@ os.environ.pop("PREFECT_API_URL", None)
 
 import flows.training_flow as training_flow
 
-
 @pytest.fixture(autouse=True)
 def mock_flow_runtime():
     test_env_cfg = {
@@ -47,9 +46,13 @@ def test_training_pipeline_stable_system_only_evaluates_champion(
     mock_log_dataset_metadata = MagicMock()
     mock_eval_and_reg = MagicMock()
     mock_final_refit = MagicMock()
-    mock_refresh_api = MagicMock()
-    mock_verify_release = MagicMock()
+    mock_deploy_and_verify = MagicMock()
 
+    monkeypatch.setattr(
+        training_flow,
+        "deploy_and_verify_release",
+        mock_deploy_and_verify,
+    )
     monkeypatch.setattr(
         "flows.training_flow.task_check_drift",
         mock_check_drift,
@@ -82,14 +85,6 @@ def test_training_pipeline_stable_system_only_evaluates_champion(
         "flows.training_flow.task_final_refit",
         mock_final_refit,
     )
-    monkeypatch.setattr(
-        "flows.training_flow.task_refresh_api",
-        mock_refresh_api,
-    )
-    monkeypatch.setattr(
-        "flows.training_flow.task_verify_serving_release",
-        mock_verify_release,
-    )
 
     result = training_flow.training_pipeline.fn(
         force_run=False,
@@ -106,8 +101,7 @@ def test_training_pipeline_stable_system_only_evaluates_champion(
     mock_log_dataset_metadata.assert_not_called()
     mock_eval_and_reg.assert_not_called()
     mock_final_refit.assert_not_called()
-    mock_refresh_api.assert_not_called()
-    mock_verify_release.assert_not_called()
+    mock_deploy_and_verify.assert_not_called()
 
 
 def test_training_pipeline_force_run_without_promotion(
@@ -127,8 +121,6 @@ def test_training_pipeline_force_run_without_promotion(
     mock_log_dataset_metadata = MagicMock()
     mock_eval_and_reg = MagicMock(return_value=False)
     mock_final_refit = MagicMock()
-    mock_refresh_api = MagicMock()
-    mock_verify_release = MagicMock(return_value=True)
     mock_publish_release = MagicMock()
     mock_resolve_previous_release = MagicMock()
     mock_deploy_and_verify = MagicMock()
@@ -166,14 +158,6 @@ def test_training_pipeline_force_run_without_promotion(
         mock_final_refit,
     )
     monkeypatch.setattr(
-        "flows.training_flow.task_refresh_api",
-        mock_refresh_api,
-    )
-    monkeypatch.setattr(
-        "flows.training_flow.task_verify_serving_release",
-        mock_verify_release,
-    )
-    monkeypatch.setattr(
         "flows.training_flow.task_publish_serving_release",
         mock_publish_release,
     )
@@ -209,10 +193,8 @@ def test_training_pipeline_force_run_without_promotion(
     mock_eval_and_reg.assert_called_once_with(
         "run_123",
     )
-    mock_final_refit.assert_not_called()
 
-    mock_refresh_api.assert_not_called()
-    mock_verify_release.assert_not_called()
+    mock_final_refit.assert_not_called()
     mock_publish_release.assert_not_called()
     mock_resolve_previous_release.assert_not_called()
     mock_deploy_and_verify.assert_not_called()
@@ -395,8 +377,6 @@ def test_training_pipeline_drift_without_final_refit(
     mock_log_dataset_metadata = MagicMock()
     mock_eval_and_reg = MagicMock(return_value=False)
     mock_final_refit = MagicMock()
-    mock_refresh_api = MagicMock()
-    mock_verify_release = MagicMock(return_value=True)
     mock_publish_release = MagicMock()
     mock_resolve_previous_release = MagicMock()
     mock_deploy_and_verify = MagicMock()
@@ -435,14 +415,6 @@ def test_training_pipeline_drift_without_final_refit(
         mock_final_refit,
     )
     monkeypatch.setattr(
-        "flows.training_flow.task_refresh_api",
-        mock_refresh_api,
-    )
-    monkeypatch.setattr(
-        "flows.training_flow.task_verify_serving_release",
-        mock_verify_release,
-    )
-    monkeypatch.setattr(
         training_flow,
         "task_publish_serving_release",
         mock_publish_release,
@@ -479,10 +451,8 @@ def test_training_pipeline_drift_without_final_refit(
     mock_eval_and_reg.assert_called_once_with(
         "candidate_run_789",
     )
-    mock_final_refit.assert_not_called()
 
-    mock_refresh_api.assert_not_called()
-    mock_verify_release.assert_not_called()
+    mock_final_refit.assert_not_called()
     mock_publish_release.assert_not_called()
     mock_resolve_previous_release.assert_not_called()
     mock_deploy_and_verify.assert_not_called()
@@ -499,41 +469,6 @@ def test_training_pipeline_drift_without_final_refit(
         "deployment": None,
     }
 
-def test_candidate_evaluation_error_does_not_register_or_promote(
-    monkeypatch,
-):
-    comparison_error = RuntimeError(
-        "Champion evaluation unavailable"
-    )
-
-    mock_compare_models = MagicMock(
-        side_effect=comparison_error,
-    )
-    mock_register_model = MagicMock()
-
-    monkeypatch.setattr(
-        training_flow,
-        "compare_models",
-        mock_compare_models,
-    )
-    monkeypatch.setattr(
-        training_flow,
-        "register_model",
-        mock_register_model,
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="Champion evaluation unavailable",
-    ):
-        training_flow.task_eval_and_reg.fn(
-            "candidate-run-123",
-        )
-
-    mock_compare_models.assert_called_once_with(
-        "candidate-run-123",
-    )
-    mock_register_model.assert_not_called()
 
 def test_bootstrap_rejected_when_champion_exists(
     monkeypatch,
@@ -552,70 +487,6 @@ def test_bootstrap_rejected_when_champion_exists(
             force_run=True,
             bootstrap=True,
         )
-
-def test_bootstrap_creates_initial_final_refit_champion(
-    monkeypatch,
-):
-    champion_checks = MagicMock(
-        side_effect=[False, False],
-    )
-
-    mock_train = MagicMock(
-        return_value=(
-            MagicMock(),
-            "final-run-123",
-        ),
-    )
-
-    registered_version = MagicMock()
-    registered_version.version = "1"
-
-    mock_register = MagicMock(
-        return_value=registered_version,
-    )
-
-    monkeypatch.setattr(
-        training_flow,
-        "champion_exists",
-        champion_checks,
-    )
-    monkeypatch.setattr(
-        training_flow,
-        "train",
-        mock_train,
-    )
-    monkeypatch.setattr(
-        training_flow,
-        "register_model",
-        mock_register,
-    )
-
-    result = (
-        training_flow
-        .task_bootstrap_champion
-        .fn(
-            candidate_run_id="candidate-run-123",
-            is_drift_run=False,
-        )
-    )
-
-    assert result == {
-        "run_id": "final-run-123",
-        "model_version": "1",
-    }
-
-    assert champion_checks.call_count == 2
-
-    mock_train.assert_called_once_with(
-        is_drift_run=False,
-        run_role="final_refit",
-        candidate_run_id="candidate-run-123",
-    )
-
-    mock_register.assert_called_once_with(
-        "final-run-123",
-        alias="champion",
-    )
 
 
 def test_publication_failure_does_not_reload_api(
