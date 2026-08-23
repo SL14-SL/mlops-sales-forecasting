@@ -5,7 +5,8 @@ from unittest.mock import MagicMock
 import sys
 
 from src.data.features.calendar import build_known_calendar, prepare_known_calendar_lookup
-
+from src.api import serving_state
+from src.api.routers import admin
 
 @pytest.fixture(autouse=True)
 def mock_api_dependencies(
@@ -107,7 +108,7 @@ def mock_api_dependencies(
 
     with (
         patch(
-            "src.api.app.active_serving_bundle",
+            "src.api.serving_state.active_serving_bundle",
             mocked_bundle,
         ),
         patch(
@@ -131,15 +132,15 @@ def mock_api_dependencies(
             "log1p",
         ),
         patch(
-            "src.api.app.preprocess_data",
+            "src.data.features.build_features.preprocess_data",
             return_value=mocked_processed_df,
         ),
         patch(
-            "src.api.app.align_features_for_model",
+            "src.inference.pipeline.align_features_for_model",
             return_value=mocked_processed_df,
         ),
         patch(
-            "src.api.app.log_prediction",
+            "src.monitoring.prediction_logger.log_prediction",
             mock_log_prediction,
         ),
     ):
@@ -288,16 +289,14 @@ def test_failed_bundle_reload_keeps_previous_serving_state(
 ):
     previous_bundle = MagicMock()
     previous_bundle.model_version = "7"
-    app_module = sys.modules["src.api.app"]
 
     monkeypatch.setattr(
-        app_module,
+        serving_state,
         "active_serving_bundle",
         previous_bundle,
     )
-
     monkeypatch.setattr(
-        app_module,
+        serving_state,
         "load_serving_bundle",
         MagicMock(
             side_effect=RuntimeError(
@@ -306,58 +305,78 @@ def test_failed_bundle_reload_keeps_previous_serving_state(
         ),
     )
 
-    with pytest.raises(RuntimeError):
-        app_module.reload_complete_serving_bundle()
+    with pytest.raises(
+        RuntimeError,
+        match="known calendar unavailable",
+    ):
+        serving_state.reload_complete_serving_bundle()
 
     assert (
-        app_module.active_serving_bundle
+        serving_state.active_serving_bundle
         is previous_bundle
     )
     assert (
-        app_module.active_serving_bundle.model_version
+        serving_state.active_serving_bundle
+        .model_version
         == "7"
     )
 
 def test_complete_bundle_is_activated_only_after_success(
     monkeypatch,
 ):
-
-    app_module = sys.modules["src.api.app"]
-
     candidate_bundle = MagicMock()
     candidate_bundle.model = MagicMock()
-    candidate_bundle.model_name = "sales-forecasting-model-dev"
+    candidate_bundle.model_name = (
+        "sales-forecasting-model-dev"
+    )
     candidate_bundle.model_type = "xgboost"
-    candidate_bundle.target_transformation = "log1p"
+    candidate_bundle.target_transformation = (
+        "log1p"
+    )
     candidate_bundle.serving_alias = "champion"
-    candidate_bundle.model_uri = "models:/model@champion"
+    candidate_bundle.model_uri = (
+        "models:/model@champion"
+    )
     candidate_bundle.model_version = "8"
     candidate_bundle.model_run_id = "run-8"
     candidate_bundle.store_metadata = MagicMock()
-    candidate_bundle.store_state = {"1": [10.0]}
+    candidate_bundle.store_state = {
+        "1": [10.0],
+    }
     candidate_bundle.known_calendar = MagicMock()
 
     monkeypatch.setattr(
-        app_module,
+        serving_state,
         "load_serving_bundle",
-        MagicMock(return_value=candidate_bundle),
+        MagicMock(
+            return_value=candidate_bundle,
+        ),
     )
 
-    result = app_module.reload_complete_serving_bundle()
+    result = (
+        serving_state
+        .reload_complete_serving_bundle()
+    )
 
-    assert app_module.active_serving_bundle is candidate_bundle
-    assert app_module.model is candidate_bundle.model
-    assert app_module.serving_model_version == "8"
+    assert (
+        serving_state.active_serving_bundle
+        is candidate_bundle
+    )
+    assert (
+        serving_state.model
+        is candidate_bundle.model
+    )
+    assert (
+        serving_state.serving_model_version
+        == "8"
+    )
     assert result["model_version"] == "8"
-
 def test_readyz_returns_503_without_active_bundle(
     api_client,
     monkeypatch,
 ):
-    app_module = sys.modules["src.api.app"]
-
     monkeypatch.setattr(
-        app_module,
+        serving_state,
         "active_serving_bundle",
         None,
     )
@@ -384,7 +403,7 @@ def test_predict_uses_active_bundle_instead_of_legacy_globals(
     api_client,
     api_headers,
     sample_prediction_payload,
-    monkeypatch,
+    monkeypatch,    
 ):
     app_module = sys.modules[
         "src.api.app"
@@ -418,12 +437,6 @@ def test_rollback_validates_target_before_changing_pointer(
     api_headers,
     monkeypatch,
 ):
-
-    app_module = sys.modules["src.api.app"]
-
-    mock_pointer = MagicMock(
-        return_value="release-current"
-    )
     mock_load_target = MagicMock(
         side_effect=ValueError(
             "checksum mismatch"
@@ -432,17 +445,19 @@ def test_rollback_validates_target_before_changing_pointer(
     mock_activate_pointer = MagicMock()
 
     monkeypatch.setattr(
-        app_module,
+        admin,
         "load_active_release_id",
-        mock_pointer,
+        MagicMock(
+            return_value="release-current",
+        ),
     )
     monkeypatch.setattr(
-        app_module,
+        admin,
         "load_serving_bundle_for_release",
         mock_load_target,
     )
     monkeypatch.setattr(
-        app_module,
+        admin,
         "activate_release_pointer",
         mock_activate_pointer,
     )
@@ -463,25 +478,22 @@ def test_rollback_activates_validated_release(
     api_headers,
     monkeypatch,
 ):
-
-    app_module = sys.modules["src.api.app"]
-
     target_bundle = MagicMock()
     target_bundle.release_id = "release-old"
     target_bundle.model_version = "3"
 
     monkeypatch.setattr(
-        app_module,
+        admin,
         "load_active_release_id",
         MagicMock(
-            return_value="release-current"
+            return_value="release-current",
         ),
     )
     monkeypatch.setattr(
-        app_module,
+        admin,
         "load_serving_bundle_for_release",
         MagicMock(
-            return_value=target_bundle
+            return_value=target_bundle,
         ),
     )
 
@@ -494,12 +506,12 @@ def test_rollback_activates_validated_release(
     )
 
     monkeypatch.setattr(
-        app_module,
+        admin,
         "activate_release_pointer",
         mock_pointer_update,
     )
     monkeypatch.setattr(
-        app_module,
+        admin,
         "activate_serving_bundle",
         mock_bundle_activation,
     )
@@ -514,13 +526,27 @@ def test_rollback_activates_validated_release(
 
     assert response.status_code == 200
 
-    mock_pointer_update.assert_called_once_with(
-        models_path=app_module.MODELS_PATH,
-        release_id="release-old",
-        operation="rollback",
-        previous_release_id=(
-            "release-current"
-        ),
+    mock_pointer_update.assert_called_once()
+
+    pointer_kwargs = (
+        mock_pointer_update
+        .call_args
+        .kwargs
+    )
+
+    assert (
+        pointer_kwargs["release_id"]
+        == "release-old"
+    )
+    assert (
+        pointer_kwargs["operation"]
+        == "rollback"
+    )
+    assert (
+        pointer_kwargs[
+            "previous_release_id"
+        ]
+        == "release-current"
     )
 
     mock_bundle_activation.assert_called_once_with(
@@ -579,10 +605,8 @@ def test_metrics_reports_missing_serving_bundle(
     api_client,
     monkeypatch,
 ):
-    app_module = sys.modules["src.api.app"]
-
     monkeypatch.setattr(
-        app_module,
+        serving_state,
         "active_serving_bundle",
         None,
     )
