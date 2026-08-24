@@ -41,6 +41,20 @@ The manifest also records:
 - Git commit;
 - artifact checksums.
 
+## Implementation Ownership
+
+The release lifecycle is split into focused modules:
+
+| Module | Responsibility |
+|---|---|
+| `src/inference/releases/manifest.py` | Release manifest and artifact-reference models |
+| `src/inference/releases/storage.py` | Release paths and storage operations |
+| `src/inference/releases/repository.py` | Loading manifests, releases and the active pointer |
+| `src/inference/releases/publisher.py` | Publishing and activating complete releases |
+| `src/inference/model_manager.py` | Loading the model and release assets into a validated bundle |
+| `src/api/serving_state.py` | Atomically replacing the active process-local bundle |
+| `flows/deployment_flow.py` | Reload, verification and rollback orchestration |
+
 ### Model artifact lineage
 
 Candidate evaluation and production refitting produce separate MLflow
@@ -92,6 +106,10 @@ The API reload process follows a load-before-swap pattern:
 5. Load metadata, state and calendar assets.
 6. Validate the complete candidate bundle.
 7. Replace the active in-memory bundle in one step.
+
+Health, readiness, metrics and prediction endpoints do not keep separate bundle
+copies. They all resolve the active process-local reference through
+`src.api.serving_state`.
 
 An exception before step 7 leaves the previous serving bundle active.
 

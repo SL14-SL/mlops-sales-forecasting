@@ -41,12 +41,30 @@ flowchart TD
 | Prefect | Training and retraining orchestration | Flow and task run metadata |
 | MLflow | Experiments, runs, metrics and model versions | Tracking database and artifacts |
 | GCS | Dataset snapshots and immutable serving releases | Versioned objects |
-| FastAPI | Request validation and prediction serving | No authoritative mutable model state |
+| FastAPI | Request validation and prediction serving | Process-local active bundle; persistent authority remains the release pointer |
 | Prometheus | Metric collection and alert-rule evaluation | Time-series metrics |
 | Grafana | Operational visualization | Dashboard definitions |
 | Alertmanager | Alert grouping and routing | Alert state |
 | Terraform | Cloud resource definition | Terraform state |
 | GitHub Actions | Validation, image publication and deployment | Workflow history |
+
+## Internal Code Boundaries
+
+The application code is separated by responsibility so that orchestration,
+transport concerns and domain logic remain independently testable.
+
+| Layer | Main modules | Responsibility |
+|---|---|---|
+| Flow orchestration | `flows/training_flow.py`, `flows/auto_retrain_flow.py` | Coordinate lifecycle steps without implementing task internals |
+| Prefect tasks | `flows/tasks/` | Data preparation, training, registry and serving tasks |
+| Deployment orchestration | `flows/deployment_flow.py` | API reload, semantic verification and automatic rollback |
+| HTTP transport | `src/api/app.py`, `src/api/routers/` | FastAPI assembly, routing, authentication and status codes |
+| API request handling | `src/api/prediction_handler.py` | Data-quality logging, prediction logging and response construction |
+| Serving state | `src/api/serving_state.py` | Atomically activate and expose one process-local serving bundle |
+| Inference execution | `src/inference/prediction_service.py` | Feature preparation, model execution and prediction postprocessing |
+| Release lifecycle | `src/inference/releases/` | Manifest handling, storage, publication and active-pointer operations |
+| Training lifecycle | `src/training/` | Dataset preparation, weighting, training, comparison, final refit and metadata |
+| Storage abstraction | `src/storage/` | Local and object-storage filesystem operations |
 
 ## Training and Promotion Flow
 
@@ -77,6 +95,11 @@ MLflow and GCS have different responsibilities:
 - The active pointer selects one complete release.
 - The API changes its in-memory state only after the candidate bundle has loaded
   and validated successfully.
+
+Within the API process, `src.api.serving_state` is the only owner of the active
+bundle reference. Health, readiness, metrics and prediction endpoints all read
+that same reference. This prevents stale copies of the serving state across
+different routers.
 
 This prevents combinations such as new model weights with stale forecasting
 state or calendar data.

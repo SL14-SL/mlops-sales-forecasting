@@ -96,6 +96,10 @@ make train-force
 The candidate must still outperform the champion. `force` bypasses the decision
 to skip training; it does not bypass the promotion gate.
 
+`make train-force` requires an existing registered Champion. On an empty MLflow
+registry it cannot perform the Champion/Challenger comparison and therefore
+blocks promotion. Use `make train-bootstrap` exactly once for a fresh registry.
+
 ## Prefect Deployment and Worker
 
 Register or update the scheduled auto-retraining deployment:
@@ -170,8 +174,8 @@ docker compose run --rm \
 ## Quality Checks
 
 ```bash
-pytest
-ruff check .
+uv run pytest
+uv run ruff check .
 docker compose config --quiet
 ```
 
@@ -195,6 +199,10 @@ docker compose logs --tail=200 api
 
 Typical causes are a missing release, inaccessible MLflow artifact or failed
 serving-bundle validation.
+
+The API keeps one centralized process-local bundle reference in
+`src.api.serving_state`. A successful reload updates this reference atomically;
+health, readiness, metrics and prediction routes read the same state.
 
 ### Prefect client/server version warning
 

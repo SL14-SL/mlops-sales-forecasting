@@ -83,10 +83,15 @@ flowchart TD
 | Prefect | Training, evaluation, promotion and retraining orchestration |
 | GCS serving release | Model reference, metadata, feature state, calendar and probe payload |
 | Active release pointer | Selects one complete release atomically |
-| FastAPI | Validated online inference using the active release |
+| FastAPI | HTTP routing, validated inference and process-local activation of one complete serving bundle |
 | Prometheus | Metrics collection and alert-rule evaluation |
 | Grafana | SLO and operational dashboards |
 | Alertmanager | Alert grouping and delivery routing |
+
+The API uses `src.api.serving_state` as its single process-local serving-state
+source. HTTP routers do not maintain independent model or bundle copies. The
+persistent source of truth remains the active release pointer and its immutable
+release artifacts.
 
 ## End-to-End Model Lifecycle
 
@@ -572,23 +577,36 @@ Security and reliability controls include:
 
 ```text
 .
-├── configs/                 # Environment, training and monitoring configuration
-├── dashboard/               # Streamlit lifecycle dashboard
-├── docs/                    # Architecture, evidence and operational documentation
-├── flows/                   # Prefect training and automatic retraining flows
-├── infrastructure/          # Terraform configuration
-├── monitoring/              # Prometheus, Grafana and Alertmanager configuration
-├── scripts/                 # Backtests, simulations, setup and verification tools
+├── configs/                      # Environment, training and monitoring configuration
+├── dashboard/                    # Streamlit lifecycle dashboard
+├── docs/                         # Architecture and operational documentation
+├── flows/
+│   ├── tasks/                    # Reusable Prefect task implementations
+│   ├── deployment_flow.py        # Release deployment, verification and rollback
+│   ├── training_flow.py          # End-to-end training orchestration
+│   └── auto_retrain_flow.py      # Policy-driven retraining orchestration
+├── infrastructure/               # Terraform configuration
+├── monitoring/                   # Prometheus, Grafana and Alertmanager configuration
+├── scripts/                      # Backtests, simulations and verification tools
 ├── src/
-│   ├── api/                 # FastAPI application and schemas
-│   ├── configs/             # Configuration loading
-│   ├── data/                # Validation and preprocessing
-│   ├── deployment/          # Post-deployment verification
-│   ├── features/            # Forecast feature engineering
-│   ├── inference/           # Model loading and serving releases
-│   ├── monitoring/          # Quality, drift and performance signals
-│   └── training/            # Model building, training and evaluation
-├── tests/                   # Unit and integration tests
+│   ├── api/
+│   │   ├── routers/              # Health, prediction and administration endpoints
+│   │   ├── dependencies.py       # Authentication and request dependencies
+│   │   ├── middleware.py         # Prometheus request monitoring
+│   │   ├── prediction_handler.py # API-level prediction orchestration
+│   │   ├── serving_state.py      # Central process-local serving state
+│   │   └── app.py                # FastAPI assembly and lifespan
+│   ├── configs/                  # Environment and path resolution
+│   ├── data/
+│   │   └── features/             # Forecast-specific feature engineering
+│   ├── deployment/               # Post-deployment semantic verification
+│   ├── inference/
+│   │   ├── releases/             # Release manifest, storage and publication
+│   │   └── prediction_service.py # Model inference and feature execution
+│   ├── monitoring/               # Quality, drift and performance signals
+│   ├── storage/                  # Filesystem and object-storage helpers
+│   └── training/                 # Dataset, weighting, training, comparison and refit
+├── tests/                        # Unit and integration tests
 ├── docker-compose.yml
 ├── Makefile
 └── pyproject.toml
