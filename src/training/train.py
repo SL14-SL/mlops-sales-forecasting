@@ -423,7 +423,8 @@ def train(
 
         logger.info(
             "Model logged to MLflow | "
-            "run_id=%s | run_role=%s",
+            "run_id=%s | "
+            "run_role=%s | "
             "signature_input=%s",
             run_id,
             run_role,
