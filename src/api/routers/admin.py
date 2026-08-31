@@ -7,11 +7,13 @@ from src.inference.model_manager import (
     load_store_state,
     load_serving_bundle_for_release
 )
-from src.inference.serving_release import (
+
+from src.inference.releases.repository import (
     activate_release_pointer, 
     list_serving_release_manifests, 
     load_active_release_id,
 )
+
 from src.configs.loader import load_config, get_path
 from src.utils.logger import get_logger
 

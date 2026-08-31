@@ -18,11 +18,11 @@ from src.inference.serving_bundle import ServingBundle, validate_serving_bundle
 from src.inference.model_loader import (
     load_model_by_type,
 )
-from src.inference.serving_release import (
+from src.inference.releases.repository import (
     load_active_serving_manifest,
-    resolve_release_artifact_uri,
     load_serving_manifest,
 )
+from src.inference.releases.manifest import resolve_release_artifact_uri
 
 logger = get_logger(__name__)
 

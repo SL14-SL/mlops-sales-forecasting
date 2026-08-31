@@ -14,7 +14,7 @@ from src.deployment.verification import (
     verify_prediction_probe,
     verify_serving_release,
 )
-from src.inference.serving_release import (
+from src.inference.releases.repository import (
     load_active_release_id,
     load_release_prediction_probe,
     load_serving_release_manifest,

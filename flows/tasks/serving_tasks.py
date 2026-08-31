@@ -14,9 +14,9 @@ from mlflow.tracking import MlflowClient
 from src.deployment.verification import verify_serving_release, verify_prediction_probe
 from src.deployment.prediction_probe import build_prediction_probe
 
-from src.inference.serving_release import (
-    publish_serving_release, 
-    load_serving_release_manifest, 
+from src.inference.releases.publisher import publish_serving_release
+from src.inference.releases.repository import (
+    load_serving_release_manifest,
     load_active_release_id,
     load_release_prediction_probe,
 )

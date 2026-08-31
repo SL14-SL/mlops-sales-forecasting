@@ -13,7 +13,7 @@ from src.configs.loader import get_path
 from src.storage.filesystem import file_exists
 from src.configs.paths import join_uri
 
-from src.inference.serving_release import (
+from src.inference.releases.repository import (
     load_active_serving_manifest,
 )
 from src.data.validation.validate import (

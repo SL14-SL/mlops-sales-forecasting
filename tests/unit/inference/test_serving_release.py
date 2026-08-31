@@ -3,14 +3,13 @@ import json
 import pandas as pd
 import pytest
 
-from src.inference.serving_release import (
+from src.inference.releases.repository import (
     load_active_serving_manifest,
-    publish_serving_release,
-    resolve_release_artifact_uri,
     activate_release_pointer,
     load_active_release_id,
 )
-
+from src.inference.releases.publisher import publish_serving_release
+from src.inference.releases.manifest import resolve_release_artifact_uri
 
 @pytest.fixture
 def serving_sources(tmp_path):
