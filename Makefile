@@ -10,24 +10,26 @@ LOCAL_PREFECT_API_URL := http://localhost:4221/api
 PREFECT_POOL ?= local-pool
 PREFECT_PROJECT_DIR ?= $(CURDIR)
 
-.PHONY: help setup dev-up dev-down dev train train-force test lint clean \
-        ui-prefect ui-mlflow prefect-status wait-prefect logs \
-        refresh-api prefect-pool prefect-setup prefect-worker auto-retrain \
-        snapshot-demo-baseline reset-lifecycle-run \
-        demo-promo-without-retraining demo-promo-with-retraining \
-        controlled-retraining-experiment train-bootstrap \
-		list-serving-releases rollback-serving reset-local-stack \
-		test-serving-e2e test-serving-rollback-e2e \
-		check-prod-env train-bootstrap-prod verify-prod bootstrap-and-verify-prod \
-		prepare-mlflow-prod-demo
+.PHONY: all help setup dev dev-up dev-down logs dashboard-logs refresh-api \
+	reset-local-stack ui-prefect ui-mlflow prefect-status wait-prefect \
+	prefect-pool prefect-setup prefect-worker train train-force train-bootstrap \
+	auto-retrain predict-test demo-forecasting-lifecycle \
+	snapshot-demo-baseline reset-lifecycle-run demo-promo-without-retraining \
+	demo-promo-with-retraining controlled-retraining-experiment \
+	list-serving-releases rollback-serving test-serving-e2e \
+	test-serving-rollback-e2e check-prod-env debug-prod-env \
+	prepare-mlflow-prod-demo upload-raw-prod train-force-prod \
+	train-bootstrap-prod verify-prod bootstrap-and-verify-prod \
+	demo-forecasting-lifecycle-prod compose-check check test lint clean \
+	clean-venv clean-data clean-all reset-demo
 
 # --- Main Entry Point ---
 
-all: setup dev-up wait-prefect prefect-pool prefect-setup prefect-worker train-bootstrap test
+all: setup dev-up wait-prefect prefect-pool prefect-setup prefect-worker train-bootstrap check ## Bootstrap and validate the complete local environment
 	@echo "✨ Full build successful! API, MLflow and Prefect are running."
 
-help: ## Display this help screen
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-22s\033[0m %s\n", $$1, $$2}'
+help: ## Display available lifecycle commands
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-34s\033[0m %s\n", $$1, $$2}'
 
 # --- Environment Setup ---
 
@@ -39,7 +41,7 @@ setup: ## Initialize local virtual environment using uv
 
 # --- Docker & Infrastructure ---
 
-dev-up: ## Spin up the full stack (DB, MLflow, API, Prefect) in detached mode
+dev-up: ## Start the complete local container stack
 	@echo "🐳 Starting container stack..."
 	mkdir -p mlruns
 	mkdir -p mlruns_artifacts
@@ -54,7 +56,7 @@ dev-up: ## Spin up the full stack (DB, MLflow, API, Prefect) in detached mode
 	mkdir -p data/predictions/archive
 	mkdir -p data/monitoring
 	UID=$$(id -u) GID=$$(id -g) docker compose up -d --build
-	@echo "✅ Services are live: API (8000), Streamlit (8501), MLflow (5000), Prefect (4221), Grafana (3000), Prometheus (9090)"
+	@echo "✅ Services are live: API (8000), Streamlit (8501), MLflow (5000), Prefect (4221), Grafana (3000), Prometheus (9090), Alertmanager (9093)"
 
 dev-down: ## Stop all containers and remove networks
 	@echo "🛑 Shutting down services..."
@@ -65,6 +67,9 @@ dev: dev-up wait-prefect prefect-pool prefect-setup prefect-worker ## Start comp
 
 logs: ## Follow logs from the API service
 	docker compose logs -f api
+
+dashboard-logs: ## Follow logs from the Streamlit dashboard service
+	docker compose logs -f dashboard
 
 refresh-api: ## Restart or recreate API service using Docker Compose
 	@echo "🔄 Refreshing API..."
@@ -93,7 +98,7 @@ reset-local-stack: ## Delete local runtime state for a clean bootstrap (requires
 	@echo "✅ Local runtime state reset."
 	@echo "Next: make dev-up && make wait-prefect && make train-bootstrap"
 
-# --- Prefect Specifics ---
+# --- Local Prefect ---
 
 prefect-status: ## Check local Prefect server and configuration
 	@echo "🔍 Checking Prefect server status..."
@@ -141,20 +146,21 @@ prefect-worker: wait-prefect prefect-pool ## Start containerized Prefect worker
 # --- UI Quicklinks ---
 
 ui-prefect: ## Open Prefect UI in the browser
-	@python3 -m webbrowser http://localhost:4200
+	@python3 -m webbrowser http://localhost:4221
 
 ui-mlflow: ## Open MLflow UI in the browser
 	@python3 -m webbrowser http://localhost:5000
 
 
-COMPOSE_RUN_API=docker compose exec -T \
+# Container-internal local service addresses.
+COMPOSE_RUN_API = docker compose exec -T \
 	-e APP_ENV=dev \
 	-e MLFLOW_TRACKING_URI=http://mlflow:5000 \
 	-e PREFECT_API_URL=http://prefect:4200/api \
 	-e PREDICTION_API_URL=http://api:8080/predict \
 	api
 
-# --- ML Pipeline Tasks ---
+# --- Local ML Pipeline ---
 
 train: wait-prefect ## Execute the training flow inside the API container
 	@echo "🧠 Starting training flow inside API container..."
@@ -216,9 +222,9 @@ check-prod-env: ## Validate required production environment variables
 	esac
 	@echo "✅ Production environment is valid."
 
-prepare-mlflow-prod-demo: check-prod-env ## Prepare one warm MLflow instance for the ephemeral demo
+prepare-mlflow-prod-demo: check-prod-env ## Prepare one warm MLflow instance for the ephemeral cloud demo
 	@echo "🔥 Preparing ephemeral MLflow production demo..."
-		@gcloud run services update \
+	@gcloud run services update \
 		mlflow-server \
 		--project "$(GCP_PROJECT_ID)" \
 		--region "$(GCP_REGION)" \
@@ -235,7 +241,7 @@ prepare-mlflow-prod-demo: check-prod-env ## Prepare one warm MLflow instance for
 	@echo "✅ MLflow demo instance is ready."
 
 
-upload-raw-prod: ## Upload raw forecasting data to the production GCS bucket
+upload-raw-prod: check-prod-env ## Upload raw forecasting data to the production GCS bucket
 	@echo "☁️ Uploading raw data to gs://$(GCP_BUCKET_NAME)/data/raw/"
 	gcloud storage cp data/raw/train.csv data/raw/store.csv data/raw/test.csv \
 		gs://$(GCP_BUCKET_NAME)/data/raw/
@@ -243,7 +249,7 @@ upload-raw-prod: ## Upload raw forecasting data to the production GCS bucket
 	gcloud storage ls gs://$(GCP_BUCKET_NAME)/data/raw/
 
 
-train-force-prod: ## Execute forced training flow against production cloud services
+train-force-prod: check-prod-env ## Execute forced training flow against production cloud services
 	@echo "🧠 Starting forced production training flow..."
 	PYTHONPATH=. \
 	APP_ENV=prod \
@@ -342,6 +348,13 @@ test-serving-rollback-e2e: ## Verify rollback and restoration of a serving relea
 
 # --- Quality Assurance ---
 
+compose-check: ## Validate the Docker Compose configuration
+	@echo "🐳 Validating Docker Compose configuration..."
+	docker compose config --quiet
+
+check: lint test compose-check ## Run all local quality checks
+	@echo "✅ All local quality checks passed."
+
 test: ## Run unit and integration tests
 	@echo "🧪 Running pytest suite..."
 	uv run --active pytest tests/
@@ -362,12 +375,12 @@ clean-venv: ## Remove the virtual environment
 	@echo "🗑️ Removing .venv..."
 	rm -rf .venv
 
-clean-data: ## Remove local data folders
+clean-data: ## Remove local runtime data folders
 	@echo "📂 Removing local runtime data folders..."
-	rm -rf ./prefect_data ./mlruns ./models 
+	rm -rf ./prefect_data ./mlruns ./mlruns_artifacts ./models
 	@echo "✅ Runtime data folders removed."
 
-clean-all: clean dev-down clean-venv clean-data ## Deep clean everything
+clean-all: clean dev-down clean-venv clean-data ## Deep-clean local environment and Docker state
 	@echo "🐳 Pruning Docker system..."
 	docker system prune -f
 	docker volume prune -f
