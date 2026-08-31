@@ -702,3 +702,6 @@ MLOps Engineer
 
 Focused on production-oriented ML systems, safe model deployment, monitoring,
 retraining workflows and cloud-native infrastructure.
+
+[LinkedIn](https://www.linkedin.com/in/92-steffen-lauterbach)
+
