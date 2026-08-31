@@ -388,7 +388,7 @@ jobs:
           push: false
           load: true
           tags: |
-            ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:3.9.0
+            ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:3.15.1
             mlops-mlflow:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -407,10 +407,10 @@ jobs:
 
       - name: Push MLflow Image
         run: |
-          docker tag mlops-mlflow:scan ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:3.9.0
+          docker tag mlops-mlflow:scan ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:3.15.1
           docker tag mlops-mlflow:scan ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:latest
 
-          docker push ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:3.9.0
+          docker push ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:3.15.1
           docker push ${{ vars.GCP_ARTIFACT_REPO }}/mlflow:latest
 
 # -------------------------------------------------
@@ -456,7 +456,7 @@ jobs:
 
       - name: Deploy MLflow via deployment CLI
         run: |
-          uv run --active python -m src.deployment.cli deploy mlflow --tag 3.9.0 \
+          uv run --active python -m src.deployment.cli deploy mlflow --tag 3.15.1 \
             --service-account "${{ secrets.GCP_SA_EMAIL }}" \
             --project-id "$GCP_PROJECT_ID" \
             --region "$GCP_REGION" \
