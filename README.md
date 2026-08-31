@@ -426,10 +426,18 @@ cp .env.example .env
 Set at least a local `API_KEY` in `.env`. Raw Rossmann files are intentionally
 excluded from Git and must be placed under `data/raw/`.
 
-### 2. Start the local stack
+### 2. Create the environment
+
+```bash
+make setup
+source .venv/bin/activate
+```
+
+### 3. Start the local stack
 
 ```bash
 make dev-up
+make wait-prefect
 ```
 
 | Service | URL |
@@ -443,14 +451,14 @@ make dev-up
 | Prometheus | http://localhost:9090 |
 | Alertmanager | http://localhost:9093 |
 
-### 3. Bootstrap the first champion
+### 4. Bootstrap the first champion
 
 ```bash
 make train-bootstrap
 make predict-test
 ```
 
-### 4. Register scheduled retraining
+### 5. Register scheduled retraining
 
 ```bash
 make prefect-setup
@@ -464,7 +472,7 @@ executed with:
 make auto-retrain
 ```
 
-### 5. Run quality checks
+### 6. Run quality checks
 
 ```bash
 make test

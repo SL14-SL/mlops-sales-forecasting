@@ -11,7 +11,7 @@ PREFECT_POOL ?= local-pool
 PREFECT_PROJECT_DIR ?= $(CURDIR)
 
 .PHONY: help setup dev-up dev-down dev train train-force test lint clean \
-        ui-prefect ui-mlflow ui-dashboard prefect-status wait-prefect logs \
+        ui-prefect ui-mlflow prefect-status wait-prefect logs \
         refresh-api prefect-pool prefect-setup prefect-worker auto-retrain \
         snapshot-demo-baseline reset-lifecycle-run \
         demo-promo-without-retraining demo-promo-with-retraining \
