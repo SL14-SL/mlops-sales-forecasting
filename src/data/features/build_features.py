@@ -1,9 +1,6 @@
-import os
-
 import pandas as pd
 
-from src.configs.loader import get_path, load_config
-from src.storage.filesystem import file_exists
+from src.configs.loader import load_config
 from src.data.features.common import (
     cast_object_columns_to_category,
     drop_columns_if_present,
@@ -14,10 +11,7 @@ from src.data.features.core import (
     initialize_inference_lag_placeholders,
     sort_frame,
 )
-from src.data.features.calendar import (
-    load_known_calendar,
-    merge_known_calendar_features,
-)
+
 from src.data.features.forecasting_policy import (
     FORECASTING_TECHNICAL_DROP_COLUMNS,
     add_competition_duration_features,
@@ -27,13 +21,7 @@ from src.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
-
-ENV_CFG = load_config()
 TRAIN_CFG = load_config("training.yaml")
-
-FEATURES_PATH = get_path("features")
-VALIDATED_PATH = get_path("validated_data")
-
 
 def _get_data_config(config: dict) -> dict:
     data_cfg = config.get("data", {})
@@ -254,106 +242,3 @@ def preprocess_data(df: pd.DataFrame, *, mode: str = "auto") -> pd.DataFrame:
     Build features using the default training configuration.
     """
     return build_features(df, config=TRAIN_CFG, mode=mode)
-
-
-def _load_validated_inputs() -> dict[str, pd.DataFrame]:
-    train_path = f"{VALIDATED_PATH}/train.parquet"
-    store_path = f"{VALIDATED_PATH}/store.parquet"
-
-    if not file_exists(train_path) or not file_exists(store_path):
-        raise FileNotFoundError(
-            f"No validated data found in {VALIDATED_PATH}.\n\n"
-            "👉 To run the training pipeline:\n"
-            "1. Place raw data in data/raw/\n"
-            "   (e.g. train.csv, test.csv, store.csv)\n"
-            "2. Ensure the data matches the expected schema (Store, Date, Sales, Promo)\n\n"
-            "👉 See README section 'Data Requirements' for details."
-        )
-
-    train = pd.read_parquet(train_path)
-    store = pd.read_parquet(store_path)
-
-    logger.info(
-        f"Validated datasets loaded | train_shape={train.shape} | store_shape={store.shape}"
-    )
-
-    return {
-        "train": train,
-        "store": store,
-    }
-
-
-def _merge_feature_sources(
-    datasets: dict[str, pd.DataFrame],
-    config: dict,
-) -> pd.DataFrame:
-    entity_column = _resolve_core_columns(
-        config
-    )["entity_column"]
-
-    logger.info(
-        f"Merging validated datasets on '{entity_column}'."
-    )
-
-    merged_df = datasets["train"].merge(
-        datasets["store"],
-        on=entity_column,
-        how="left",
-    )
-
-    calendar_df = load_known_calendar()
-
-    merged_df = merge_known_calendar_features(
-        merged_df,
-        calendar_df,
-        strict=True,
-    )
-
-    logger.info(
-        "Known calendar features merged successfully."
-    )
-
-    return merged_df
-
-
-def run_feature_pipeline(config: dict | None = None) -> None:
-    """
-    Build and persist the complete training feature dataset.
-
-    The pipeline loads validated training and store data, joins known calendar
-    features, applies configured feature engineering and writes the resulting
-    Parquet dataset to the configured feature location.
-
-    Raises:
-        FileNotFoundError: If required validated input artifacts are unavailable.
-        ValueError: If merging or feature configuration is invalid.
-    """
-    config = config or TRAIN_CFG
-
-    logger.info(f"Starting feature pipeline. Data source: {VALIDATED_PATH}")
-
-    try:
-        datasets = _load_validated_inputs()
-        df = _merge_feature_sources(datasets, config)
-        df = build_features(df, config=config, mode="train")
-
-        if not FEATURES_PATH.startswith("gs://"):
-            os.makedirs(FEATURES_PATH, exist_ok=True)
-
-        output_file = f"{FEATURES_PATH}/features.parquet"
-        df.to_parquet(output_file, index=False)
-
-        logger.info(f"Feature engineering successful. Output shape: {df.shape}")
-        logger.info(f"Final features saved to: {output_file}")
-
-    except Exception as e:
-        logger.error(f"Critical error in run_feature_pipeline: {str(e)}")
-        raise
-
-
-def build_feature_dataset() -> None:
-    run_feature_pipeline(config=TRAIN_CFG)
-
-
-if __name__ == "__main__":
-    run_feature_pipeline()

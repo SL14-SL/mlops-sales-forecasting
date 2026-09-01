@@ -16,7 +16,7 @@ ENV_CFG = load_config()
 from prefect import task, get_run_logger
 
 from src.data.raw.ingest import ingest
-from src.data.features.build_features import run_feature_pipeline
+from src.data.features.pipeline import run_feature_pipeline
 from src.data.features.create_state import create_feature_state
 from src.data.features.calendar import (
     create_known_calendar_artifact,
