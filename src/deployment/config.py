@@ -59,6 +59,9 @@ def load_gcp_config(config_path: str | None = None) -> dict[str, Any]:
 
 
 def get_gcp_project_id(config_path: str | None = None) -> str:
+    """
+    Return the effective GCP project ID from environment and project config.
+    """
     gcp_cfg = load_gcp_config(config_path)
     project_id = gcp_cfg.get("project_id")
 
@@ -69,6 +72,9 @@ def get_gcp_project_id(config_path: str | None = None) -> str:
 
 
 def get_gcp_region(config_path: str | None = None) -> str:
+    """
+    Return the configured GCP deployment region.
+    """
     gcp_cfg = load_gcp_config(config_path)
     region = gcp_cfg.get("region")
 
@@ -79,6 +85,9 @@ def get_gcp_region(config_path: str | None = None) -> str:
 
 
 def get_artifact_registry_prefix(config_path: str | None = None) -> str:
+    """
+    Return the Artifact Registry repository prefix used for service images.
+    """
     gcp_cfg = load_gcp_config(config_path)
 
     artifact_registry = gcp_cfg.get("artifact_registry", {})
@@ -95,6 +104,9 @@ def get_artifact_registry_prefix(config_path: str | None = None) -> str:
 
 
 def get_cloud_run_services(config_path: str | None = None) -> dict[str, Any]:
+    """
+    Return the configured Cloud Run service definitions keyed by service name.
+    """
     gcp_cfg = load_gcp_config(config_path)
 
     cloud_run = gcp_cfg.get("cloud_run", {})
@@ -111,6 +123,12 @@ def get_cloud_run_services(config_path: str | None = None) -> dict[str, Any]:
 
 
 def get_service_config(service_key: str, config_path: str | None = None) -> dict[str, Any]:
+    """
+    Return the validated deployment configuration for one logical service.
+
+    Raises:
+        KeyError: If the requested service is not configured.
+    """
     services = get_cloud_run_services(config_path)
 
     if service_key not in services:
@@ -129,6 +147,9 @@ def get_service_config(service_key: str, config_path: str | None = None) -> dict
 
 
 def get_service_name(service_key: str, config_path: str | None = None) -> str:
+    """
+    Resolve the deployed Cloud Run name for a logical service.
+    """
     service_cfg = get_service_config(service_key, config_path)
     service_name = service_cfg.get("service_name")
 
@@ -141,6 +162,9 @@ def get_service_name(service_key: str, config_path: str | None = None) -> str:
 
 
 def get_service_image_name(service_key: str, config_path: str | None = None) -> str:
+    """
+    Resolve the container image name for a logical service.
+    """
     service_cfg = get_service_config(service_key, config_path)
     image_name = service_cfg.get("image_name")
 
@@ -153,6 +177,9 @@ def get_service_image_name(service_key: str, config_path: str | None = None) -> 
 
 
 def get_service_dockerfile(service_key: str, config_path: str | None = None) -> str:
+    """
+    Resolve the Dockerfile used to build a logical service.
+    """
     service_cfg = get_service_config(service_key, config_path)
     dockerfile = service_cfg.get("dockerfile")
 
@@ -169,6 +196,9 @@ def build_image_uri(
     tag: str,
     config_path: str | None = None,
 ) -> str:
+    """
+    Build the fully qualified Artifact Registry URI for a service image.
+    """
     if not tag:
         raise DeploymentConfigError("Image tag must not be empty")
 

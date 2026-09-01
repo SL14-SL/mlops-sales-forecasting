@@ -28,6 +28,12 @@ logger = get_logger(__name__)
 
 
 def resolve_tracking_uri(cfg: dict) -> str:
+    """
+    Resolve and configure the effective MLflow tracking URI.
+
+    Returns:
+        The tracking URI selected from configuration and environment settings.
+    """
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
 
     if tracking_uri is not None:
@@ -50,6 +56,16 @@ def load_store_metadata(
     validated_path: str,
     gcs_bucket: str | None,
 ) -> pd.DataFrame | None:
+    """
+    Load and validate the store metadata referenced by a serving release.
+
+    Returns:
+        Store metadata indexed and typed for inference use.
+
+    Raises:
+        FileNotFoundError: If the referenced artifact does not exist.
+        ValueError: If required metadata columns are missing or invalid.
+    """
     if gcs_bucket and gcs_bucket != "None":
         store_file = f"gs://{gcs_bucket}/data/validation/store.parquet"
     else:
@@ -75,6 +91,16 @@ def load_store_state(
     models_path: Path,
     gcs_bucket: str | None,
 ) -> dict[str, Any]:
+    """
+    Load the persisted lag and rolling-feature state used for forecasting.
+
+    Returns:
+        The validated per-store forecasting state.
+
+    Raises:
+        FileNotFoundError: If the state artifact is unavailable.
+        ValueError: If its structure is incompatible with inference.
+    """
     state_gcs_path = f"gs://{gcs_bucket}/models/latest_state.json"
     local_state_path = models_path / "latest_state.json"
 

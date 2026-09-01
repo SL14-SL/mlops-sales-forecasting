@@ -15,6 +15,9 @@ def _parse_artifact_reference(
     payload: dict[str, Any],
     field_name: str,
 ) -> ServingArtifactReference:
+    """
+    Parse and validate one artifact reference from a manifest payload.
+    """
     reference = payload.get(
         field_name
     )
@@ -43,6 +46,19 @@ def _parse_artifact_reference(
 def parse_serving_manifest(
     payload: dict[str, Any],
 ) -> ServingReleaseManifest:
+    """
+    Parse and validate a serialized serving-release manifest.
+
+    Args:
+        payload: Untrusted manifest data loaded from release storage.
+
+    Returns:
+        A validated serving-release manifest.
+
+    Raises:
+        ValueError: If required fields, schema version or artifact references are
+            missing or invalid.
+    """
     schema_version = int(
         payload["schema_version"]
     )
@@ -132,6 +148,15 @@ def resolve_release_artifact_uri(
     release_root: str,
     reference: ServingArtifactReference,
 ) -> str:
+    """
+    Resolve an artifact reference against the immutable release directory.
+
+    Absolute local and GCS references are preserved; relative references are
+    resolved beneath the selected release.
+
+    Raises:
+        ValueError: If the reference would escape the release directory.
+    """
     relative_path = reference.path
 
     if (

@@ -1,3 +1,7 @@
+"""
+Evaluate the persisted baseline model and write dashboard comparison artifacts.
+"""
+
 import mlflow
 import pandas as pd
 import numpy as np

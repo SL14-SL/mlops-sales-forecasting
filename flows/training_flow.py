@@ -55,7 +55,28 @@ logger.info(f"Using MLflow tracking URI: {tracking_uri}")
 def training_pipeline(
     force_run: bool = False,
     bootstrap: bool = False,
-):
+) -> dict[str, object] | None:
+    """
+    Execute the end-to-end candidate training and promotion lifecycle.
+
+    The flow checks drift, prepares and snapshots data, trains a Candidate,
+    evaluates promotion gates and, when accepted, performs a final refit,
+    publishes an immutable serving release and verifies its deployment.
+
+    Args:
+        force_run: Bypass the stable-system training skip condition.
+        bootstrap: Create the initial Champion without comparing against an
+            existing Champion.
+
+    Returns:
+        A dictionary containing Candidate and final-refit run IDs, model version,
+        release ID, promotion status and deployment result. Returns None when
+        training is skipped.
+
+    Raises:
+        RuntimeError: If bootstrap is requested while a Champion already exists,
+            or if promotion succeeds without publishing a serving release.
+    """
     if bootstrap and champion_exists():
         raise RuntimeError(
             "Bootstrap rejected: a Champion already exists. "

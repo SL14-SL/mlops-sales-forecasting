@@ -7,6 +7,15 @@ from src.training.register import register_model
 
 @task(name="Model Training")
 def task_train(is_drift_run: bool):
+    """
+    Train a candidate model and return its MLflow run identifier.
+
+    Args:
+        is_drift_run: Whether training was triggered by detected drift.
+
+    Returns:
+        The MLflow run ID of the trained candidate.
+    """
     p_logger = get_run_logger()
 
     p_logger.info(

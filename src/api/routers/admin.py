@@ -122,6 +122,15 @@ def reload_feature_state(api_key: str = Depends(get_api_key)):
 def list_serving_releases(
     api_key: str = Depends(get_api_key),
 ):
+    """
+    List available immutable serving releases and identify the active release.
+
+    Returns:
+        Release summaries ordered according to the release repository.
+
+    Raises:
+        HTTPException: If release metadata cannot be loaded.
+    """
     active_release_id = (
         load_active_release_id(
             models_path=MODELS_PATH,

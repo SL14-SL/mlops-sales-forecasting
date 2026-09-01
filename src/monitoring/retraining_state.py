@@ -19,6 +19,9 @@ RETRAINING_STATE_FILENAME = (
 
 
 def get_retraining_state_path() -> str:
+    """
+    Return the configured location of persistent retraining state.
+    """
     return join_uri(
         get_path("monitoring"),
         RETRAINING_STATE_FILENAME,
@@ -26,6 +29,12 @@ def get_retraining_state_path() -> str:
 
 
 def load_retraining_state() -> dict[str, Any]:
+    """
+    Load persisted retraining state or return an empty initial state.
+
+    Raises:
+        ValueError: If existing state cannot be parsed or validated.
+    """
     path = get_retraining_state_path()
 
     if not file_exists(path):
@@ -49,6 +58,9 @@ def load_retraining_state() -> dict[str, Any]:
 def decision_was_processed(
     decision_id: str,
 ) -> bool:
+    """
+    Return whether a retraining decision has already completed successfully.
+    """
     state = load_retraining_state()
 
     return (

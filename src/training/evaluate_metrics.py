@@ -93,6 +93,12 @@ def calculate_promotion_metrics(
         mask: np.ndarray,
         segment_name: str,
     ) -> float:
+        """
+        Calculate RMSE for the rows selected by a Boolean mask.
+
+        Returns:
+            The subset RMSE and number of selected observations.
+        """
         row_count = int(
             mask.sum()
         )

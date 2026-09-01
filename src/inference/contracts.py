@@ -15,6 +15,12 @@ class InferenceArtifacts:
     assets: dict[str, Any] = field(default_factory=dict)
 
     def require(self, key: str) -> Any:
+        """
+        Return a required inference artifact.
+
+        Raises:
+            KeyError: If the named artifact is not available.
+        """
         if key not in self.assets:
             raise ValueError(f"Missing required inference artifact: '{key}'")
         return self.assets[key]

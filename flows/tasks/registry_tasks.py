@@ -7,6 +7,12 @@ from src.training.register import register_model, champion_exists
 
 @task(name="Evaluate Current Champion")
 def task_evaluate_champion():
+    """
+    Evaluate the current Champion to keep monitoring metrics up to date.
+
+    Returns:
+        The Champion RMSE, or None when the Champion cannot be evaluated.
+    """
     p_logger = get_run_logger()
     p_logger.info("Evaluating current champion for dashboard continuity.")
     try:

@@ -2,9 +2,11 @@
 from src.configs.loader import load_config
 
 def get_monitoring_config() -> dict:
+    """Load the complete monitoring configuration."""
     return load_config("monitoring.yaml")
 
 def get_feature_drift_settings() -> dict:
+    """Return normalized feature-drift settings with operational defaults."""
     cfg = get_monitoring_config().get("feature_drift", {})
     return {
         "enabled": cfg.get("enabled", True),
@@ -16,6 +18,7 @@ def get_feature_drift_settings() -> dict:
     }
 
 def get_data_quality_settings() -> dict:
+    """Return normalized runtime data-quality settings."""
     cfg = get_monitoring_config().get("data_quality", {})
     return {
         "enabled": cfg.get("enabled", True),
@@ -26,6 +29,7 @@ def get_data_quality_settings() -> dict:
     }
 
 def get_serving_settings() -> dict:
+    """Return normalized serving-monitoring and endpoint settings."""
     cfg = get_monitoring_config().get("serving", {})
     return {
         "enabled": cfg.get("enabled", True),
@@ -40,6 +44,16 @@ def get_serving_settings() -> dict:
     }
 
 def get_retraining_settings() -> dict:
+    """
+    Return normalized retraining-policy settings.
+
+    Numeric values are converted to their expected runtime types and missing
+    settings are replaced with conservative operational defaults.
+
+    Returns:
+        Thresholds and windows governing data availability, cooldown, scheduled
+        retraining, drift persistence and performance degradation.
+    """
     cfg = get_monitoring_config().get(
         "retraining",
         {},

@@ -70,12 +70,21 @@ def _merge_env_vars(
     direct_env: dict[str, str],
     inherited_env: dict[str, str],
 ) -> dict[str, str]:
+    """
+    Merge environment-variable mappings with later values taking precedence.
+    """
     merged = dict(inherited_env)
     merged.update(direct_env)
     return merged
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """
+    Build the command-line parser for supported deployment operations.
+
+    Returns:
+        A configured argument parser with build, deploy and verification commands.
+    """
     parser = argparse.ArgumentParser(
         prog="python -m src.deployment.cli",
         description="GCP deployment CLI for Cloud Run services.",

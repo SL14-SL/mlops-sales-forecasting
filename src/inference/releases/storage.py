@@ -79,6 +79,9 @@ def write_json(
     path: str,
     payload: dict[str, Any],
 ) -> None:
+    """
+    Serialize a mapping as JSON to a local or GCS destination.
+    """
     write_text(
         path,
         json.dumps(
@@ -90,6 +93,9 @@ def write_json(
 
 
 def load_json(path: str) -> dict[str, Any]:
+    """
+    Load a JSON object from a local or GCS source.
+    """
     payload = json.loads(
         read_text(path)
     )
@@ -106,6 +112,9 @@ def build_release_paths(
     models_path: str,
     release_id: str,
 ) -> dict[str, str]:
+    """
+    Build all storage locations belonging to one immutable serving release.
+    """
     release_root = join_uri(
         models_path,
         RELEASES_DIRECTORY_NAME,

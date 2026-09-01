@@ -21,6 +21,9 @@ MODEL_LOGGERS = {
 
 
 def apply_repro_defaults(model_type: str, params: dict, seed: int | None) -> dict:
+    """
+    Apply deterministic model defaults unless explicitly overridden.
+    """
     resolved = deepcopy(params)
 
     if seed is None:
@@ -37,6 +40,12 @@ def apply_repro_defaults(model_type: str, params: dict, seed: int | None) -> dic
 
 
 def build_model(model_cfg: dict, *, seed: int | None = None):
+    """
+    Instantiate the configured estimator for a supported model type.
+
+    Raises:
+        ValueError: If the requested model type is unsupported.
+    """
     model_type = model_cfg["type"]
     params = model_cfg.get("params", {})
 
@@ -91,6 +100,12 @@ def log_model_by_type(
     metadata: dict | None = None,
     signature=None,
 ):
+    """
+    Log a trained estimator to MLflow using its model-specific flavor.
+
+    Raises:
+        ValueError: If the model type has no supported MLflow flavor.
+    """
     if model_type not in MODEL_LOGGERS:
         raise ValueError(f"Unsupported model type for logging: {model_type}")
 

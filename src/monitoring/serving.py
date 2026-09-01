@@ -85,6 +85,9 @@ def observe_request(
     status_code: int,
     latency_seconds: float,
 ) -> None:
+    """
+    Record one serving request in Prometheus and in-memory monitoring state.
+    """
     method = method.upper()
     status_code_str = str(status_code)
 
@@ -114,6 +117,9 @@ def observe_request(
 
 
 def get_summary(window_seconds: int = 900) -> dict:
+    """
+    Return a thread-safe snapshot of aggregated serving metrics.
+    """
     now = time()
     cutoff = now - window_seconds
 
@@ -129,6 +135,7 @@ def get_summary(window_seconds: int = 900) -> dict:
     latencies = sorted(e["latency_ms"] for e in events)
 
     def percentile(values: list[float], p: float) -> float | None:
+        """Calculate a percentile from recorded latency values."""
         if not values:
             return None
         idx = int(round((len(values) - 1) * p))

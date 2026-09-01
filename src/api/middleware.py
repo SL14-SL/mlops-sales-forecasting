@@ -11,6 +11,12 @@ def _ms_since(start: float) -> float:
     return round((time.perf_counter() - start) *1000, 2)
 
 async def serving_monitoring_middleware(request: Request, call_next):
+    """
+    Record latency, status and exception metrics for serving requests.
+
+    Monitoring endpoints and other configured paths are excluded to prevent
+    self-observation from distorting serving metrics.
+    """
     if not SERVING_CFG.get("enabled", True):
         return await call_next(request)
 

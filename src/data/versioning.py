@@ -169,7 +169,18 @@ def get_latest_dataset_manifest() -> dict:
         return json.load(f)
 
 
-def log_dataset_manifest_to_mlflow(manifest: dict):
+def log_dataset_manifest_to_mlflow(
+    manifest: dict,
+) -> None:
+    """
+    Log dataset lineage, snapshot paths and effective configuration to MLflow.
+
+    Args:
+        manifest: Dataset manifest produced by ``snapshot_current_datasets``.
+
+    Notes:
+        The function expects an active MLflow run.
+    """
     dataset_version = manifest["dataset_version"]
 
     mlflow.log_param("dataset_version", dataset_version)

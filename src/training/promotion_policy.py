@@ -6,6 +6,9 @@ from typing import Any
 
 @dataclass(frozen=True)
 class MetricComparison:
+    """
+    Candidate-versus-Champion comparison for one promotion metric.
+    """
     champion: float
     candidate: float
     change: float
@@ -18,6 +21,9 @@ class MetricComparison:
 
 @dataclass(frozen=True)
 class PromotionDecision:
+    """
+    Complete, auditable result of applying all model-promotion gates.
+    """
     accepted: bool
     checks: dict[str, MetricComparison]
     reasons: list[str]
@@ -39,6 +45,11 @@ def relative_change(
     candidate: float,
     champion: float,
 ) -> float:
+    """
+    Calculate relative metric change from Champion to Candidate.
+
+    The sign convention indicates whether the Candidate improved or regressed.
+    """
     if champion == 0:
         raise ValueError(
             "Cannot calculate relative change "

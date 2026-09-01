@@ -10,6 +10,12 @@ MODEL_NAME = CFG["model"]["registry_name"]
 
 
 def health(response: Response):
+    """
+    Return readiness information for the active serving release.
+
+    The response includes model lineage and artifact state. Readiness fails when
+    no complete serving bundle is active.
+    """
     bundle = (
         serving_state
         .active_serving_bundle

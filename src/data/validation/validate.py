@@ -16,7 +16,23 @@ def _coerce_datetime_if_present(df: pd.DataFrame, column_name: str) -> pd.DataFr
 
     return df
 
-def validate_inference(df): 
+def validate_inference(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Validate inference input and reject target-bearing or empty requests.
+
+    Args:
+        df: Raw inference dataframe.
+
+    Returns:
+        A validated and coerced inference dataframe.
+
+    Raises:
+        pandera.errors.SchemaError: If values violate the inference schema.
+        ValueError: If the input is empty, contains the target column or has
+            missing store identifiers.
+    """
     validated = inference_schema.validate(df.copy())
 
     if "Sales" in validated.columns: 
@@ -35,7 +51,7 @@ def validate_inference(df):
 @pa.check_types
 def validate_train(df: pd.DataFrame) -> DataFrame[SalesSchema]:
     """
-    Validate forecasting train / inference rows against SalesSchema.
+    Validate forecasting training rows against ``SalesSchema``.
     """
     df = _coerce_datetime_if_present(df, "Date")
     return df

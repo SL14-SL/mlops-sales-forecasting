@@ -28,6 +28,9 @@ def resolve_model_alias() -> str:
 
 
 def resolve_model_uri(model_name: str, alias: str) -> str:
+    """
+    Resolve the MLflow model URI used by the current environment.
+    """
     return f"models:/{model_name}@{alias}"
 
 

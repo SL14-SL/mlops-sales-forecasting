@@ -25,6 +25,9 @@ from src.inference.releases.repository import (
 def build_release_id(
     model_version: str,
 ) -> str:
+    """
+    Load and validate a serving manifest from an explicit URI.
+    """
     timestamp = datetime.now(
         timezone.utc
     ).strftime("%Y%m%dT%H%M%SZ")

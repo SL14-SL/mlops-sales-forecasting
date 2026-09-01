@@ -33,6 +33,9 @@ from src.training.target_transform import (
 
 @dataclass(frozen=True)
 class PredictionExecution:
+    """
+    Prediction output together with timing, quality and serving-lineage metadata.
+    """
     predictions: tuple[float, ...]
     validated_input: pd.DataFrame
     timings_ms: dict[str, float]
@@ -70,6 +73,24 @@ def predict_with_bundle(
     inputs: list[dict[str, Any]],
     bundle: ServingBundle,
 ) -> PredictionExecution:
+    """
+    Generate forecasts with one immutable serving bundle.
+
+    The function prepares model input from request rows and release artifacts,
+    executes the model, reverses the configured target transformation and returns
+    predictions with serving lineage and timing metadata.
+
+    Args:
+        bundle: Active model and inference-artifact bundle.
+        inputs: Store and date combinations to forecast.
+
+    Returns:
+        Prediction results and execution metadata bound to the bundle release.
+
+    Raises:
+        ValueError: If inputs or required artifacts are incompatible.
+        RuntimeError: If model execution does not produce valid predictions.
+    """
     timings: dict[str, float] = {}
 
     started_at = time.perf_counter()

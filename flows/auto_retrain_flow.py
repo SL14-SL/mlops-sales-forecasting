@@ -23,6 +23,13 @@ from src.monitoring.monitoring_refresh import (
 
 @task(name="Refresh Monitoring Signals")
 def task_refresh_monitoring_signals():
+    """
+    Refresh all persisted monitoring signals used by the retraining policy.
+
+    Returns:
+        The refresh result containing update status and row counts for each
+        monitoring signal.
+    """
     logger = get_run_logger()
 
     result = refresh_monitoring_signals()
@@ -47,6 +54,20 @@ def task_refresh_monitoring_signals():
 
 @flow(name="Auto Retrain Decision Flow")
 def auto_retrain_flow() -> dict[str, Any]:
+    """
+    Evaluate retraining signals and execute at most one authorized training run.
+
+    The flow refreshes monitoring data, applies the retraining policy, prevents
+    duplicate processing of the same decision and records successful retraining
+    state.
+
+    Returns:
+        A status dictionary describing whether retraining was blocked, skipped,
+        treated as a duplicate or executed successfully.
+
+    Raises:
+        RuntimeError: If the training flow returns an invalid result.
+    """
     logger = get_run_logger()
 
     task_refresh_monitoring_signals()

@@ -77,6 +77,12 @@ def detect_numeric_drift(
     p_value_threshold: float,
     stat_threshold: float,
 ) -> dict:
+    """
+    Compare numeric feature distributions and calculate configured drift metrics.
+
+    Returns:
+        Drift statistics and the resulting threshold decision for one feature.
+    """
     ref = _safe_numeric(reference)
     cur = _safe_numeric(current)
 
@@ -119,6 +125,9 @@ def detect_categorical_drift(
     min_samples: int,
     p_value_threshold: float,
 ) -> dict:
+    """
+    Compare categorical feature distributions and determine whether drift exists.
+    """
     ref = _safe_categorical(reference)
     cur = _safe_categorical(current)
 
@@ -167,6 +176,9 @@ def detect_categorical_drift(
 
 
 def append_feature_drift_history(results: list[dict]) -> pd.DataFrame:
+    """
+    Append feature-level drift results to persistent monitoring history.
+    """
     if not results:
         return pd.DataFrame()
 
@@ -189,6 +201,9 @@ def append_feature_drift_history(results: list[dict]) -> pd.DataFrame:
 
 
 def summarize_feature_drift(results_df: pd.DataFrame) -> dict:
+    """
+    Aggregate feature-level drift results into one monitoring summary.
+    """
     if results_df.empty:
         return {
             "checked_features": 0,
@@ -206,6 +221,12 @@ def summarize_feature_drift(results_df: pd.DataFrame) -> dict:
 
 
 def run_feature_drift_check() -> pd.DataFrame:
+    """
+    Run configured numeric and categorical drift checks against reference data.
+
+    Returns:
+        One row per evaluated feature with drift metrics and threshold decisions.
+    """
     cfg = get_feature_drift_settings()
 
     if not cfg.get("enabled", True):

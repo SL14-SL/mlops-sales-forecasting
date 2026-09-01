@@ -8,6 +8,12 @@ logger = get_logger(__name__)
 
 
 def send_slack_alert(title: str, message: str, severity: str = "warning") -> bool:
+    """
+    Send an operational alert to the configured Slack webhook.
+
+    Returns:
+        True when Slack accepts the alert, otherwise False.
+    """
     webhook_url = os.getenv("SLACK_WEBHOOK_URL")
 
     if not webhook_url:

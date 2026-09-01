@@ -1,3 +1,7 @@
+"""
+Compare single-row API predictions with equivalent batch predictions.
+"""
+
 import argparse
 import json
 import os

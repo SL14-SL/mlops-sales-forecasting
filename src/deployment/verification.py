@@ -17,6 +17,9 @@ class ServingVerificationError(
 
 @dataclass(frozen=True)
 class ServingVerificationResult:
+    """
+    Observed serving-release identity and retry count from readiness verification.
+    """
     release_id: str
     model_version: str
     model_run_id: str
@@ -25,6 +28,9 @@ class ServingVerificationResult:
 
 @dataclass(frozen=True)
 class PredictionProbeResult:
+    """
+    Result of verifying prediction behavior and serving lineage.
+    """
     release_id: str
     model_version: str
     model_run_id: str

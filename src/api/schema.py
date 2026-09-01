@@ -35,6 +35,9 @@ class PredictionResponse(BaseModel):
 
 
 class ServingRollbackRequest(BaseModel):
+    """
+    Request payload identifying the immutable serving release to reactivate.
+    """
     release_id: str = Field(
         ...,
         min_length=1,

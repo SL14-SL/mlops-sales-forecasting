@@ -184,6 +184,9 @@ if SERVING_CFG.get("metrics_endpoint_enabled", True):
 if SERVING_CFG.get("summary_endpoint_enabled", True):
     @app.get("/monitoring/summary", include_in_schema=False)
     def monitoring_summary():
+        """
+        Return the current in-memory serving-monitoring summary.
+        """
         window_seconds = SERVING_CFG.get("summary_window_seconds", 900)
         return JSONResponse(get_summary(window_seconds=window_seconds))
     
@@ -232,6 +235,19 @@ MAX_BATCH_ROWS = 5000
 def predict(
     payload: PredictionRequest,
 ):
+    """
+    Generate forecasts for the supplied store and date combinations.
+
+    The endpoint uses the currently active immutable serving bundle and records
+    request, data-quality and production-prediction monitoring information.
+
+    Returns:
+        Forecasts together with serving-release lineage and request metadata.
+
+    Raises:
+        HTTPException: If the request is invalid, no serving bundle is ready or
+            prediction execution fails.
+    """
     request_bundle = (
         serving_state
         .active_serving_bundle

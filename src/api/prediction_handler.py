@@ -131,6 +131,9 @@ def _build_prediction_response(
     data_quality: dict[str, Any],
     is_deployment_probe: bool,
 ) -> dict[str, Any]:
+    """
+    Build an API response from prediction output and serving metadata.
+    """
     return {
         "predictions": predictions,
         "status": "success",
@@ -184,6 +187,25 @@ def handle_prediction(
         dict[str, set[str]]
     ),
 ) -> dict[str, Any]:
+    """
+    Execute a prediction request and perform all associated monitoring work.
+
+    The handler resolves request metadata, evaluates runtime data quality, invokes
+    the active serving bundle, logs production predictions and constructs the API
+    response.
+
+    Args:
+        request: Validated forecasting request.
+        serving_bundle: Immutable model and inference-artifact bundle.
+        request_id: Optional externally supplied request identifier.
+
+    Returns:
+        The complete prediction response including model and release lineage.
+
+    Raises:
+        ValueError: If request data cannot be converted into valid model input.
+        RuntimeError: If prediction execution or response construction fails.
+    """
     request_started = (
         time.perf_counter()
     )

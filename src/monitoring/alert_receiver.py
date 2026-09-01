@@ -167,6 +167,15 @@ def build_alert_notification(
 def receive_alerts(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    """
+    Receive Alertmanager events and dispatch supported operational actions.
+
+    The endpoint validates incoming alerts, applies idempotency and cooldown
+    controls and forwards eligible retraining signals to the automation flow.
+
+    Returns:
+        A summary of received, ignored and dispatched alerts.
+    """
     try:
         notification = (
             build_alert_notification(

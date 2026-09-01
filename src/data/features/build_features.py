@@ -89,6 +89,25 @@ def _apply_step(
     target_column: str,
     date_column: str,
 ) -> pd.DataFrame:
+    """
+    Apply one configured feature-engineering step.
+
+    Args:
+        df: Input dataframe for the current pipeline step.
+        step_name: Name of the configured transformation.
+        config: Effective training and feature configuration.
+        is_training_mode: Whether target-derived training features may be created.
+        is_inference_mode: Whether inference placeholders must be initialized.
+        entity_column: Column identifying the forecasting entity.
+        target_column: Forecast target column.
+        date_column: Temporal ordering column.
+
+    Returns:
+        A transformed copy of the dataframe.
+
+    Raises:
+        ValueError: If the configured feature step is unknown.
+    """
     if step_name == "sort":
         return sort_frame(
             df,
@@ -160,6 +179,25 @@ def build_features(
     *,
     mode: str = "auto",
 ) -> pd.DataFrame:
+    """
+    Build configured forecasting features for training or inference.
+
+    The effective mode controls whether target-derived lag features are calculated
+    or only inference placeholders are initialized. Feature steps are executed in
+    their configured order.
+
+    Args:
+        df: Source dataframe containing the configured entity and date columns.
+        config: Optional feature configuration. Defaults to the training config.
+        mode: One of ``"auto"``, ``"train"`` or ``"inference"``.
+
+    Returns:
+        A transformed dataframe containing the configured model features.
+
+    Raises:
+        ValueError: If the mode, core-column configuration or a feature step is
+            invalid.
+    """
     config = config or TRAIN_CFG
 
     if df.empty:
@@ -212,6 +250,9 @@ def build_features(
 
 
 def preprocess_data(df: pd.DataFrame, *, mode: str = "auto") -> pd.DataFrame:
+    """
+    Build features using the default training configuration.
+    """
     return build_features(df, config=TRAIN_CFG, mode=mode)
 
 
@@ -276,6 +317,17 @@ def _merge_feature_sources(
 
 
 def run_feature_pipeline(config: dict | None = None) -> None:
+    """
+    Build and persist the complete training feature dataset.
+
+    The pipeline loads validated training and store data, joins known calendar
+    features, applies configured feature engineering and writes the resulting
+    Parquet dataset to the configured feature location.
+
+    Raises:
+        FileNotFoundError: If required validated input artifacts are unavailable.
+        ValueError: If merging or feature configuration is invalid.
+    """
     config = config or TRAIN_CFG
 
     logger.info(f"Starting feature pipeline. Data source: {VALIDATED_PATH}")

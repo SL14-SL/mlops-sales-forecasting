@@ -18,6 +18,9 @@ drift_runs = drift_cfg.get("drift_triggered_runs_per_month", 8)
 
 @dataclass
 class CostWindowSummary:
+    """
+    Aggregated training-run counts and estimated costs for one time window.
+    """
     window_days: int
     run_count: int
     total_training_cost: float
@@ -37,6 +40,9 @@ def get_experiment_name() -> str:
 
 
 def load_training_runs(max_results: int = 1000) -> pd.DataFrame:
+    """
+    Load MLflow training runs used for operational cost analysis.
+    """
     tracking_uri = get_tracking_uri()
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
@@ -60,6 +66,9 @@ def load_training_runs(max_results: int = 1000) -> pd.DataFrame:
 
 
 def summarize_training_costs(runs: pd.DataFrame, window_days: int = 7) -> CostWindowSummary:
+    """
+    Aggregate observed training activity and estimated cost for a time window.
+    """
     if runs.empty:
         return CostWindowSummary(
             window_days=window_days,
@@ -109,6 +118,9 @@ def summarize_training_costs(runs: pd.DataFrame, window_days: int = 7) -> CostWi
 
 
 def build_monthly_cost_scenarios(avg_training_cost: float) -> dict[str, Any]:
+    """
+    Estimate monthly training cost for configured retraining frequencies.
+    """
     return {
         "daily_retraining": {
             "runs_per_month": 30,
@@ -126,6 +138,9 @@ def build_monthly_cost_scenarios(avg_training_cost: float) -> dict[str, Any]:
 
 
 def build_cost_interpretation(summary: CostWindowSummary, scenarios: dict[str, Any]) -> str:
+    """
+    Build a human-readable interpretation of observed and projected costs.
+    """
     if summary.run_count == 0:
         return "No recent training runs found, so no cost estimate is available yet."
 
@@ -148,6 +163,9 @@ def build_cost_interpretation(summary: CostWindowSummary, scenarios: dict[str, A
 
 
 def build_cost_report(window_days: int = 7) -> dict[str, Any]:
+    """
+    Build the complete operational training-cost report.
+    """
     runs = load_training_runs()
     summary = summarize_training_costs(runs, window_days=window_days)
     scenarios = build_monthly_cost_scenarios(summary.avg_training_cost)

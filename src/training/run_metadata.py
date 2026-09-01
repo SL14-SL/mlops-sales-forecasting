@@ -24,6 +24,9 @@ def build_training_cost_summary(
     finished_at_utc: datetime,
     duration_seconds: float,
 ) -> dict:
+    """
+    Estimate runtime and infrastructure cost for one training run.
+    """
     cost_cfg = get_training_cost_config()
 
     enabled = cost_cfg.get("enabled", False)
@@ -46,14 +49,18 @@ def build_training_cost_summary(
     }
 
 def resolve_artifact_location() -> str:
-    """Resolve MLflow artifact location by environment."""
+    """
+    Resolve MLflow artifact location by environment.
+    """
     if ENV_CFG["environment"] == "prod":
         return get_path("models")
     return f"file://{PROJECT_ROOT / "mlruns_artifacts"}"
 
 
 def get_or_create_experiment(project_name: str, artifact_location: str) -> None:
-    """Create MLflow experiment if needed and activate it."""
+    """
+    Create MLflow experiment if needed and activate it.
+    """
     if not mlflow.get_experiment_by_name(project_name):
         logger.info(
             f"Creating new MLflow experiment: {project_name} at {artifact_location}"
@@ -64,6 +71,9 @@ def get_or_create_experiment(project_name: str, artifact_location: str) -> None:
 
 
 def build_effective_run_config() -> dict:
+    """
+    Build the normalized configuration that defines a reproducible training run.
+    """
     seed = ENV_CFG.get("random_seed")
 
     effective_model_cfg = json.loads(json.dumps(TRAIN_CFG["model"]))
@@ -89,11 +99,17 @@ def build_effective_run_config() -> dict:
 
 
 def config_hash(config: dict) -> str:
+    """
+    Return a deterministic hash of the effective run configuration.
+    """
     payload = json.dumps(config, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def log_effective_run_config_to_mlflow(config: dict) -> None:
+    """
+    Persist the effective run configuration and its hash in MLflow.
+    """
     mlflow.log_text(
         json.dumps(config, indent=2, sort_keys=True, ensure_ascii=False),
         "run_config/effective_config.json",

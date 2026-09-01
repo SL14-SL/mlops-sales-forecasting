@@ -55,6 +55,9 @@ def build_reference_category_cache(
     ref_df: pd.DataFrame,
     categorical_reference_features: list[str],
 ) -> dict[str, set[str]]:
+    """
+    Build immutable known-category sets for configured categorical columns.
+    """
     cache: dict[str, set[str]] = {}
 
     if ref_df.empty:
@@ -78,6 +81,12 @@ def set_reference_category_cache(cache: dict[str, set[str]]) -> None:
 
 
 def initialize_data_quality_reference_cache() -> pd.DataFrame:
+    """
+    Load and cache the reference data required by runtime quality checks.
+
+    Returns:
+        The cached reference frame and known categorical values.
+    """
     cfg = get_data_quality_settings()
     ref_df = load_reference_frame()
     set_reference_frame_cache(ref_df)
@@ -99,6 +108,9 @@ def initialize_data_quality_reference_cache() -> pd.DataFrame:
 
 
 def summarize_missingness(df: pd.DataFrame) -> dict:
+    """
+    Calculate missing-value counts and ratios for monitored input columns.
+    """
     metrics: dict[str, float] = {}
 
     for col in df.columns:
@@ -112,6 +124,12 @@ def summarize_unseen_categories(
     ref_df: pd.DataFrame,
     categorical_reference_features: list[str],
 ) -> dict:
+    """
+    Compare categorical input values with a reference dataset.
+
+    Returns:
+        Per-column counts and ratios of categories absent from the reference data.
+    """
     metrics: dict[str, int | str] = {}
 
     if ref_df.empty:
@@ -144,6 +162,9 @@ def summarize_unseen_categories_cached(
     reference_categories: dict[str, set[str]],
     categorical_reference_features: list[str],
 ) -> dict:
+    """
+    Calculate unseen-category metrics using the initialized reference cache.
+    """
     metrics: dict[str, int | str] = {}
 
     if not reference_categories:
@@ -171,6 +192,9 @@ def summarize_unseen_categories_cached(
 
 
 def determine_quality_status(metrics: dict) -> str:
+    """
+    Map missingness and unseen-category metrics to an overall quality status.
+    """
     for key, value in metrics.items():
         if key.startswith("missing_rate__") and isinstance(value, float) and value > 0:
             return "warning"
@@ -186,6 +210,9 @@ def determine_quality_status(metrics: dict) -> str:
 
 
 def summarize_data_quality(df: pd.DataFrame) -> dict:
+    """
+    Evaluate batch data quality against an explicit reference frame.
+    """
     cfg = get_data_quality_settings()
 
     if not cfg.get("enabled", True):
@@ -223,6 +250,9 @@ def summarize_data_quality_runtime(
     df: pd.DataFrame,
     reference_categories: dict[str, set[str]] | None = None,
 ) -> dict:
+    """
+    Evaluate request data quality using cached production references.
+    """
     cfg = get_data_quality_settings()
 
     if not cfg.get("enabled", True):
@@ -257,6 +287,9 @@ def summarize_data_quality_runtime(
 
 
 def append_data_quality_history(summary: dict) -> pd.DataFrame:
+    """
+    Append one data-quality summary to persistent monitoring history.
+    """
     output_path = _history_path()
 
     row = pd.DataFrame([summary])
@@ -278,6 +311,9 @@ def log_data_quality_runtime(
     df: pd.DataFrame,
     reference_categories: dict[str, set[str]] | None = None,
 ) -> dict:
+    """
+    Evaluate and persist runtime data quality for one prediction request.
+    """
     summary = summarize_data_quality_runtime(
         df=df,
         reference_categories=reference_categories,
@@ -293,6 +329,9 @@ def log_data_quality_runtime(
 
 
 def log_data_quality(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Evaluate and persist data quality against an explicit reference dataset.
+    """
     cfg = get_data_quality_settings()
     summary = summarize_data_quality(df)
 

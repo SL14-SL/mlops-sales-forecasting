@@ -45,7 +45,9 @@ logger.info(f"Using MLflow tracking URI: {tracking_uri}")
 
 @task(name="Check Data Drift")
 def task_check_drift():
-    """Analyzes recent predictions against baseline training data."""
+    """
+    Analyzes recent predictions against baseline training data.
+    """
     p_logger = get_run_logger()
     curr_df = fetch_current_data() 
     if curr_df.empty:
@@ -80,6 +82,17 @@ def task_check_drift():
 
 @task(name="Data Processing & Feature State Update")
 def task_prepare_data(is_drift_run: bool):
+    """
+    Run ingestion, calendar creation, feature generation and dataset splitting.
+
+    Args:
+        is_drift_run: Whether data preparation is being performed in response to
+            detected drift.
+
+    Notes:
+        Failure to update the inference feature state is logged but does not abort
+        the remaining data preparation steps.
+    """
     p_logger = get_run_logger()
 
     p_logger.info(
@@ -114,6 +127,13 @@ def task_prepare_data(is_drift_run: bool):
 
 @task(name="Snapshot Dataset Version")
 def task_snapshot_dataset():
+    """
+    Create an immutable snapshot of the currently prepared datasets.
+
+    Returns:
+        The dataset manifest containing the generated version identifier and
+        snapshot locations.
+    """
     p_logger = get_run_logger()
     version_id = make_dataset_version()
     manifest = snapshot_current_datasets(version_id)
@@ -122,6 +142,16 @@ def task_snapshot_dataset():
 
 @task(name="Log Dataset Metadata")
 def task_log_dataset_metadata(run_id: str, dataset_manifest: dict):
+    """
+    Attach a dataset manifest to an existing MLflow run.
+
+    Args:
+        run_id: MLflow run receiving the dataset metadata.
+        dataset_manifest: Version and snapshot metadata to log.
+
+    Notes:
+        Logging failures are reported as warnings and do not fail the Prefect flow.
+    """
     p_logger = get_run_logger()
     try:
         with mlflow.start_run(run_id=run_id):
@@ -131,7 +161,9 @@ def task_log_dataset_metadata(run_id: str, dataset_manifest: dict):
 
 @task(name="Archive Logs")
 def task_archive_logs():
-    """Archives logs. Handles local files and now also GCS blobs."""
+    """
+    Archives logs. Handles local files and now also GCS blobs.
+    """
 
     archived_count = 0
     try:
