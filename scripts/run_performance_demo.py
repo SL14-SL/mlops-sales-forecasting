@@ -8,18 +8,22 @@ import pandas as pd
 import requests
 
 from src.configs.loader import (
+    get_path,
+    load_config,
+)
+from src.storage.filesystem import (
     ensure_dir,
     file_exists,
-    get_path,
-    join_uri,
     list_files,
-    load_config,
     modified_time,
-    path_name,
-    path_suffix,
     read_text,
     remove_file,
-    write_text,
+    write_text,    
+)
+from src.configs.paths import (
+    join_uri,
+    path_name,
+    path_suffix,    
 )
 from src.constants import PROJECT_ROOT
 from src.monitoring.alerts import send_alert
@@ -76,7 +80,12 @@ def reload_api_feature_state() -> dict:
         headers={"X-API-KEY": api_key},
         timeout=30,
     )
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(
+            "Feature-state reload failed | "
+            f"status_code={response.status_code} | "
+            f"response={response.text}"
+        )
 
     result = response.json()
 

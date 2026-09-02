@@ -73,7 +73,7 @@ dashboard-logs: ## Follow logs from the Streamlit dashboard service
 
 refresh-api: ## Restart or recreate API service using Docker Compose
 	@echo "🔄 Refreshing API..."
-	docker compose up -d api
+	docker compose restart api
 
 reset-local-stack: ## Delete local runtime state for a clean bootstrap (requires CONFIRM_RESET=1)
 	@if [ "$(CONFIRM_RESET)" != "1" ]; then \

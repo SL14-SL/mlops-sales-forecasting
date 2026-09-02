@@ -23,6 +23,8 @@ from src.inference.releases.repository import (
     load_serving_manifest,
 )
 from src.inference.releases.manifest import resolve_release_artifact_uri
+from src.configs.paths import join_uri
+from src.storage.filesystem import file_exists, read_text
 
 logger = get_logger(__name__)
 
@@ -88,44 +90,69 @@ def load_store_metadata(
 
 def load_store_state(
     *,
-    models_path: Path,
+    models_path: str | Path,
     gcs_bucket: str | None,
 ) -> dict[str, Any]:
     """
     Load the persisted lag and rolling-feature state used for forecasting.
 
+    The state is loaded from GCS when a bucket is configured. If cloud loading
+    fails, the configured models path is used as a fallback.
+
     Returns:
-        The validated per-store forecasting state.
-
-    Raises:
-        FileNotFoundError: If the state artifact is unavailable.
-        ValueError: If its structure is incompatible with inference.
+        The per-store forecasting state, or an empty dictionary when no state
+        snapshot is available.
     """
-    state_gcs_path = f"gs://{gcs_bucket}/models/latest_state.json"
-    local_state_path = models_path / "latest_state.json"
+    state_path = join_uri(
+        str(models_path),
+        "latest_state.json",
+    )
 
-    try:
-        if gcs_bucket and gcs_bucket != "None":
+    if gcs_bucket and gcs_bucket != "None":
+        state_gcs_path = join_uri(
+            f"gs://{gcs_bucket}",
+            "models",
+            "latest_state.json",
+        )
+
+        try:
             fs = gcsfs.GCSFileSystem()
+
             if fs.exists(state_gcs_path):
-                with fs.open(state_gcs_path, "r") as f:
-                    logger.info("Feature state loaded from GCS.")
-                    return json.load(f)
+                with fs.open(
+                    state_gcs_path,
+                    "r",
+                ) as file:
+                    logger.info(
+                        "Feature state loaded from GCS: %s",
+                        state_gcs_path,
+                    )
+                    return json.load(file)
 
-            raise FileNotFoundError(f"State file not found on GCS: {state_gcs_path}")
+            raise FileNotFoundError(
+                f"State file not found on GCS: {state_gcs_path}"
+            )
 
-        raise ValueError("No GCS bucket configured for state.")
+        except Exception as exc:
+            logger.warning(
+                "GCS state load failed: %s. Checking configured fallback.",
+                exc,
+            )
 
-    except Exception as exc:
-        logger.warning("GCS state load failed: %s. Checking local fallback.", exc)
+    if file_exists(state_path):
+        logger.info(
+            "Feature state loaded from configured path: %s",
+            state_path,
+        )
+        return json.loads(
+            read_text(state_path)
+        )
 
-        if local_state_path.exists():
-            with open(local_state_path, "r", encoding="utf-8") as f:
-                logger.info("Feature state loaded from local path: %s", local_state_path)
-                return json.load(f)
-
-        logger.warning("No state snapshot found. Using empty state.")
-        return {}
+    logger.warning(
+        "No state snapshot found at %s. Using empty state.",
+        state_path,
+    )
+    return {}
 
 def load_known_calendar_artifact(
     *,

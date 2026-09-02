@@ -6,7 +6,8 @@ from typing import Any
 import fsspec
 import pandas as pd
 
-from src.configs.loader import file_exists, get_path, load_config
+from src.configs.loader import get_path, load_config
+from src.storage.filesystem import file_exists
 from src.utils.logger import get_logger
 
 
