@@ -1,4 +1,11 @@
 # infrastructure/terraform.tfvars
-project_id = "your-project-id"
-region     = ""
-github_repo = "your-github-repo"
+project_id  = "your-project-id"
+region      = "europe-west1"
+environment = "dev"
+github_repo = "your-github-user/your-repository"
+
+mlflow_database_version      = "POSTGRES_15"
+mlflow_database_tier         = "db-f1-micro"
+mlflow_database_name         = "mlflow"
+mlflow_database_user         = "mlflow"
+mlflow_database_disk_size_gb = 10

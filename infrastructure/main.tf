@@ -11,7 +11,9 @@ resource "google_project_service" "base_services" {
     "artifactregistry.googleapis.com",
     "iam.googleapis.com",
     "storage.googleapis.com",
-    "cloudresourcemanager.googleapis.com"
+    "cloudresourcemanager.googleapis.com",
+    "sqladmin.googleapis.com",
+    "secretmanager.googleapis.com"
   ])
 
   service            = each.key
@@ -43,6 +45,75 @@ resource "google_storage_bucket" "artifacts_bucket" {
   depends_on = [null_resource.wait_for_apis]
 }
 
+# --- Persistent MLflow PostgreSQL backend ---
+
+resource "random_password" "mlflow_database" {
+  length  = 32
+  special = false
+}
+
+resource "google_secret_manager_secret" "mlflow_database_password" {
+  secret_id = "mlflow-database-password"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [
+    google_project_service.base_services
+  ]
+}
+
+resource "google_secret_manager_secret_version" "mlflow_database_password" {
+  secret      = google_secret_manager_secret.mlflow_database_password.id
+  secret_data = random_password.mlflow_database.result
+}
+
+resource "google_sql_database_instance" "mlflow" {
+  name             = "mlflow-postgres-${var.environment}"
+  region           = var.region
+  database_version = var.mlflow_database_version
+
+  deletion_protection = false
+
+  settings {
+    tier              = var.mlflow_database_tier
+    availability_type = "ZONAL"
+    disk_type         = "PD_SSD"
+    disk_size         = var.mlflow_database_disk_size_gb
+    disk_autoresize   = true
+
+    backup_configuration {
+      enabled = false
+    }
+
+    ip_configuration {
+      ipv4_enabled = true
+    }
+
+    user_labels = {
+      application = "mlflow"
+      environment = var.environment
+      managed_by  = "terraform"
+    }
+  }
+
+  depends_on = [
+    google_project_service.base_services
+  ]
+}
+
+resource "google_sql_database" "mlflow" {
+  name     = var.mlflow_database_name
+  instance = google_sql_database_instance.mlflow.name
+}
+
+resource "google_sql_user" "mlflow" {
+  name     = var.mlflow_database_user
+  instance = google_sql_database_instance.mlflow.name
+  password = random_password.mlflow_database.result
+}
+
 # --- Artifact Registry ---
 resource "google_artifact_registry_repository" "mlops_repo" {
   location      = var.region
@@ -66,15 +137,28 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
   ingress             = "INGRESS_TRAFFIC_ALL"
   deletion_protection = false
 
-  depends_on = [null_resource.wait_for_apis]
-
   scaling {
-    min_instance_count = 1
+    min_instance_count = 0
     max_instance_count = 1
   }
 
   template {
     service_account = google_service_account.mlops_sa.email
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 1
+    }
+
+    volumes {
+      name = "cloudsql"
+
+      cloud_sql_instance {
+        instances = [
+          google_sql_database_instance.mlflow.connection_name
+        ]
+      }
+    }
 
     containers {
       image = "gcr.io/cloudrun/hello"
@@ -82,7 +166,7 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
       resources {
         limits = {
           cpu    = "1"
-          memory = "4Gi"
+          memory = "1Gi"
         }
       }
 
@@ -90,9 +174,35 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
         container_port = 8080
       }
 
+      volume_mounts {
+        name       = "cloudsql"
+        mount_path = "/cloudsql"
+      }
+
       env {
-        name  = "MLFLOW_BACKEND_STORE_URI"
-        value = "sqlite:////tmp/mlflow.db"
+        name  = "MLFLOW_DB_USER"
+        value = var.mlflow_database_user
+      }
+
+      env {
+        name  = "MLFLOW_DB_NAME"
+        value = var.mlflow_database_name
+      }
+
+      env {
+        name  = "CLOUD_SQL_CONNECTION_NAME"
+        value = google_sql_database_instance.mlflow.connection_name
+      }
+
+      env {
+        name = "MLFLOW_DB_PASSWORD"
+
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.mlflow_database_password.secret_id
+            version = "latest"
+          }
+        }
       }
 
       env {
@@ -104,6 +214,7 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
         name  = "MLFLOW_SERVER_ALLOWED_HOSTS"
         value = "*"
       }
+
       env {
         name = "MLFLOW_SERVER_CORS_ALLOWED_ORIGINS"
 
@@ -116,8 +227,19 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
   }
 
   lifecycle {
-    ignore_changes = [template[0].containers[0].image]
+    ignore_changes = [
+      template[0].containers[0].image
+    ]
   }
+
+  depends_on = [
+    google_project_service.base_services,
+    google_sql_database.mlflow,
+    google_sql_user.mlflow,
+    google_secret_manager_secret_version.mlflow_database_password,
+    google_project_iam_member.mlops_sa_cloud_sql_client,
+    google_secret_manager_secret_iam_member.mlflow_database_password,
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public_mlflow" {
@@ -218,6 +340,19 @@ resource "google_project_iam_member" "sa_user" {
   project = var.project_id
   role    = "roles/iam.serviceAccountUser"
   member  = "serviceAccount:${google_service_account.mlops_sa.email}"
+}
+
+resource "google_project_iam_member" "mlops_sa_cloud_sql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.mlops_sa.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "mlflow_database_password" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.mlflow_database_password.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.mlops_sa.email}"
 }
 
 # --- Public Access ---

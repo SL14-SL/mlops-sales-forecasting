@@ -21,7 +21,8 @@ PREFECT_PROJECT_DIR ?= $(CURDIR)
 	prepare-mlflow-prod-demo upload-raw-prod train-force-prod \
 	train-bootstrap-prod verify-prod bootstrap-and-verify-prod \
 	demo-forecasting-lifecycle-prod compose-check check test lint clean \
-	clean-venv clean-data clean-all reset-demo
+	clean-venv clean-data clean-all reset-demo \
+	cloud-sql-start cloud-sql-stop
 
 # --- Main Entry Point ---
 
@@ -197,6 +198,10 @@ GCP_BUCKET_NAME ?= $(shell gh variable get GCP_BUCKET_NAME 2>/dev/null)
 MLFLOW_URL ?= $(shell gh variable get MLFLOW_URL 2>/dev/null)
 PREDICTION_API_URL ?= $(shell gh variable get PREDICTION_API_URL 2>/dev/null)
 PRODUCTION_API_BASE_URL = $(patsubst %/predict,%,$(PREDICTION_API_URL))
+MLFLOW_DB_INSTANCE ?= $(shell \
+	terraform -chdir=infrastructure output \
+	-raw mlflow_database_instance_name 2>/dev/null \
+)
 
 check-prod-env: ## Validate required production environment variables
 	@echo "🔎 Validating production environment..."
@@ -222,23 +227,48 @@ check-prod-env: ## Validate required production environment variables
 	esac
 	@echo "✅ Production environment is valid."
 
-prepare-mlflow-prod-demo: check-prod-env ## Prepare one warm MLflow instance for the ephemeral cloud demo
-	@echo "🔥 Preparing ephemeral MLflow production demo..."
-	@gcloud run services update \
-		mlflow-server \
+cloud-sql-start: ## Start the persistent MLflow Cloud SQL instance
+	@test -n "$(GCP_PROJECT_ID)" || \
+		(echo "❌ GCP_PROJECT_ID is missing." && exit 1)
+	@test -n "$(MLFLOW_DB_INSTANCE)" || \
+		(echo "❌ MLflow database instance could not be resolved." && exit 1)
+	@echo "▶️ Starting Cloud SQL instance $(MLFLOW_DB_INSTANCE)..."
+	gcloud sql instances patch \
+		"$(MLFLOW_DB_INSTANCE)" \
 		--project "$(GCP_PROJECT_ID)" \
-		--region "$(GCP_REGION)" \
-		--update-env-vars "^@^MLFLOW_BACKEND_STORE_URI=sqlite:////tmp/mlflow.db@MLFLOW_SERVER_CORS_ALLOWED_ORIGINS=https://mlflow-server-o3ulg525ta-ew.a.run.app,https://mlflow-server-365234646295.europe-west1.run.app" \
-		--memory 4Gi \
-		--min 1 \
-		--max 1 \
+		--activation-policy ALWAYS \
 		--quiet
+	@echo "✅ Cloud SQL instance is running."
+
+
+cloud-sql-stop: ## Stop the MLflow Cloud SQL instance to reduce costs
+	@test -n "$(GCP_PROJECT_ID)" || \
+		(echo "❌ GCP_PROJECT_ID is missing." && exit 1)
+	@test -n "$(MLFLOW_DB_INSTANCE)" || \
+		(echo "❌ MLflow database instance could not be resolved." && exit 1)
+	@echo "⏹️ Stopping Cloud SQL instance $(MLFLOW_DB_INSTANCE)..."
+	gcloud sql instances patch \
+		"$(MLFLOW_DB_INSTANCE)" \
+		--project "$(GCP_PROJECT_ID)" \
+		--activation-policy NEVER \
+		--quiet
+	@echo "✅ Cloud SQL compute stopped."
+	@echo "ℹ️ Persistent disk storage remains billable."
+
+
+prepare-mlflow-prod-demo: check-prod-env cloud-sql-start ## Start and verify persistent cloud MLflow
+	@echo "🔥 Preparing persistent MLflow production demo..."
 	@echo "⏳ Waiting for MLflow health endpoint..."
-	@until curl -fsS "$(MLFLOW_URL)/health" > /dev/null; do \
-		echo "MLflow is not ready yet..."; \
-		sleep 2; \
-	done
-	@echo "✅ MLflow demo instance is ready."
+	@for attempt in $$(seq 1 60); do \
+		if curl -fsS "$(MLFLOW_URL)/health" > /dev/null; then \
+			echo "✅ MLflow is ready."; \
+			exit 0; \
+		fi; \
+		echo "MLflow is not ready yet: attempt=$$attempt"; \
+		sleep 5; \
+	done; \
+	echo "❌ MLflow did not become healthy."; \
+	exit 1
 
 
 upload-raw-prod: check-prod-env ## Upload raw forecasting data to the production GCS bucket

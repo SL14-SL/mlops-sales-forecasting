@@ -28,3 +28,18 @@ output "forecasting_api_url" {
 output "workload_identity_provider" {
   value = google_iam_workload_identity_pool_provider.github_provider.name
 }
+
+output "mlflow_database_instance_name" {
+  description = "Name of the Cloud SQL instance used by MLflow"
+  value       = google_sql_database_instance.mlflow.name
+}
+
+output "mlflow_database_connection_name" {
+  description = "Cloud SQL connection name used by Cloud Run"
+  value       = google_sql_database_instance.mlflow.connection_name
+}
+
+output "mlflow_database_name" {
+  description = "PostgreSQL database used by MLflow"
+  value       = google_sql_database.mlflow.name
+}
