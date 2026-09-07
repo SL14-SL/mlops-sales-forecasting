@@ -183,7 +183,9 @@ jobs:
 # -------------------------------------------------
   build-api:
     needs: smoke-test-api
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.DEPLOY_GCP == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -249,7 +251,9 @@ jobs:
       - build-api
       - deploy-mlflow
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.DEPLOY_GCP == 'true'
 
     env:
       APP_ENV: prod
@@ -351,7 +355,9 @@ jobs:
 # -------------------------------------------------
   build-mlflow:
     needs: smoke-test-api
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.DEPLOY_GCP == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -436,7 +442,9 @@ jobs:
   deploy-mlflow:
     needs: build-mlflow
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.DEPLOY_GCP == 'true'
 
     permissions:
       contents: read
