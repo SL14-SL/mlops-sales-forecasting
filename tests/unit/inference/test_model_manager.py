@@ -1,5 +1,4 @@
 import json
-import json
 from unittest.mock import mock_open, patch
 
 from src.inference.model_manager import load_store_state
