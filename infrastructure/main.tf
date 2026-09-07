@@ -168,6 +168,7 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
           cpu    = "1"
           memory = "1Gi"
         }
+        cpu_idle = true
       }
 
       ports {
