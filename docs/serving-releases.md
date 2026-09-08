@@ -10,6 +10,12 @@ Loading these assets independently can create a mixed serving state. A serving
 release therefore packages references and assets that must be activated as one
 unit.
 
+MLflow and the serving-release repository have separate responsibilities.
+MLflow stores training lineage and registered model versions, backed by
+persistent Cloud SQL metadata and GCS model artifacts. The serving-release
+repository binds one exact MLflow model version to the matching forecasting
+state, store metadata, calendar and semantic prediction probe.
+
 ## Release Contents
 
 A release directory contains:
@@ -57,10 +63,19 @@ The release lifecycle is split into focused modules:
 
 ### Model artifact lineage
 
-Candidate evaluation and production refitting produce separate MLflow
-model artifacts. The candidate is used for the fair validation comparison.
-Only an accepted candidate is refitted on the combined training and
-validation data and registered for production serving.
+Candidate evaluation and production refitting produce separate MLflow model
+artifacts. The candidate is used for the fair validation comparison. Only an
+accepted candidate is refitted on the combined training and validation data
+and registered for production serving.
+
+MLflow stores experiment, run, registered-model, model-version and alias
+metadata in the persistent PostgreSQL backend. In the Google Cloud deployment,
+this backend is provided by Cloud SQL. The corresponding model artifacts are
+stored in GCS.
+
+A serving manifest records the exact numeric model version and run ID selected
+for the release. Runtime loading therefore does not depend on the mutable
+`champion` alias after the release has been published.
 
 <p align="center">
   <img

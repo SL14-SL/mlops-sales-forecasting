@@ -370,11 +370,13 @@ Pushes to `main` execute:
 
 Terraform provisions the core cloud resources, including:
 
-- Artifact Registry;
-- Google Cloud Storage;
+- Artifact Registry for versioned container images;
+- Google Cloud Storage for MLflow artifacts, datasets and immutable serving releases;
+- Cloud SQL for the persistent MLflow PostgreSQL backend;
+- Secret Manager for the MLflow database password;
 - MLflow on Cloud Run;
 - the forecasting API on Cloud Run;
-- service accounts and IAM bindings;
+- dedicated service accounts and IAM bindings;
 - Workload Identity Federation for GitHub Actions.
 
 <p align="center">
@@ -383,6 +385,14 @@ Terraform provisions the core cloud resources, including:
 
 <p align="center">
   <em>Cloud Run services for MLflow tracking and production forecasting inference.</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/cloud_run_mlflow_cloud_sql.png" width="100%">
+</p>
+
+<p align="center">
+  <em>MLflow running on Cloud Run with a persistent Cloud SQL backend, GCS artifact storage and database credentials supplied through Secret Manager.</em>
 </p>
 
 ## Technology Stack
@@ -396,7 +406,9 @@ Terraform provisions the core cloud resources, including:
 | Orchestration | Prefect |
 | Tracking and registry | MLflow |
 | Local metadata backend | PostgreSQL |
+| Cloud metadata backend | Cloud SQL for PostgreSQL |
 | Artifact and release storage | Google Cloud Storage |
+| Secret management | Google Secret Manager |
 | Monitoring | Prometheus, Grafana |
 | Alerting | Alertmanager |
 | Containers | Docker, Docker Compose |
@@ -540,6 +552,22 @@ Pushes to `main` deploy the scanned API and MLflow images through GitHub
 Actions after the required repository variables, secrets and Workload Identity
 Federation have been configured.
 
+Cloud deployment jobs are additionally gated by the GitHub repository variable
+`DEPLOY_GCP`. Set it to `true` only while the cloud infrastructure exists:
+
+```bash
+gh variable set DEPLOY_GCP --body true
+```
+
+Disable deployment before destroying the infrastructure:
+
+```bash
+gh variable set DEPLOY_GCP --body false
+```
+
+Linting, tests and other non-deployment CI checks continue to run independently
+of this variable.
+
 ### 5. Bootstrap and verify production
 
 ```bash
@@ -547,16 +575,33 @@ make train-bootstrap-prod
 make verify-prod
 ```
 
-### Cost-conscious demo architecture
+### Cost-conscious persistent MLflow architecture
 
-The portfolio deployment intentionally runs one MLflow Cloud Run instance with
-an ephemeral SQLite backend to keep the temporary demonstration inexpensive.
-Model artifacts and complete serving releases remain in GCS.
+The cloud demonstration uses a persistent MLflow architecture:
 
-This setup is suitable for a controlled portfolio demonstration, but the
-tracking database is not durable across instance or revision replacement. A
-continuously operated production system should use PostgreSQL or Cloud SQL as
-the persistent MLflow backend.
+- MLflow runs as a Cloud Run service;
+- experiment and registry metadata are stored in Cloud SQL for PostgreSQL;
+- model artifacts are stored in Google Cloud Storage;
+- immutable serving releases are stored separately in GCS;
+- the database password is supplied through Secret Manager;
+- Cloud Run can scale to zero when MLflow is not being used.
+
+This keeps model metadata available across Cloud Run instance replacement,
+revision deployment and scale-to-zero events. Persistence was verified by
+creating a new MLflow revision and confirming that the registered model,
+champion alias, run metadata and production API remained available.
+
+Cloud SQL is the main continuously billable component of the temporary
+demonstration. The infrastructure is therefore provisioned only when required
+and destroyed after the production evidence has been captured.
+
+<p align="center">
+  <img src="docs/images/mlflow_persistence_verification.png" width="100%">
+</p>
+
+<p align="center">
+  <em>Persistence verification after MLflow Cloud Run revision replacement: the champion alias, completed run and GCS artifact URI remain available.</em>
+</p>
 
 ## Testing and Security
 
@@ -652,7 +697,8 @@ managed enterprise forecasting platform.
 
 Important design decisions and limitations:
 
-- the cloud demo favors low temporary cost over a persistent MLflow database;
+- the cloud demo uses a persistent Cloud SQL backend, but the infrastructure is
+  operated temporarily to limit ongoing costs;
 - raw data is excluded from version control;
 - online predictions are point forecasts rather than probabilistic intervals;
 - the project currently focuses on one-step store-level forecasting;
@@ -665,8 +711,9 @@ Important design decisions and limitations:
   infrastructure and budget.
 
 Potential extensions include hierarchical forecasting, prediction intervals,
-managed Cloud SQL, cloud-native centralized logging, automated cost budgets,
-shadow evaluation and broader multi-horizon backtesting.
+cloud-native centralized logging, automated cost budgets, automated database
+backup policies, private service networking, shadow evaluation and broader
+multi-horizon backtesting.
 
 ## Documentation
 

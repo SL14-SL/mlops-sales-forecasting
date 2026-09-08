@@ -13,12 +13,29 @@ operated enterprise platform.
 
 Terraform provisions:
 
-- Artifact Registry;
+- an Artifact Registry repository;
 - a GCS artifact bucket;
-- an MLflow Cloud Run service;
+- a Cloud SQL PostgreSQL instance and MLflow database;
+- a Secret Manager secret for the database password;
+- an MLflow Cloud Run service connected to Cloud SQL;
 - a forecasting API Cloud Run service;
 - service accounts and IAM bindings;
 - Workload Identity Federation for GitHub Actions.
+
+<p align="center">
+  <img
+    src="images/cloud_run_mlflow_cloud_sql.png"
+    width="100%"
+    alt="MLflow Cloud Run service connected to Cloud SQL and GCS"
+  >
+</p>
+
+<p align="center">
+  <em>
+    MLflow on Cloud Run using Cloud SQL for persistent tracking metadata
+    and GCS for model artifacts.
+  </em>
+</p>
 
 <p align="center">
   <img
@@ -81,6 +98,31 @@ terraform -chdir=infrastructure plan
 terraform -chdir=infrastructure apply
 ```
 
+Read the generated service URLs:
+
+```bash
+terraform -chdir=infrastructure output mlflow_url
+terraform -chdir=infrastructure output forecasting_api_url
+```
+
+Store the raw URL values in `.env`, without placeholder brackets or shell
+assignment syntax:
+
+```text
+MLFLOW_URL=https://mlflow-server-....run.app
+MLFLOW_TRACKING_URI=https://mlflow-server-....run.app
+PREDICTION_API_URL=https://forecasting-api-....run.app/predict
+PRODUCTION_API_URL=https://forecasting-api-....run.app
+```
+
+Reload `.env` after changing it: 
+
+```bash
+set -a
+source .env
+set +a
+```
+
 Review every replacement or deletion in the plan before applying it. In
 particular, verify Cloud Run service names, IAM targets and bucket operations.
 
@@ -129,6 +171,23 @@ GitHub Actions performs:
   </em>
 </p>
 
+Infrastructure deployment is gated by the GitHub repository variable
+`DEPLOY_GCP`. Enable it only after Terraform has provisioned the required
+resources:
+
+```bash
+gh variable set DEPLOY_GCP --body true
+```
+
+Set it back to `false` before destroying the infrastructure:
+
+```bash
+gh variable set DEPLOY_GCP --body false
+```
+
+Linting, tests and security checks can continue to run while cloud deployment
+is disabled.
+
 Required repository configuration includes the Artifact Registry path, project
 and region variables, API secrets and Workload Identity Federation values.
 
@@ -140,8 +199,8 @@ The first production model requires a bootstrap run:
 make train-bootstrap-prod
 ```
 
-The target prepares the temporary MLflow demonstration instance before running
-the production training pipeline. It should not be used when a champion already
+The target ensures that the Cloud SQL instance and MLflow health endpoint are
+available before running the production training pipeline. It should not be used when a champion already
 exists in the current MLflow backend.
 
 Successful output includes:
@@ -210,42 +269,104 @@ gcloud logging read \
   --limit=100
 ```
 
-## Cost-Conscious MLflow Configuration
+## Cost-Conscious Persistent MLflow Configuration
 
-The portfolio demonstration uses:
+The demonstration uses:
 
-- one MLflow application worker;
-- one warm Cloud Run instance while the demo is active;
-- SQLite under `/tmp` as the tracking backend;
-- GCS as artifact and serving-release storage.
+- Cloud SQL for PostgreSQL as the persistent tracking and registry backend;
+- GCS for model artifacts and immutable serving releases;
+- Secret Manager for the database password;
+- an MLflow Cloud Run service with scale-to-zero enabled;
+- a maximum of one MLflow Cloud Run instance;
+- Terraform-managed infrastructure that can be destroyed after verification.
 
-The single-instance configuration avoids requests reaching different SQLite
-databases concurrently. It does not make `/tmp` durable. Revision replacement,
-instance replacement or scale-to-zero can remove the tracking database.
+Cloud Run revision replacement does not remove MLflow experiments, registered
+models or aliases because this metadata is stored in Cloud SQL. Model artifacts
+remain independently persisted in GCS.
 
-For continuous production operation, use PostgreSQL or Cloud SQL and configure
-the MLflow backend URI accordingly.
+Cloud SQL does not scale to zero and is therefore the largest ongoing cost of
+the demonstration. For a portfolio deployment, provision it only for the
+bootstrap, verification and screenshot session, then destroy the infrastructure.
+
+## Verify MLflow Persistence
+
+After bootstrapping production, record the registered model and champion alias.
+Then create a new MLflow Cloud Run revision and verify that the same registry
+metadata remains available.
+
+The verification performed for this project confirmed:
+
+- the MLflow health endpoint remained available;
+- the registered forecasting model remained present;
+- the `champion` alias still referenced the same model version;
+- the model run ID remained unchanged;
+- the production API remained ready and passed its semantic prediction probe.
+
+<p align="center">
+  <img
+    src="images/mlflow_persistence_verification.png"
+    width="100%"
+    alt="Successful MLflow persistence verification after Cloud Run revision replacement"
+  >
+</p>
+
+<p align="center">
+  <em>
+    Registered model lineage and GCS artifact location verified after
+    replacing the MLflow Cloud Run revision.
+  </em>
+</p>
 
 ## Memory and Scaling
 
-MLflow UI and registry operations can exceed a 2 GiB Cloud Run limit. The
-Terraform configuration should be the source of truth for memory and scaling;
-manual `gcloud run services update` changes otherwise create Terraform drift.
+The MLflow Cloud Run service is configured with the Terraform-defined CPU,
+memory and instance limits used for the production demonstration. The verified
+deployment operated with one CPU, 1 GiB of memory, scale-to-zero and at most
+one MLflow instance.
 
-After emergency manual changes, update Terraform and apply it so the declared
-and actual infrastructure match.
+MLflow UI, registry and artifact operations should still be monitored during
+larger workloads. If resource limits need to be increased, change the Terraform
+configuration rather than applying a permanent manual Cloud Run override.
+
+Manual `gcloud run services update` commands create a new revision and may
+introduce Terraform drift. After an emergency manual change, update and apply
+the Terraform configuration so that declared and actual infrastructure match.
 
 ## Teardown
 
-The demo should be removed when it is no longer required:
+Before teardown, disable GitHub cloud deployments:
+
+```bash
+gh variable set DEPLOY_GCP --body false
+```
+
+Then review and destroy the Terraform-managed resources:
 
 ```bash
 terraform -chdir=infrastructure plan -destroy
 terraform -chdir=infrastructure destroy
+terraform -chdir=infrastructure state list
 ```
 
-Review retained buckets, Artifact Registry images and externally managed
-resources separately. Destruction of cloud resources and data is irreversible.
+An empty state listing confirms that no Terraform-managed resources remain.
+The remote Terraform state bucket is intentionally retained because Terraform
+does not manage its own backend bucket.
+
+Verify removal of the main billable resources:
+
+```bash
+gcloud sql instances describe mlflow-postgres-dev \
+  --project "$GCP_PROJECT_ID"
+
+gcloud artifacts repositories list \
+  --project "$GCP_PROJECT_ID" \
+  --location "$GCP_REGION"
+``` 
+
+A `404` for the Cloud SQL instance is expected after successful destruction.
+Review retained state buckets separately and do not delete the active Terraform
+backend bucket.
+
 
 ## Related Documentation
 

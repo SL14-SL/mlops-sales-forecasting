@@ -39,8 +39,10 @@ flowchart TD
 |---|---|---|
 | Data pipeline | Validation, temporal features and state updates | Processed data and feature state |
 | Prefect | Training and retraining orchestration | Flow and task run metadata |
-| MLflow | Experiments, runs, metrics and model versions | Tracking database and artifacts |
-| GCS | Dataset snapshots and immutable serving releases | Versioned objects |
+| MLflow | Experiments, runs, metrics and model versions | Cloud SQL metadata and GCS artifacts |
+| Cloud SQL | Persistent PostgreSQL backend for MLflow | Experiments, runs, registry metadata and aliases |
+| GCS | MLflow artifacts, dataset snapshots and immutable serving releases | Versioned objects |
+| Secret Manager | Supplies the MLflow database password | Versioned secret |
 | FastAPI | Request validation and prediction serving | Process-local active bundle; persistent authority remains the release pointer |
 | Prometheus | Metric collection and alert-rule evaluation | Time-series metrics |
 | Grafana | Operational visualization | Dashboard definitions |
@@ -127,13 +129,21 @@ are mounted for data, models, monitoring output and serving releases.
 The cloud demonstration uses:
 
 - Cloud Run for MLflow and the forecasting API;
+- Cloud SQL for PostgreSQL as the durable MLflow tracking backend;
+- Secret Manager for the database password;
 - Artifact Registry for container images;
-- GCS for raw data, artifacts, dataset snapshots and serving releases;
+- GCS for raw data, MLflow artifacts, dataset snapshots and serving releases;
 - Terraform for resource provisioning;
 - GitHub Actions with Workload Identity Federation for deployment.
 
-The low-cost portfolio setup uses one MLflow instance with SQLite. A durable
-production environment should replace this with PostgreSQL or Cloud SQL.
+MLflow stores experiments, runs, registered-model metadata and aliases in Cloud
+SQL. Large model artifacts remain in GCS. This separation keeps MLflow metadata
+persistent across Cloud Run instance termination, scale-to-zero and revision
+replacement.
+
+The Terraform configuration limits the MLflow Cloud Run service to one instance
+and permits scale-to-zero. Cloud SQL remains the main continuously billable
+resource and is only provisioned for the duration of the demonstration.
 
 <p align="center">
   <img src="images/gcp_cloud_run_overview.png" width="70%">
@@ -141,6 +151,14 @@ production environment should replace this with PostgreSQL or Cloud SQL.
 
 <p align="center">
   <em>Google Cloud Run services hosting MLflow and the production forecasting API.</em>
+</p>
+
+<p align="center">
+  <img src="images/cloud_run_mlflow_cloud_sql.png" width="100%">
+</p>
+
+<p align="center">
+  <em>Persistent MLflow architecture using Cloud Run, Cloud SQL for PostgreSQL, Secret Manager and GCS artifact storage.</em>
 </p>
 
 ## Trust Boundaries
