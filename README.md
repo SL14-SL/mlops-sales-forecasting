@@ -17,6 +17,15 @@ use case; the main focus is the reusable engineering around the model.
 ![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
+## Project Case Study
+
+For a concise overview of the business problem, implemented solution,
+measured results and production evidence:
+
+[Download the one-page forecasting case study (PDF)](
+docs/sales_forecasting_case_study.pdf
+)
+
 ## What This Project Demonstrates
 
 This repository goes beyond model training and notebook experimentation. It
