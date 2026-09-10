@@ -18,7 +18,7 @@ scrape_configs:
 
     static_configs:
       - targets:
-          - forecasting-api-365234646295.europe-west1.run.app:443
+          - forecasting-api-wuwx75nmwq.europe-west1.run.app:443
 
         labels:
           environment: prod
