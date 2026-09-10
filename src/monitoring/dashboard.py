@@ -478,7 +478,7 @@ tab_performance, tab_costs = st.tabs(
 
 with tab_performance:
     st.title(
-        "📊 Demand Forecasting - Performance Monitoring"
+        "📊 Sales Forecasting - Performance Monitoring"
     )
     st.markdown(
         """

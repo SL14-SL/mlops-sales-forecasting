@@ -1,6 +1,6 @@
-# Production-Grade MLOps for Demand Forecasting
+# Production-Grade MLOps for Sales Forecasting
 
-An end-to-end demand forecasting platform demonstrating how machine-learning
+An end-to-end sales forecasting platform demonstrating how machine-learning
 models can be trained, evaluated, promoted, deployed, verified, monitored and
 retrained safely.
 
@@ -740,7 +740,7 @@ Detailed architecture and operational documentation is available in:
 ## Dataset
 
 The project uses the Rossmann Store Sales dataset as a realistic store-level
-demand-forecasting scenario. It contains daily sales observations, promotions,
+sales-forecasting scenario. It contains daily sales observations, promotions,
 store availability, school holidays, state holidays and store metadata.
 
 Raw dataset files are intentionally excluded from version control. Users are

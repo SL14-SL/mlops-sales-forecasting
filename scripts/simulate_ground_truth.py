@@ -25,7 +25,7 @@ def apply_drift_scenario(
     maximum_promo_uplift: float,
 ) -> tuple[pd.DataFrame, dict[str, float]]:
     """
-    Apply a controlled demand regime shift.
+    Apply a controlled sales pattern shift.
 
     The default stable scenario leaves sales unchanged. The gradual promo
     scenario changes the relationship between promotions and sales over time.

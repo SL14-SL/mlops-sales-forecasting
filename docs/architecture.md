@@ -3,7 +3,7 @@
 ## Purpose
 
 This document describes the runtime components, ownership boundaries and data
-flows of the demand-forecasting platform. The architecture is designed to keep
+flows of the sales-forecasting platform. The architecture is designed to keep
 training, model selection, release publication and online serving independently
 testable.
 

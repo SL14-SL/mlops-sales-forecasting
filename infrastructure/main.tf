@@ -217,12 +217,8 @@ resource "google_cloud_run_v2_service" "mlflow_server" {
       }
 
       env {
-        name = "MLFLOW_SERVER_CORS_ALLOWED_ORIGINS"
-
-        value = join(",", [
-          "https://mlflow-server-o3ulg525ta-ew.a.run.app",
-          "https://mlflow-server-365234646295.europe-west1.run.app",
-        ])
+        name  = "MLFLOW_SERVER_CORS_ALLOWED_ORIGINS"
+        value = "*"
       }
     }
   }

@@ -51,7 +51,7 @@ mlflow.set_tracking_uri(tracking_uri)
 logger.info(f"Using MLflow tracking URI: {tracking_uri}")
 
 
-@flow(name="End-to-End Demand Forecasting Pipeline")
+@flow(name="End-to-End Sales Forecasting Pipeline")
 def training_pipeline(
     force_run: bool = False,
     bootstrap: bool = False,

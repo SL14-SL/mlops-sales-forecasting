@@ -3,7 +3,7 @@
 ## 1. Purpose
 
 This runbook describes how to diagnose and respond to incidents affecting the
-demand forecasting platform in the local Docker Compose environment or the
+sales forecasting platform in the local Docker Compose environment or the
 production-style deployment on Google Cloud Run.
 
 It covers:
