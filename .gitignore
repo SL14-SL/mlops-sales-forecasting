@@ -48,6 +48,7 @@ prefect_data/
 # Ignore all data by default
 *.csv
 *.parquet
+/data/demo_baseline/
 
 # Allow example/sample data
 !store_cloud.csv

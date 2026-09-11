@@ -738,6 +738,7 @@ def main(
                         "python",
                         "-m",
                         "flows.training_flow",
+                        "--force",
                     ],
                     "Retraining triggered by performance",
                 )
@@ -759,6 +760,13 @@ def main(
                 training_result = extract_training_result(
                     retrain_output
                 )
+                if (
+                    not isinstance(training_result, dict)
+                    or not training_result.get("candidate_run_id")
+                ):
+                    raise RuntimeError(
+                        "Retraining pipeline returned no candidate training result."
+                    )
                 champion_promoted = bool(
                     training_result.get(
                         "champion_promoted",
