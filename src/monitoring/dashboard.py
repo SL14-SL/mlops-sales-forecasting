@@ -406,21 +406,21 @@ def build_rmse_comparison_chart(
         )
     )
 
-    retrain_rows = with_retraining.loc[
-        with_retraining["event"].eq("retrain")
+    promoted_rows = with_retraining.loc[
+        with_retraining["champion_promoted"]
     ]
 
-    if not retrain_rows.empty:
-        retrain_day = int(
-            retrain_rows.iloc[0]["day"]
-        )
-        figure.add_vline(
-            x=retrain_day,
-            line_dash="dash",
-            line_color="#00CC96",
-            annotation_text="Retraining",
-            annotation_position="top right",
-        )
+    for _, promoted_row in promoted_rows.iterrows():
+        activation_day = int(promoted_row["day"])
+
+        if activation_day <= comparison["day"].max():
+            figure.add_vline(
+                x=activation_day,
+                line_dash="dash",
+                line_color="#00CC96",
+                annotation_text="New champion active",
+                annotation_position="top right",
+            )
 
     figure.update_layout(
         height=500,

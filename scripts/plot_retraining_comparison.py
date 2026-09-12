@@ -708,31 +708,6 @@ def create_comparison_plot(
         loc="upper right"
     )
 
-    rolling_summary = (
-        f"Mean rolling RMSE from day "
-        f"{first_full_post_window_day}\n"
-        f"Without retraining: "
-        f"{mean_rolling_without:.1f}\n"
-        f"With mild weighting: "
-        f"{mean_rolling_with:.1f}\n"
-        f"Relative RMSE change: "
-        f"{rolling_rmse_change:+.1f}%"
-    )
-
-    line_axis.text(
-        0.02,
-        0.96,
-        rolling_summary,
-        transform=line_axis.transAxes,
-        verticalalignment="top",
-        bbox={
-            "boxstyle": "round",
-            "facecolor": "white",
-            "edgecolor": "#495057",
-            "alpha": 0.92,
-        },
-    )
-
     positions = np.arange(
         len(segment_order)
     )
