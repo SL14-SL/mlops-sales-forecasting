@@ -295,8 +295,8 @@ truth and a controlled decay in promotional effectiveness. Two matched runs are
 compared:
 
 - a static champion without retraining;
-- an adaptive system using drift-triggered training, recency weighting and final
-  refitting.
+- an adaptive system using performance-triggered training, recency weighting 
+  gated promotion and final refitting.
 
 <p align="center">
   <img src="docs/images/promo_final_refit_comparison.png" width="100%">
@@ -308,14 +308,15 @@ compared:
 
 | Post-promotion segment | Relative RMSE change |
 |---|---:|
-| All open stores | -2.4% |
-| Promo stores | -6.1% |
-| Non-promo stores | +1.4% |
+| All open stores | -52.4% |
+| Promo stores | -65.8% |
+| Non-promo stores | -19.0% |
 
-Negative change means lower forecast error. The experiment demonstrates that
-retraining can improve the segment affected by drift while still creating
-trade-offs elsewhere. It therefore supports segmented evaluation instead of a
-blanket claim that every retraining event improves every subgroup.
+Negative change means lower forecast error. Three retraining events were
+triggered, but only one candidate passed the promotion gates. After promotion,
+the final-refit model reduced RMSE across all evaluated segments, with the
+strongest improvement in the promo stores directly affected by the controlled
+drift.
 
 The Streamlit dashboard exposes lifecycle results and allows matching static
 and adaptive runs to be compared interactively.

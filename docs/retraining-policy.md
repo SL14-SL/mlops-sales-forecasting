@@ -47,8 +47,8 @@ promotion occurred.
 <p align="center">
   <em>
     Rolling RMSE, MAE and bias across the simulated lifecycle,
-    including the drift period, retraining event and final-refit
-    champion promotion.
+    including the drift period, multiple retraining attempts and
+    the accepted final-refit champion promotion.
   </em>
 </p>
 
@@ -203,6 +203,7 @@ scenario, drift parameters, initial champion and ground truth.
   <em>
     Interactive Streamlit comparison of rolling forecast error for
     matched lifecycle runs with and without adaptive retraining.
+    The green marker indicates when the promoted Champion becomes active.
   </em>
 </p>
 
@@ -228,15 +229,16 @@ segments directly and indirectly affected by promotional drift.
 
 | Post-promotion segment | Without retraining | With final refit | Relative RMSE change |
 |---|---:|---:|---:|
-| All open stores | 916 | 893 | -2.4% |
-| Promo stores | 1,032 | 969 | -6.1% |
-| Non-promo stores | 825 | 836 | +1.4% |
+| All open stores | 2,322 | 1,105 | -52.4% |
+| Promo stores | 3,052 | 1,043 | -65.8% |
+| Non-promo stores | 1,427 | 1,156 | -19.0% |
 
 Negative relative change indicates lower forecast error. The accepted
-final-refit model improved the segment affected by promotional drift,
-while performance for non-promo stores deteriorated slightly. This
-result demonstrates why retraining decisions should be evaluated across
-business-relevant segments rather than only through one aggregate metric.
+final-refit model reduced post-promotion RMSE across all evaluated
+segments. The largest improvement occurred in promo stores, the segment
+directly affected by the controlled promo-effect drift. Two earlier
+retraining attempts did not result in promotion, demonstrating that
+candidate training and Champion promotion remain separate decisions.
 
 
 ## Related Documentation
