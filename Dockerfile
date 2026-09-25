@@ -1,4 +1,4 @@
-FROM python:3.12.9-slim AS builder
+FROM python:3.14.7-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.13 \
     /uv \
@@ -28,7 +28,7 @@ RUN uv sync \
     --no-editable
 
 
-FROM python:3.12.9-slim AS runtime
+FROM python:3.14.7-slim AS runtime
 
 RUN apt-get update \
     && apt-get upgrade --yes \
