@@ -11,7 +11,28 @@ notifications:
     enabled: false
     url: "${LIFECYCLE_WEBHOOK_URL:-}"
     timeout_seconds: 5.0
-    
+
+model:
+  type: xgboost
+  params:
+    tree_method: hist
+    enable_categorical: true
+    n_estimators: 1200
+    max_depth: 7
+    learning_rate: 0.02951097123871115
+    min_child_weight: 7
+    subsample: 0.7591811958673289
+    colsample_bytree: 0.8220753234069667
+    reg_alpha: 0.026633895001357495
+    reg_lambda: 8.719936821452245
+    gamma: 0.22544860040323314
+    objective: reg:squarederror
+    early_stopping_rounds: 50
+
+metrics:
+  primary: rmse
+  evaluate_on_original_scale: true
+   
 paths:
   data_root: "gs://${GCS_BUCKET_NAME:-replace-me}/data"
   raw_data: "gs://${GCS_BUCKET_NAME:-replace-me}/data/raw"
@@ -69,6 +90,13 @@ training:
   normal_validation_days: 14
   drift_validation_days: 7
   target_transformation: log1p
+  recency_weighting:
+    enabled_for_drift: true
+    promo_column: Promo
+    last_30_days_weight: 5.0
+    last_60_days_weight: 3.0
+    last_120_days_weight: 1.5
+    default_weight: 1.0
   
 services:
   prefect_api_url: "${PREFECT_API_URL}"
