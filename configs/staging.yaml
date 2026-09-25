@@ -63,7 +63,13 @@ features:
     - Promo2SinceYear
     - PromoInterval
   drop_columns: []
-  
+
+training:
+  validation_strategy: chronological
+  normal_validation_days: 14
+  drift_validation_days: 7
+  target_transformation: log1p
+   
 serving:
   alias: "champion"
   
