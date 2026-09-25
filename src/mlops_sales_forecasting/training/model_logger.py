@@ -62,7 +62,6 @@ class XGBoostModelArtifactLogger:
         model_info = mlflow.xgboost.log_model(
             training_result.model,
             name=artifact_path,
-            input_example=input_example,
             signature=signature,
             metadata={
                 "model_type": "xgboost",

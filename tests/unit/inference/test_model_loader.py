@@ -90,3 +90,103 @@ def test_load_pyfunc_model_rejects_empty_uri() -> None:
         match="model URI must not be empty",
     ):
         model_loader.load_pyfunc_model("")
+
+def test_load_xgboost_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    estimator = MagicMock()
+    native_loader = MagicMock(
+        return_value=estimator
+    )
+
+    input_schema = MagicMock()
+    input_schema.input_names.return_value = [
+        "Store",
+        "Promo",
+        "sales_lag_1",
+    ]
+
+    signature = MagicMock()
+    signature.inputs = input_schema
+
+    model_info = MagicMock()
+    model_info.signature = signature
+
+    get_model_info = MagicMock(
+        return_value=model_info
+    )
+
+    monkeypatch.setattr(
+        model_loader.mlflow.models,
+        "get_model_info",
+        get_model_info,
+    )
+    monkeypatch.setattr(
+        model_loader.mlflow.xgboost,
+        "load_model",
+        native_loader,
+    )
+
+    result = model_loader.load_xgboost_model(
+        "models:/m-test-model"
+    )
+
+    assert result.estimator is estimator
+    assert result.input_columns == (
+        "Store",
+        "Promo",
+        "sales_lag_1",
+    )
+
+    get_model_info.assert_called_once_with(
+        "models:/m-test-model"
+    )
+    native_loader.assert_called_once_with(
+        "models:/m-test-model"
+    )
+
+
+def test_load_xgboost_model_requires_signature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model_info = MagicMock()
+    model_info.signature = None
+
+    monkeypatch.setattr(
+        model_loader.mlflow.models,
+        "get_model_info",
+        MagicMock(return_value=model_info),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="no input signature",
+    ):
+        model_loader.load_xgboost_model(
+            "models:/m-test-model"
+        )
+
+
+def test_loaded_xgboost_model_delegates_prediction() -> None:
+    estimator = MagicMock()
+    estimator.predict.return_value = [
+        1.0,
+    ]
+    loaded_model = model_loader.LoadedXGBoostModel(
+        estimator=estimator,
+        input_columns=(
+            "feature",
+        ),
+    )
+    model_input = MagicMock()
+
+    result = loaded_model.predict(
+        model_input
+    )
+
+    assert result == [
+        1.0,
+    ]
+    estimator.predict.assert_called_once_with(
+        model_input
+    )

@@ -90,6 +90,22 @@ def _model_input_columns(
         "metadata",
         None,
     )
+    
+    native_columns = getattr(
+        model,
+        "input_columns",
+        None,
+    )
+
+    if (
+        isinstance(native_columns, (list, tuple))
+        and native_columns
+        and all(
+            isinstance(column, str) and column
+            for column in native_columns
+        )
+    ):
+        return list(native_columns)
 
     if metadata is None:
         raise ValueError(

@@ -90,7 +90,6 @@ def test_xgboost_logger_returns_logged_model_uri(
     log_model.assert_called_once_with(
         trained_model,
         name="model",
-        input_example=input_example,
         signature=signature,
         metadata={
             "model_type": "xgboost",
