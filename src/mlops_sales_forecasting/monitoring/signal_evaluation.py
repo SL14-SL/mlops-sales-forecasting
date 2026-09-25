@@ -66,7 +66,10 @@ def evaluate_persistent_feature_drift(
     else:
         evaluation_time = evaluation_time.tz_convert("UTC")
 
-    cutoff = evaluation_time - pd.Timedelta(days=lookback_days)
+    cutoff = evaluation_time - pd.to_timedelta(
+        lookback_days,
+        unit="D",
+    )
 
     frame = frame[(frame["timestamp"] >= cutoff) & (frame["timestamp"] <= evaluation_time)]
 
