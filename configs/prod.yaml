@@ -32,7 +32,7 @@ model:
 metrics:
   primary: rmse
   evaluate_on_original_scale: true
-   
+
 paths:
   data_root: "gs://${GCS_BUCKET_NAME:-replace-me}/data"
   raw_data: "gs://${GCS_BUCKET_NAME:-replace-me}/data/raw"
@@ -97,7 +97,17 @@ training:
     last_60_days_weight: 3.0
     last_120_days_weight: 1.5
     default_weight: 1.0
-  
+
+promotion:
+  minimum_validation_rows: 1000
+  minimum_segment_rows: 100
+  minimum_relative_rmse_improvement: 0.005
+  maximum_segment_rmse_regression: 0.02
+  maximum_absolute_bias_regression: 100.0
+  required_segments:
+    - promo
+    - non_promo
+    
 services:
   prefect_api_url: "${PREFECT_API_URL}"
 
