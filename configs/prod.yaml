@@ -24,6 +24,46 @@ paths:
   splits: "gs://${GCS_BUCKET_NAME:-replace-me}/data/splits"
   versioning: "gs://${GCS_BUCKET_NAME:-replace-me}/data/versioning"
 
+data:
+  target_column: Sales
+  known_targets:
+    - Sales
+    - Customers
+  time_column: Date
+  id_columns:
+    - Store
+  primary_keys:
+    - Store
+    - Date
+
+features:
+  enabled_steps:
+    - sort
+    - temporal
+    - lags
+    - competition
+    - promo
+    - cast_categoricals
+    - drop_technical
+    - drop_configured
+  lag_features:
+    lags:
+      - 1
+      - 7
+      - 14
+      - 28
+    rolling_windows:
+      - 7
+      - 14
+      - 28
+  technical_drop_columns:
+    - CompetitionOpenSinceMonth
+    - CompetitionOpenSinceYear
+    - Promo2SinceWeek
+    - Promo2SinceYear
+    - PromoInterval
+  drop_columns: []
+  
 services:
   prefect_api_url: "${PREFECT_API_URL}"
 
