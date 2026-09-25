@@ -77,5 +77,6 @@ def build_application(
         api_key=_api_key_from_config(
             application_config
         ),
+        config=application_config,
     )
     

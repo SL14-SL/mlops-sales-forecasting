@@ -30,11 +30,36 @@ def build_client(
         "forecasting"
     )
     model_manager.get_bundle.return_value = bundle
+    config = {
+        "data": {
+            "target_column": "Sales",
+            "time_column": "Date",
+            "id_columns": [
+                "Store",
+            ],
+        },
+        "features": {
+            "lag_features": {
+                "lags": [
+                    1,
+                    7,
+                    14,
+                    28,
+                ],
+                "rolling_windows": [
+                    7,
+                    14,
+                    28,
+                ],
+            },
+        },
+    }
 
     app = create_app(
         model_manager=model_manager,
         load_model_on_startup=False,
         api_key=API_KEY,
+        config=config,
     )
 
     return TestClient(
