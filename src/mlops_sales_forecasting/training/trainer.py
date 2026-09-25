@@ -184,6 +184,7 @@ class RossmannModelTrainer:
                 "validation_rmse": (validation_rmse),
             },
             parameters=parameters,
+            input_example=x_train.head(5).copy(),
         )
 
     def _sample_weight(

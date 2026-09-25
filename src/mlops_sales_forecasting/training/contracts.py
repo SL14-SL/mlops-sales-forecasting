@@ -60,6 +60,7 @@ class TrainingResult:
     artifacts: Mapping[str, str] = field(
         default_factory=dict
     )
+    input_example: Any | None = None
 
     def __post_init__(self) -> None:
         if self.model is None:

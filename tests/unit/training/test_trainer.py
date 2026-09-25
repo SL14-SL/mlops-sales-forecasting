@@ -145,6 +145,16 @@ def test_trainer_returns_template_training_result(
     )
     assert result.parameters["model_type"] == "xgboost"
     assert result.parameters["target_transformation"] == "log1p"
+    assert isinstance(
+        result.input_example,
+        pd.DataFrame,
+    )
+    assert len(result.input_example) == 2
+    assert list(result.input_example.columns) == [
+        "Store",
+        "Promo",
+        "feature",
+    ]
 
     build_model.assert_called_once_with(
         config["model"],

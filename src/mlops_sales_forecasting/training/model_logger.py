@@ -2,6 +2,8 @@ from collections.abc import Mapping
 from typing import Any
 
 import mlflow.xgboost
+import pandas as pd
+from mlflow.models import infer_signature
 
 from mlops_sales_forecasting.training.contracts import (
     TrainingResult,
@@ -9,7 +11,7 @@ from mlops_sales_forecasting.training.contracts import (
 
 
 class XGBoostModelArtifactLogger:
-    """Log a trained XGBoost model to the active MLflow run."""
+    """Log a trained XGBoost model with its input signature."""
 
     def log_model(
         self,
@@ -25,7 +27,29 @@ class XGBoostModelArtifactLogger:
         model_type = model_config.get("type")
 
         if model_type != "xgboost":
-            raise ValueError("XGBoostModelArtifactLogger requires model.type='xgboost'.")
+            raise ValueError(
+                "XGBoostModelArtifactLogger requires "
+                "model.type='xgboost'."
+            )
+
+        input_example = training_result.input_example
+
+        if (
+            not isinstance(input_example, pd.DataFrame)
+            or input_example.empty
+        ):
+            raise ValueError(
+                "XGBoost model logging requires a "
+                "non-empty pandas input example."
+            )
+
+        predictions = training_result.model.predict(
+            input_example
+        )
+        signature = infer_signature(
+            input_example,
+            predictions,
+        )
 
         data_config = config.get(
             "data",
@@ -39,9 +63,16 @@ class XGBoostModelArtifactLogger:
         mlflow.xgboost.log_model(
             training_result.model,
             name=artifact_path,
+            input_example=input_example,
+            signature=signature,
             metadata={
                 "model_type": "xgboost",
-                "target_column": str(data_config.get("target_column", "")),
+                "target_column": str(
+                    data_config.get(
+                        "target_column",
+                        "",
+                    )
+                ),
                 "target_transformation": str(
                     training_config.get(
                         "target_transformation",
@@ -51,4 +82,7 @@ class XGBoostModelArtifactLogger:
             },
         )
 
-        return f"runs:/{training_result.run_id}/{artifact_path}"
+        return (
+            f"runs:/{training_result.run_id}/"
+            f"{artifact_path}"
+        )
