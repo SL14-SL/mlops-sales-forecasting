@@ -6,6 +6,9 @@ import pandas as pd
 from mlops_sales_forecasting.data.contracts import (
     DatasetCollection,
 )
+from mlops_sales_forecasting.data.features.calendar import (
+    merge_known_calendar_features,
+)
 from mlops_sales_forecasting.data.features.common import (
     cast_object_columns_to_category,
     drop_columns_if_present,
@@ -265,18 +268,48 @@ class RossmannFeatureBuilder:
         train = datasets.require("train").copy()
         store = datasets.require("store").copy()
 
-        if "Store" not in train.columns:
-            raise ValueError("Training data must contain 'Store'.")
+        data_config = config.get(
+            "data",
+            {},
+        )
+        id_columns = data_config.get(
+            "id_columns",
+            [],
+        )
+        entity_column = str(id_columns[0]) if id_columns else "Store"
+        date_column = str(
+            data_config.get(
+                "time_column",
+                "Date",
+            )
+        )
+        if entity_column not in train.columns:
+            raise ValueError(
+                f"Training data must contain the configured entity column '{entity_column}'."
+            )
 
-        if "Store" not in store.columns:
-            raise ValueError("Store metadata must contain 'Store'.")
+        if entity_column not in store.columns:
+            raise ValueError(
+                f"Store metadata must contain the configured entity column '{entity_column}'."
+            )
 
         merged = train.merge(
             store,
-            on="Store",
+            on=entity_column,
             how="left",
             validate="many_to_one",
         )
+
+        known_calendar = datasets.datasets.get("known_calendar")
+
+        if known_calendar is not None:
+            merged = merge_known_calendar_features(
+                merged,
+                known_calendar,
+                entity_column=entity_column,
+                date_column=date_column,
+                strict=True,
+            )
 
         return build_features(
             merged,

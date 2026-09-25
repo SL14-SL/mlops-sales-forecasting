@@ -9,6 +9,9 @@ from mlops_sales_forecasting.data.features.build_features import (
     build_features,
     preprocess_data,
 )
+from mlops_sales_forecasting.data.features.calendar import (
+    CALENDAR_FEATURE_COLUMNS,
+)
 
 
 @pytest.fixture
@@ -342,3 +345,79 @@ def test_rossmann_feature_builder_merges_store_metadata(
     assert "Assortment" in result.columns
     assert result["StoreType"].isna().sum() == 0
     assert "sales_lag_1" in result.columns
+
+
+def test_rossmann_feature_builder_merges_known_calendar(
+    training_config,
+):
+    train = pd.DataFrame(
+        {
+            "Store": [
+                1,
+            ],
+            "Date": pd.to_datetime(
+                [
+                    "2026-03-01",
+                ]
+            ),
+            "Sales": [
+                100.0,
+            ],
+            "Promo": [
+                0,
+            ],
+            "StateHoliday": [
+                "0",
+            ],
+        }
+    )
+    store = pd.DataFrame(
+        {
+            "Store": [
+                1,
+            ],
+            "StoreType": [
+                "a",
+            ],
+        }
+    )
+    known_calendar = pd.DataFrame(
+        {
+            "Store": [
+                1,
+            ],
+            "Date": pd.to_datetime(
+                [
+                    "2026-03-01",
+                ]
+            ),
+            **{
+                column: [
+                    0,
+                ]
+                for column in CALENDAR_FEATURE_COLUMNS
+            },
+        }
+    )
+    known_calendar["days_until_state_holiday"] = 2
+
+    datasets = DatasetCollection(
+        datasets={
+            "train": train,
+            "store": store,
+            "known_calendar": known_calendar,
+        }
+    )
+
+    result = RossmannFeatureBuilder().build_features(
+        datasets,
+        training_config,
+    )
+
+    assert (
+        result.loc[
+            result.index[0],
+            "days_until_state_holiday",
+        ]
+        == 2
+    )
