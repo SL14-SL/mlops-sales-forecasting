@@ -8,18 +8,18 @@ authors = [
 requires-python = ">=3.12.9,<3.13"
 dependencies = [
     "fastapi==0.141.1",
-    "fsspec==2026.2.0",
-    "gcsfs==2026.2.0",
+    "fsspec==2026.9.0",
+    "gcsfs==2026.8.1",
     "httpx2>=2.12.0",
-    "mlflow==3.15.1",
+    "mlflow==3.16.1",
     "pandas==2.3.3",
     "prefect>=3,<4",
-    "prometheus-client==0.23.1",
+    "prometheus-client==0.26.0",
     "pyarrow==25.0.1",
     "pydantic>=2.12,<3",
     "python-dotenv>=1.2,<2",
     "pyyaml>=6,<7",
-    "uvicorn==0.40.0",
+    "uvicorn==0.53.0",
 ]
 
 [dependency-groups]
