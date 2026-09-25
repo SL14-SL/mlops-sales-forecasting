@@ -34,12 +34,12 @@ def test_configure_mlflow_rejects_empty_uri() -> None:
 
 def test_build_registered_model_uri() -> None:
     result = model_loader.build_registered_model_uri(
-        model_name="customer-churn-model-dev",
+        model_name="sales-forecasting-model-dev",
         alias="champion",
     )
 
     assert result == (
-        "models:/customer-churn-model-dev@champion"
+        "models:/sales-forecasting-model-dev@champion"
     )
 
 
