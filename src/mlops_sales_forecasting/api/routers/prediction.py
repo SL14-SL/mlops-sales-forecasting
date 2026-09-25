@@ -1,5 +1,5 @@
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
@@ -23,6 +23,7 @@ from ...monitoring.prediction_event_logger import (
 )
 from ...utils.logger import get_logger
 from ..dependencies import (
+    get_application_config,
     get_model_manager,
     require_api_key,
 )
@@ -135,6 +136,10 @@ def predict(
         ModelManager | None,
         Depends(get_model_manager),
     ],
+    application_config: Annotated[
+        dict[str, Any],
+        Depends(get_application_config),
+    ],
 ) -> PredictionResponse:
     """Run a prediction using the active serving bundle."""
     if model_manager is None or not model_manager.ready:
@@ -151,7 +156,10 @@ def predict(
             detail="Prediction service is not ready.",
         ) from exc
 
-    service = PredictionService(model_manager)
+    service = PredictionService(
+        model_manager,
+        application_config,
+    )
     started_at = time.perf_counter()
 
     try:

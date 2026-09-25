@@ -73,11 +73,14 @@ def valid_payload() -> dict:
     return {
         "inputs": [
             {
-                "entity_id": 1,
-                "date": "2026-09-16",
-            }
+                "Store": 1,
+                "Date": "2026-09-25",
+                "Open": 1,
+                "Promo": 0,
+                "StateHoliday": "0",
+                "SchoolHoliday": 0,
+            },
         ],
-        "horizon": 2,
     }
 
 
@@ -89,11 +92,6 @@ def successful_response() -> PredictionResponse:
                 row_index=0,
                 horizon_step=1,
                 prediction=100.0,
-            ),
-            PredictionResult(
-                row_index=0,
-                horizon_step=2,
-                prediction=110.0,
             ),
         ],
     )
@@ -144,7 +142,8 @@ def test_predict_returns_success(
     assert response.json()["status"] == "success"
     assert response.json()["release_id"] == "release-1"
     service_constructor.assert_called_once_with(
-        model_manager
+        model_manager,
+        client.app.state.config,
     )
     observe_outputs.assert_called_once_with(
         expected_response

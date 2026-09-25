@@ -11,11 +11,6 @@ class PredictionRequest(BaseModel):
     inputs: list[dict[str, Any]] = Field(
         min_length=1,
     )
-    horizon: int = Field(
-        default=1,
-        ge=1,
-        le=366,
-    )
 
 
 class PredictionResult(BaseModel):
