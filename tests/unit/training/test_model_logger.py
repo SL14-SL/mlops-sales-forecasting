@@ -12,11 +12,13 @@ from mlops_sales_forecasting.training.model_logger import (
 )
 
 
-def test_xgboost_logger_returns_run_model_uri(
+def test_xgboost_logger_returns_logged_model_uri(
     monkeypatch,
 ) -> None:
     log_model = MagicMock()
-
+    log_model.return_value.model_uri = (
+        "models:/m-test-model"
+    )
     monkeypatch.setattr(
         model_logger.mlflow.xgboost,
         "log_model",
@@ -72,7 +74,7 @@ def test_xgboost_logger_returns_run_model_uri(
         config=config,
     )
 
-    assert model_uri == ("runs:/run-123/model")
+    assert model_uri == "models:/m-test-model"
 
     infer_signature.assert_called_once()
 

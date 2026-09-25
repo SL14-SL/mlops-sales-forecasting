@@ -59,8 +59,7 @@ class XGBoostModelArtifactLogger:
             "training",
             {},
         )
-
-        mlflow.xgboost.log_model(
+        model_info = mlflow.xgboost.log_model(
             training_result.model,
             name=artifact_path,
             input_example=input_example,
@@ -82,7 +81,4 @@ class XGBoostModelArtifactLogger:
             },
         )
 
-        return (
-            f"runs:/{training_result.run_id}/"
-            f"{artifact_path}"
-        )
+        return model_info.model_uri
