@@ -20,6 +20,9 @@ paths:
   processed: "gs://${GCS_BUCKET_NAME:-replace-me}/data/processed"
   artifacts: "gs://${GCS_BUCKET_NAME:-replace-me}/artifacts"
   models: "gs://${GCS_BUCKET_NAME:-replace-me}/models"
+  features: "gs://${GCS_BUCKET_NAME:-replace-me}/data/features"
+  splits: "gs://${GCS_BUCKET_NAME:-replace-me}/data/splits"
+  versioning: "gs://${GCS_BUCKET_NAME:-replace-me}/data/versioning"
 
 services:
   prefect_api_url: "${PREFECT_API_URL}"

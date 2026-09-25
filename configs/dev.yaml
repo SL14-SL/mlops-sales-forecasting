@@ -20,6 +20,9 @@ paths:
   processed: "data/processed"
   artifacts: "artifacts"
   models: "artifacts/models"
+  features: "data/features"
+  splits: "data/splits"
+  versioning: "data/versioning"
 
 services:
   prefect_api_url: "${PREFECT_API_URL:-http://localhost:4200/api}"
