@@ -1,0 +1,8 @@
+gcp_project_id = "replace-with-your-gcp-project-id"
+storage_location = "EU"
+
+# Enable after creating the GitHub repository.
+enable_github_actions = false
+
+github_repository_owner = "replace-with-github-owner"
+github_repository_name  = "mlops-sales-forecasting"

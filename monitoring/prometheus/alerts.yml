@@ -1,0 +1,101 @@
+groups:
+  - name: mlops-api
+    rules:
+      - alert: MlopsApiDown
+        expr: up{job="mlops-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: MLOps API is unavailable
+          description: >-
+            Prometheus has been unable to scrape the MLOps API
+            for at least two minutes.
+
+      - alert: MlopsApiHighServerErrorRate
+        expr: >-
+          (
+            sum(rate(
+              mlops_api_requests_total{
+                status_code=~"5.."
+              }[5m]
+            ))
+            /
+            clamp_min(
+              sum(rate(
+                mlops_api_requests_total[5m]
+              )),
+              0.000001
+            )
+          ) > 0.05
+          and
+          sum(rate(
+            mlops_api_requests_total[5m]
+          )) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: MLOps API has a high server-error rate
+          description: >-
+            More than five percent of observed API requests
+            returned a 5xx response during the last five minutes.
+
+      - alert: MlopsApiHighP95Latency
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(
+                mlops_api_request_latency_seconds_bucket[5m]
+              )
+            )
+          ) > 1
+          and
+          sum(rate(
+            mlops_api_requests_total[5m]
+          )) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: MLOps API p95 latency is high
+          description: >-
+            The API p95 request latency has exceeded one second
+            for at least five minutes.
+
+
+  - name: mlops-prediction-alerts
+    rules:
+      - alert: PredictionErrorRateHigh
+        expr: >-
+          mlops_prediction:error_ratio5m
+          >
+          0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: prediction
+        annotations:
+          summary: Prediction error rate is elevated
+          description: >-
+            More than 5 percent of prediction requests
+            have failed for at least 10 minutes.
+
+      - alert: PredictionLatencyHigh
+        expr: >-
+          mlops_prediction:p95_latency_seconds5m
+          >
+          1
+        for: 10m
+        labels:
+          severity: warning
+          component: prediction
+        annotations:
+          summary: Prediction latency is elevated
+          description: >-
+            The p95 model prediction latency has exceeded
+            one second for at least 10 minutes.

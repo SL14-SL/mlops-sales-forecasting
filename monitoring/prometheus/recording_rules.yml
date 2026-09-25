@@ -1,0 +1,266 @@
+groups:
+  - name: mlops-api-sli
+    interval: 15s
+    rules:
+      - record: mlops_api:request_rate5m
+        expr: >-
+          sum(
+            rate(
+              mlops_api_requests_total[5m]
+            )
+          )
+
+      - record: mlops_api:server_error_ratio5m
+        expr: >-
+          (
+            sum(
+              rate(
+                mlops_api_requests_total{
+                  status_code=~"5.."
+                }[5m]
+              )
+            )
+            or
+            vector(0)
+          )
+          /
+          clamp_min(
+            sum(
+              rate(
+                mlops_api_requests_total[5m]
+              )
+            ),
+            0.000001
+          )
+
+      - record: mlops_api:availability_ratio5m
+        expr: >-
+          1
+          -
+          mlops_api:server_error_ratio5m
+
+      - record: mlops_api:p95_latency_seconds5m
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(
+                mlops_api_request_latency_seconds_bucket[5m]
+              )
+            )
+          )
+
+      - record: mlops_api:latency_sli_ratio5m
+        expr: >-
+          sum(
+            rate(
+              mlops_api_request_latency_seconds_bucket{
+                le="1.0"
+              }[5m]
+            )
+          )
+          /
+          clamp_min(
+            sum(
+              rate(
+                mlops_api_request_latency_seconds_count[5m]
+              )
+            ),
+            0.000001
+          )
+
+      - record: mlops_api:error_budget_remaining_ratio5m
+        expr: >-
+          clamp_max(
+            clamp_min(
+              1
+              -
+              (
+                mlops_api:server_error_ratio5m
+                /
+                0.005
+              ),
+              0
+            ),
+            1
+          )
+
+
+  - name: mlops-prediction
+    interval: 15s
+    rules:
+      - record: mlops_prediction:request_rate5m
+        expr: >-
+          sum(
+            rate(
+              mlops_prediction_requests_total[5m]
+            )
+          )
+
+      - record: mlops_prediction:observation_rate5m
+        expr: >-
+          sum(
+            rate(
+              mlops_prediction_observations_total[5m]
+            )
+          )
+
+      - record: mlops_prediction:error_ratio5m
+        expr: >-
+          (
+            sum(
+              rate(
+                mlops_prediction_requests_total{
+                  status="error"
+                }[5m]
+              )
+            )
+            or
+            vector(0)
+          )
+          /
+          clamp_min(
+            sum(
+              rate(
+                mlops_prediction_requests_total[5m]
+              )
+            ),
+            0.000001
+          )
+
+      - record: mlops_prediction:p95_latency_seconds5m
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(
+                mlops_prediction_latency_seconds_bucket[5m]
+              )
+            )
+          )
+
+      - record: mlops_classification:positive_ratio5m
+        expr: >-
+          sum(
+            rate(
+              mlops_classification_predictions_total{
+                predicted_class="1"
+              }[5m]
+            )
+          )
+          /
+          clamp_min(
+            sum(
+              rate(
+                mlops_classification_predictions_total[5m]
+              )
+            ),
+            0.000001
+          )
+
+      - record: mlops_classification:accuracy5m
+        expr: >-
+          sum(
+            rate(
+              mlops_classification_correct_total[5m]
+            )
+          )
+          /
+          clamp_min(
+            sum(
+              rate(
+                mlops_classification_feedback_total[5m]
+              )
+            ),
+            0.000001
+          )
+
+      - record: mlops_classification:brier_score5m
+        expr: >-
+          sum(
+            rate(
+              mlops_classification_brier_error_total[5m]
+            )
+          )
+          /
+          clamp_min(
+            sum(
+              rate(
+                mlops_classification_feedback_total[5m]
+              )
+            ),
+            0.000001
+          )
+
+      - record: mlops_forecast:mae5m
+        expr: >-
+          sum(
+            rate(
+              mlops_forecast_absolute_error_total[5m]
+            )
+          )
+          /
+          clamp_min(
+            sum(
+              rate(
+                mlops_forecast_feedback_total[5m]
+              )
+            ),
+            0.000001
+          )
+
+      - record: mlops_forecast:rmse5m
+        expr: >-
+          sqrt(
+            sum(
+              rate(
+                mlops_forecast_squared_error_total[5m]
+              )
+            )
+            /
+            clamp_min(
+              sum(
+                rate(
+                  mlops_forecast_feedback_total[5m]
+                )
+              ),
+              0.000001
+            )
+          )
+
+      - record: mlops_forecast:bias5m
+        expr: >-
+          (
+            sum(
+              rate(
+                mlops_forecast_over_error_total[5m]
+              )
+            )
+            -
+            sum(
+              rate(
+                mlops_forecast_under_error_total[5m]
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum(
+              rate(
+                mlops_forecast_feedback_total[5m]
+              )
+            ),
+            0.000001
+          )
+
+      - record: mlops_drift:detected_features
+        expr: >-
+          sum(
+            mlops_feature_drift_detected
+          )
+
+      - record: mlops_drift:max_score
+        expr: >-
+          max(
+            mlops_feature_drift_score
+          )

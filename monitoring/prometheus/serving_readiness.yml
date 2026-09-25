@@ -1,0 +1,23 @@
+groups:
+  - name: mlops-serving
+    rules:
+      - alert: MlopsServingBundleNotReady
+        expr: >-
+          (
+            up{job="mlops-api"} == 1
+          )
+          and on()
+          (
+            mlops_serving_ready == 0
+            or
+            absent(mlops_serving_ready)
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: No complete serving bundle is active
+          description: >-
+            The API process is reachable, but no complete
+            model and artifact bundle is ready for serving.

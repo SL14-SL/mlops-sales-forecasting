@@ -1,0 +1,25 @@
+gcp_project_id = "replace-with-your-gcp-project-id"
+
+region      = "europe-west1"
+environment = "dev"
+
+artifact_registry_repository = "mlops-sales-forecasting-images"
+storage_location             = "EU"
+
+force_destroy_artifact_bucket = false
+
+# Keep false for the first apply. Enable after pushing the image.
+deploy_cloud_run = false
+
+container_image = "europe-west1-docker.pkg.dev/replace-with-your-gcp-project-id/mlops-sales-forecasting-images/api:latest"
+
+allow_unauthenticated = false
+
+minimum_instances = 0
+maximum_instances = 3
+
+container_cpu    = "1"
+container_memory = "512Mi"
+
+mlflow_tracking_uri = ""
+prefect_api_url      = ""

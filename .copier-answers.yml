@@ -1,0 +1,9 @@
+# Changes here will be overwritten by Copier.
+_commit: v0.3.1
+_src_path: git@github.com:SL14-SL/mlops-project-template.git
+author_name: Steffen Lauterbach
+project_description: Production-oriented sales forecasting system
+project_name: Sales Forecasting MLOps
+project_slug: mlops-sales-forecasting
+python_version: 3.12.9
+task_type: forecasting

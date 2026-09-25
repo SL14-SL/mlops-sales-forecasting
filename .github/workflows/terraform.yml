@@ -1,0 +1,77 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - "infrastructure/terraform/**"
+      - "infrastructure/terraform-bootstrap/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "infrastructure/terraform/**"
+      - "infrastructure/terraform-bootstrap/**"
+      - ".github/workflows/terraform.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Terraform
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Check bootstrap formatting
+        run: >-
+          terraform
+          -chdir=infrastructure/terraform-bootstrap
+          fmt
+          -check
+          -recursive
+
+      - name: Initialize bootstrap module
+        run: >-
+          terraform
+          -chdir=infrastructure/terraform-bootstrap
+          init
+          -backend=false
+          -input=false
+
+      - name: Validate bootstrap module
+        run: >-
+          terraform
+          -chdir=infrastructure/terraform-bootstrap
+          validate
+
+      - name: Check deployment formatting
+        run: >-
+          terraform
+          -chdir=infrastructure/terraform
+          fmt
+          -check
+          -recursive
+
+      - name: Initialize deployment module
+        run: >-
+          terraform
+          -chdir=infrastructure/terraform
+          init
+          -backend=false
+          -input=false
+
+      - name: Validate deployment module
+        run: >-
+          terraform
+          -chdir=infrastructure/terraform
+          validate

@@ -1,0 +1,42 @@
+project:
+  name: "Sales Forecasting MLOps"
+  slug: "mlops-sales-forecasting"
+  task_type: "forecasting"
+
+notifications:
+  enabled: true
+  log_events: true
+  fail_on_error: false
+  webhook:
+    enabled: false
+    url: "${LIFECYCLE_WEBHOOK_URL:-}"
+    timeout_seconds: 5.0
+    
+paths:
+  data_root: "data"
+  raw: "data/raw"
+  interim: "data/interim"
+  processed: "data/processed"
+  artifacts: "artifacts"
+  models: "artifacts/models"
+
+services:
+  prefect_api_url: "${PREFECT_API_URL:-http://localhost:4200/api}"
+
+serving: 
+  alias: "champion"
+
+api:
+  api_key: "${API_KEY:-dev-api-key-change-me}"
+  
+tracking:
+  mlflow_tracking_uri: "${MLFLOW_TRACKING_URI:-http://localhost:5000}"
+  experiment_name: "mlops-sales-forecasting-dev"
+  model_name: "mlops-sales-forecasting-model-dev"
+  promotion:
+
+    metric_name: rmse
+    direction: minimize
+    minimum_improvement: 0.0
+
+    allow_initial_champion: true

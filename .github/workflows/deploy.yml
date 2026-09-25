@@ -1,0 +1,282 @@
+name: Deploy to Google Cloud
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      apply_changes:
+        description: Apply the Cloud Run deployment after planning
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.environment }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      ARTIFACT_REGISTRY_REPOSITORY: ${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+
+      TF_VAR_gcp_project_id: ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_region: ${{ vars.GCP_REGION }}
+      TF_VAR_environment: ${{ inputs.environment }}
+      TF_VAR_artifact_registry_repository: ${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}
+      TF_VAR_storage_location: ${{ vars.GCS_STORAGE_LOCATION || 'EU' }}
+      TF_VAR_allow_unauthenticated: ${{ vars.ALLOW_UNAUTHENTICATED || 'false' }}
+      TF_VAR_mlflow_tracking_uri: ${{ vars.MLFLOW_TRACKING_URI || '' }}
+      TF_VAR_prefect_api_url: ${{ vars.PREFECT_API_URL || '' }}
+      DEPLOYMENT_API_KEY: ${{ secrets.API_KEY }}
+      APPLY_CHANGES: ${{ inputs.apply_changes }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_variables=(
+            GCP_PROJECT_ID
+            GCP_REGION
+            ARTIFACT_REGISTRY_REPOSITORY
+            GCP_WORKLOAD_IDENTITY_PROVIDER
+            GCP_DEPLOY_SERVICE_ACCOUNT
+            TF_STATE_BUCKET
+          )
+
+          for variable_name in "${required_variables[@]}"; do
+            if [ -z "${!variable_name:-}" ]; then
+              echo "Missing GitHub variable: ${variable_name}"
+              exit 1
+            fi
+          done
+
+          if (
+            [ "$APPLY_CHANGES" = "true" ]
+            && [ -z "${DEPLOYMENT_API_KEY:-}" ]
+          ); then
+            echo "Missing GitHub environment secret: API_KEY"
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Configure deployment values
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_uri="${GCP_REGION}-docker.pkg.dev"
+          image_uri="${image_uri}/${GCP_PROJECT_ID}"
+          image_uri="${image_uri}/${ARTIFACT_REGISTRY_REPOSITORY}"
+          image_uri="${image_uri}/api:${GITHUB_SHA}"
+
+          echo "IMAGE_URI=${image_uri}" >> "$GITHUB_ENV"
+
+      - name: Initialize Terraform
+        working-directory: infrastructure/terraform
+        run: >-
+          terraform init
+          -input=false
+          -reconfigure
+          -backend-config="bucket=${TF_STATE_BUCKET}"
+          -backend-config="prefix=${{ github.event.repository.name }}/${{ inputs.environment }}"
+
+      - name: Check Terraform formatting
+        working-directory: infrastructure/terraform
+        run: terraform fmt -check -recursive
+
+      - name: Validate Terraform
+        working-directory: infrastructure/terraform
+        run: terraform validate
+
+      - name: Plan foundational infrastructure
+        working-directory: infrastructure/terraform
+        run: >-
+          terraform plan
+          -input=false
+          -out=foundation.tfplan
+          -var="deploy_cloud_run=false"
+          -var="container_image=${IMAGE_URI}"
+
+      - name: Apply foundational infrastructure
+        working-directory: infrastructure/terraform
+        run: >-
+          terraform apply
+          -input=false
+          -auto-approve
+          foundation.tfplan
+
+      - name: Publish API key to Secret Manager
+        if: ${{ inputs.apply_changes }}
+        working-directory: infrastructure/terraform
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          secret_name="$(
+            terraform output -raw api_key_secret_name
+          )"
+
+          printf '%s' "${DEPLOYMENT_API_KEY}" \
+            | gcloud secrets versions add \
+                "${secret_name}" \
+                --project "${GCP_PROJECT_ID}" \
+                --data-file=-
+
+      - name: Configure Docker authentication
+        run: >-
+          gcloud auth configure-docker
+          "${GCP_REGION}-docker.pkg.dev"
+          --quiet
+
+      - name: Build container image
+        run: >-
+          docker build
+          --tag "${IMAGE_URI}"
+          .
+
+      - name: Push container image
+        run: docker push "${IMAGE_URI}"
+
+      - name: Plan Cloud Run deployment
+        working-directory: infrastructure/terraform
+        run: >-
+          terraform plan
+          -input=false
+          -out=deployment.tfplan
+          -var="deploy_cloud_run=true"
+          -var="container_image=${IMAGE_URI}"
+
+      - name: Render Cloud Run deployment plan
+        working-directory: infrastructure/terraform
+        run: >-
+          terraform show
+          -no-color
+          deployment.tfplan
+          >
+          deployment-plan.txt
+
+      - name: Upload Cloud Run deployment plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ inputs.environment }}-${{ github.sha }}
+          path: infrastructure/terraform/deployment-plan.txt
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Write plan summary
+        working-directory: infrastructure/terraform
+        shell: bash
+        run: |
+          {
+            echo "## Terraform deployment plan"
+            echo
+            echo "- Environment: \`${{ inputs.environment }}\`"
+            echo "- Image: \`${IMAGE_URI}\`"
+            echo "- Apply requested: \`${APPLY_CHANGES}\`"
+            echo
+            echo "The complete human-readable plan is available"
+            echo "as a workflow artifact."
+            echo
+            echo '```text'
+            tail -n 12 deployment-plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply Cloud Run deployment
+        if: ${{ inputs.apply_changes }}
+        working-directory: infrastructure/terraform
+        run: >-
+          terraform apply
+          -input=false
+          -auto-approve
+          deployment.tfplan
+
+      - name: Read deployment outputs
+        if: ${{ inputs.apply_changes }}
+        id: deployment
+        working-directory: infrastructure/terraform
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          service_name="$(
+            terraform output -raw cloud_run_service_name
+          )"
+
+          service_uri="$(
+            terraform output -raw cloud_run_service_uri
+          )"
+
+          echo "service_name=${service_name}" >> "$GITHUB_OUTPUT"
+          echo "service_uri=${service_uri}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Cloud Run readiness
+        if: ${{ inputs.apply_changes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ready_status="$(
+            gcloud run services describe \
+              "${{ steps.deployment.outputs.service_name }}" \
+              --project "${GCP_PROJECT_ID}" \
+              --region "${GCP_REGION}" \
+              --format="value(status.conditions[0].status)"
+          )"
+
+          if [ "$ready_status" != "True" ]; then
+            echo "Cloud Run service is not ready."
+            exit 1
+          fi
+
+      - name: Write deployment summary
+        if: ${{ inputs.apply_changes }}
+        run: |
+          {
+            echo "## Google Cloud deployment"
+            echo
+            echo "- Environment: \`${{ inputs.environment }}\`"
+            echo "- Image: \`${IMAGE_URI}\`"
+            echo "- Service: \`${{ steps.deployment.outputs.service_name }}\`"
+            echo "- URI: ${{ steps.deployment.outputs.service_uri }}"
+          } >> "$GITHUB_STEP_SUMMARY"

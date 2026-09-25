@@ -1,0 +1,196 @@
+name: Roll back Cloud Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      revision:
+        description: Optional target revision; defaults to the previous revision
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Roll back ${{ inputs.environment }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      CLOUD_RUN_SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE_NAME }}
+      DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate rollback configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_variables=(
+            GCP_PROJECT_ID
+            GCP_REGION
+            GCP_WORKLOAD_IDENTITY_PROVIDER
+            GCP_DEPLOY_SERVICE_ACCOUNT
+          )
+
+          for variable_name in "${required_variables[@]}"; do
+            if [ -z "${!variable_name:-}" ]; then
+              echo "Missing GitHub variable: ${variable_name}"
+              exit 1
+            fi
+          done
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Resolve Cloud Run service
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          service_name="${CLOUD_RUN_SERVICE_NAME:-}"
+
+          if [ -z "$service_name" ]; then
+            repository_name="${GITHUB_REPOSITORY#*/}"
+            service_name="${repository_name}-${DEPLOYMENT_ENVIRONMENT}-api"
+          fi
+
+          echo "SERVICE_NAME=${service_name}" >> "$GITHUB_ENV"
+
+      - name: Resolve rollback revision
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          requested_revision="${{ inputs.revision }}"
+
+          if [ -n "$requested_revision" ]; then
+            gcloud run revisions describe \
+              "$requested_revision" \
+              --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" \
+              > /dev/null
+
+            target_revision="$requested_revision"
+          else
+            mapfile -t revisions < <(
+              gcloud run revisions list \
+                --service "$SERVICE_NAME" \
+                --project "$GCP_PROJECT_ID" \
+                --region "$GCP_REGION" \
+                --sort-by="~metadata.creationTimestamp" \
+                --limit=2 \
+                --format="value(metadata.name)"
+            )
+
+            if [ "${#revisions[@]}" -lt 2 ]; then
+              echo "No previous Cloud Run revision is available."
+              exit 1
+            fi
+
+            target_revision="${revisions[1]}"
+          fi
+
+          echo "TARGET_REVISION=${target_revision}" \
+            >> "$GITHUB_ENV"
+
+      - name: Verify target revision
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ready_status="$(
+            gcloud run revisions describe \
+              "$TARGET_REVISION" \
+              --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" \
+              --format="value(status.conditions[0].status)"
+          )"
+
+          if [ "$ready_status" != "True" ]; then
+            echo "Target revision is not ready: $TARGET_REVISION"
+            exit 1
+          fi
+
+      - name: Route traffic to target revision
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gcloud run services update-traffic \
+            "$SERVICE_NAME" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --to-revisions="${TARGET_REVISION}=100"
+
+      - name: Verify rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          traffic_revision="$(
+            gcloud run services describe \
+              "$SERVICE_NAME" \
+              --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" \
+              --format="value(status.traffic[0].revisionName)"
+          )"
+
+          traffic_percent="$(
+            gcloud run services describe \
+              "$SERVICE_NAME" \
+              --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" \
+              --format="value(status.traffic[0].percent)"
+          )"
+
+          if [ "$traffic_revision" != "$TARGET_REVISION" ]; then
+            echo "Traffic does not point to the requested revision."
+            exit 1
+          fi
+
+          if [ "$traffic_percent" != "100" ]; then
+            echo "Target revision does not receive 100 percent traffic."
+            exit 1
+          fi
+
+      - name: Write rollback summary
+        run: |
+          {
+            echo "## Cloud Run rollback"
+            echo
+            echo "- Environment: \`${DEPLOYMENT_ENVIRONMENT}\`"
+            echo "- Service: \`${SERVICE_NAME}\`"
+            echo "- Revision: \`${TARGET_REVISION}\`"
+            echo "- Traffic: \`100%\`"
+          } >> "$GITHUB_STEP_SUMMARY"

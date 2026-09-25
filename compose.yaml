@@ -1,0 +1,169 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlops-sales-forecasting-api:${IMAGE_TAG:-local}
+    init: true
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      API_KEY: ${API_KEY:-local-development-key}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:8000/livez',
+          timeout=3
+          )
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  prefect-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlops-sales-forecasting-api:${IMAGE_TAG:-local}
+    profiles:
+      - orchestration
+    init: true
+    restart: unless-stopped
+    command:
+      - prefect
+      - server
+      - start
+      - --host
+      - 0.0.0.0
+      - --port
+      - "4200"
+    ports:
+      - "${PREFECT_PORT:-4200}:4200"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:4200/api/health',
+          timeout=3
+          )
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlops-sales-forecasting-api:${IMAGE_TAG:-local}
+    profiles:
+      - tracking
+    init: true
+    restart: unless-stopped
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - sqlite:////app/runtime/mlflow/mlflow.db
+      - --artifacts-destination
+      - /app/runtime/mlflow/artifacts
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    volumes:
+      - mlflow-data:/app/runtime/mlflow
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:5000/health',
+          timeout=3
+          )
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+      
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION:-v3.5.0}
+    profiles:
+      - monitoring
+    init: true
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+      - ./monitoring/prometheus/recording_rules.yml:/etc/prometheus/recording_rules.yml:ro
+      - ./monitoring/prometheus/serving_readiness.yml:/etc/prometheus/serving_readiness.yml:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      alertmanager:
+        condition: service_started
+
+  alertmanager:
+    image: prom/alertmanager:${ALERTMANAGER_VERSION:-v0.28.1}
+    profiles:
+      - monitoring
+    init: true
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-12.1.0}
+    profiles:
+      - monitoring
+    init: true
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_started
+
+volumes:
+  mlflow-data:
+  prometheus-data:
+  grafana-data:
+  alertmanager-data:

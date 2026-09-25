@@ -1,0 +1,42 @@
+project:
+  name: "Sales Forecasting MLOps"
+  slug: "mlops-sales-forecasting"
+  task_type: "forecasting"
+
+notifications:
+  enabled: true
+  log_events: true
+  fail_on_error: false
+  webhook:
+    enabled: false
+    url: "${LIFECYCLE_WEBHOOK_URL:-}"
+    timeout_seconds: 5.0
+    
+paths:
+  data_root: "gs://${GCS_BUCKET_NAME:-replace-me}/data"
+  raw: "gs://${GCS_BUCKET_NAME:-replace-me}/data/raw"
+  interim: "gs://${GCS_BUCKET_NAME:-replace-me}/data/interim"
+  processed: "gs://${GCS_BUCKET_NAME:-replace-me}/data/processed"
+  artifacts: "gs://${GCS_BUCKET_NAME:-replace-me}/artifacts"
+  models: "gs://${GCS_BUCKET_NAME:-replace-me}/models"
+
+serving:
+  alias: "champion"
+  
+services:
+  prefect_api_url: "${PREFECT_API_URL}"
+
+api:
+  api_key: "${API_KEY}"
+
+tracking:
+  mlflow_tracking_uri: "${MLFLOW_TRACKING_URI}"
+  experiment_name: "mlops-sales-forecasting-staging"
+  model_name: "mlops-sales-forecasting-model-staging"
+  promotion:
+
+    metric_name: rmse
+    direction: minimize
+    minimum_improvement: 0.0
+
+    allow_initial_champion: true

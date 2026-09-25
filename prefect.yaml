@@ -1,0 +1,24 @@
+prefect-version: null
+name: mlops-sales-forecasting
+
+build: []
+push: []
+pull: []
+
+deployments:
+  - name: local-training
+    version: null
+    tags:
+      - local
+      - training
+      - forecasting
+    description: >-
+      Local forecasting training deployment for
+      Sales Forecasting MLOps.
+    entrypoint: >-
+      mlops_sales_forecasting.orchestration.training_flow.training_flow
+    parameters: {}
+    work_pool:
+      name: local-process-pool
+      work_queue_name: default
+      job_variables: {}
