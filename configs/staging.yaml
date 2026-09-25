@@ -44,7 +44,23 @@ paths:
   features: "gs://${GCS_BUCKET_NAME:-replace-me}/data/features"
   splits: "gs://${GCS_BUCKET_NAME:-replace-me}/data/splits"
   versioning: "gs://${GCS_BUCKET_NAME:-replace-me}/data/versioning"
+  monitoring: "gs://${GCS_BUCKET_NAME:-replace-me}/data/monitoring"
 
+monitoring:
+  retraining:
+    minimum_new_training_rows: 500
+    cooldown_hours: 168
+    scheduled_interval_hours: 168
+    maximum_new_training_rows: 1000000
+    drift:
+      lookback_days: 14
+      consecutive_windows: 2
+    performance:
+      consecutive_windows: 2
+      rmse_limit: 1375.0
+      mae_limit: 990.0
+      absolute_bias_limit: 900.0
+      
 data:
   target_column: Sales
   known_targets:
