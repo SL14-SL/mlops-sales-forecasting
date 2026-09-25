@@ -7,7 +7,7 @@ from .bundle_loader import (
 )
 from .model_loader import (
     configure_mlflow,
-    load_pyfunc_model,
+    load_xgboost_model,
 )
 from .releases.contracts import TaskType
 from .serving_bundle import ServingBundle
@@ -95,7 +95,7 @@ def load_active_bundle(
     bundle = load_active_serving_bundle(
         models_path=settings.models_path,
         serving_alias=settings.serving_alias,
-        model_loader=load_pyfunc_model,
+        model_loader=load_xgboost_model,
     )
 
     if bundle.manifest.task_type is not settings.task_type:
@@ -119,7 +119,7 @@ def load_bundle_for_release(
         models_path=settings.models_path,
         release_id=release_id,
         serving_alias=settings.serving_alias,
-        model_loader=load_pyfunc_model,
+        model_loader=load_xgboost_model,
     )
 
     if bundle.manifest.task_type is not settings.task_type:

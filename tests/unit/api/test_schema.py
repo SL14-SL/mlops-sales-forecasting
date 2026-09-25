@@ -8,42 +8,40 @@ from mlops_sales_forecasting.api.schema import (
 )
 
 
-def test_prediction_request_accepts_horizon() -> None:
+def test_prediction_request_accepts_rossmann_rows() -> None:
     request = PredictionRequest(
         inputs=[
             {
-                "entity_id": 1,
-                "date": "2026-09-16",
-            }
-        ],
-        horizon=7,
+                "Store": 1,
+                "Date": "2026-09-25",
+                "Open": 1,
+                "Promo": 0,
+                "StateHoliday": "0",
+                "SchoolHoliday": 0,
+            },
+        ]
     )
 
-    assert request.horizon == 7
     assert len(request.inputs) == 1
-
-
-def test_prediction_request_defaults_to_one_step() -> None:
-    request = PredictionRequest(
-        inputs=[{"entity_id": 1}]
-    )
-
-    assert request.horizon == 1
+    assert request.inputs[0]["Store"] == 1
 
 
 def test_prediction_request_rejects_empty_batch() -> None:
     with pytest.raises(ValidationError):
         PredictionRequest(
             inputs=[],
-            horizon=1,
         )
 
 
-def test_prediction_request_rejects_invalid_horizon() -> None:
+def test_prediction_request_rejects_horizon() -> None:
     with pytest.raises(ValidationError):
         PredictionRequest(
-            inputs=[{"entity_id": 1}],
-            horizon=0,
+            inputs=[
+                {
+                    "Store": 1,
+                },
+            ],
+            horizon=7,
         )
 
 
@@ -55,7 +53,7 @@ def test_prediction_response_serializes() -> None:
                 row_index=0,
                 horizon_step=1,
                 prediction=123.45,
-            )
+            ),
         ],
     )
 
@@ -67,6 +65,6 @@ def test_prediction_response_serializes() -> None:
                 "row_index": 0,
                 "horizon_step": 1,
                 "prediction": 123.45,
-            }
+            },
         ],
     }

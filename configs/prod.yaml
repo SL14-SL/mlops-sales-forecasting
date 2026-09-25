@@ -11,15 +11,103 @@ notifications:
     enabled: false
     url: "${LIFECYCLE_WEBHOOK_URL:-}"
     timeout_seconds: 5.0
-    
+
+model:
+  type: xgboost
+  params:
+    tree_method: hist
+    enable_categorical: true
+    n_estimators: 1200
+    max_depth: 7
+    learning_rate: 0.02951097123871115
+    min_child_weight: 7
+    subsample: 0.7591811958673289
+    colsample_bytree: 0.8220753234069667
+    reg_alpha: 0.026633895001357495
+    reg_lambda: 8.719936821452245
+    gamma: 0.22544860040323314
+    objective: reg:squarederror
+    early_stopping_rounds: 50
+
+metrics:
+  primary: rmse
+  evaluate_on_original_scale: true
+
 paths:
   data_root: "gs://${GCS_BUCKET_NAME:-replace-me}/data"
-  raw: "gs://${GCS_BUCKET_NAME:-replace-me}/data/raw"
+  raw_data: "gs://${GCS_BUCKET_NAME:-replace-me}/data/raw"
+  validated_data: "gs://${GCS_BUCKET_NAME:-replace-me}/data/validation"
   interim: "gs://${GCS_BUCKET_NAME:-replace-me}/data/interim"
   processed: "gs://${GCS_BUCKET_NAME:-replace-me}/data/processed"
   artifacts: "gs://${GCS_BUCKET_NAME:-replace-me}/artifacts"
   models: "gs://${GCS_BUCKET_NAME:-replace-me}/models"
+  features: "gs://${GCS_BUCKET_NAME:-replace-me}/data/features"
+  splits: "gs://${GCS_BUCKET_NAME:-replace-me}/data/splits"
+  versioning: "gs://${GCS_BUCKET_NAME:-replace-me}/data/versioning"
 
+data:
+  target_column: Sales
+  known_targets:
+    - Sales
+    - Customers
+  time_column: Date
+  id_columns:
+    - Store
+  primary_keys:
+    - Store
+    - Date
+
+features:
+  enabled_steps:
+    - sort
+    - temporal
+    - lags
+    - competition
+    - promo
+    - cast_categoricals
+    - drop_technical
+    - drop_configured
+  lag_features:
+    lags:
+      - 1
+      - 7
+      - 14
+      - 28
+    rolling_windows:
+      - 7
+      - 14
+      - 28
+  technical_drop_columns:
+    - CompetitionOpenSinceMonth
+    - CompetitionOpenSinceYear
+    - Promo2SinceWeek
+    - Promo2SinceYear
+    - PromoInterval
+  drop_columns: []
+  
+training:
+  validation_strategy: chronological
+  normal_validation_days: 14
+  drift_validation_days: 7
+  target_transformation: log1p
+  recency_weighting:
+    enabled_for_drift: true
+    promo_column: Promo
+    last_30_days_weight: 5.0
+    last_60_days_weight: 3.0
+    last_120_days_weight: 1.5
+    default_weight: 1.0
+
+promotion:
+  minimum_validation_rows: 1000
+  minimum_segment_rows: 100
+  minimum_relative_rmse_improvement: 0.005
+  maximum_segment_rmse_regression: 0.02
+  maximum_absolute_bias_regression: 100.0
+  required_segments:
+    - promo
+    - non_promo
+    
 services:
   prefect_api_url: "${PREFECT_API_URL}"
 

@@ -96,6 +96,7 @@ def test_build_application_loads_default_config(
         load_model_on_startup=False,
         title="Example Model API",
         api_key="test-api-key",
+        config=config,
     )
 
 

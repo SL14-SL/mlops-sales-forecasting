@@ -1,5 +1,5 @@
 import secrets
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Header, HTTPException, Request, status
 
@@ -15,6 +15,25 @@ def get_model_manager(
         "model_manager",
         None,
     )
+
+
+def get_application_config(
+    request: Request,
+) -> dict[str, Any]:
+    """Return the active application configuration."""
+    config = getattr(
+        request.app.state,
+        "config",
+        None,
+    )
+
+    if not isinstance(config, dict):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Application configuration is unavailable.",
+        )
+
+    return config
 
 
 def get_expected_api_key(

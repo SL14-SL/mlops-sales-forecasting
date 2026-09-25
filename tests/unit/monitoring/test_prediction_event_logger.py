@@ -9,6 +9,15 @@ from mlops_sales_forecasting.monitoring.prediction_event_logger import (
     PredictionEvent,
 )
 
+APPLICATION_CONFIG = {
+    "data": {
+        "target_column": "Sales",
+        "time_column": "Date",
+        "id_columns": [
+            "Store",
+        ],
+    },
+}
 
 def build_http_request() -> MagicMock:
     request = MagicMock()
@@ -90,10 +99,11 @@ def test_successful_prediction_records_event(
         request=prediction_request,
         _=None,
         model_manager=manager,
+        application_config=APPLICATION_CONFIG,
     )
 
     assert result is response
-    service_factory.assert_called_once_with(manager)
+    service_factory.assert_called_once_with(manager, APPLICATION_CONFIG)
     service.predict.assert_called_once_with(
         prediction_request
     )
@@ -151,6 +161,7 @@ def test_validation_error_records_failed_event(
             request=prediction_request,
             _=None,
             model_manager=manager,
+            application_config=APPLICATION_CONFIG,
         )
 
     assert exc_info.value.status_code == 422
@@ -195,6 +206,7 @@ def test_model_not_ready_error_records_failed_event(
             request=prediction_request,
             _=None,
             model_manager=manager,
+            application_config=APPLICATION_CONFIG,
         )
 
     assert exc_info.value.status_code == 503
@@ -239,6 +251,7 @@ def test_unexpected_error_is_logged_and_propagated(
             request=prediction_request,
             _=None,
             model_manager=manager,
+            application_config=APPLICATION_CONFIG,
         )
 
     event = event_logger.call_args.args[0]
@@ -266,6 +279,7 @@ def test_request_without_loaded_bundle_is_not_logged(
             request=build_prediction_request(),
             _=None,
             model_manager=manager,
+            application_config=APPLICATION_CONFIG,
         )
 
     assert exc_info.value.status_code == 503
@@ -300,6 +314,7 @@ def test_logging_failure_does_not_break_prediction(
         request=build_prediction_request(),
         _=None,
         model_manager=manager,
+        application_config=APPLICATION_CONFIG,
     )
 
     assert result is response

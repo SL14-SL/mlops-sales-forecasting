@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -20,6 +21,7 @@ def create_app(
     load_model_on_startup: bool = True,
     title: str = "MLOps Model API",
     api_key: str | None = None,
+    config: dict[str, Any] | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
 
@@ -48,6 +50,9 @@ def create_app(
     )
     app.state.model_manager = model_manager
     app.state.api_key = api_key
+    app.state.config = dict(
+        config or {}
+    )
     app.middleware("http")(request_context_middleware)
     app.include_router(health_router)
     app.include_router(admin_router)
