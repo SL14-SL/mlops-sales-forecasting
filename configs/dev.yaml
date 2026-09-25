@@ -14,7 +14,8 @@ notifications:
     
 paths:
   data_root: "data"
-  raw: "data/raw"
+  raw_data: "data/raw"
+  validated_data: "data/validation"
   interim: "data/interim"
   processed: "data/processed"
   artifacts: "artifacts"

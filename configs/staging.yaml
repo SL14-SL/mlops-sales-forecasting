@@ -14,7 +14,8 @@ notifications:
     
 paths:
   data_root: "gs://${GCS_BUCKET_NAME:-replace-me}/data"
-  raw: "gs://${GCS_BUCKET_NAME:-replace-me}/data/raw"
+  raw_data: "gs://${GCS_BUCKET_NAME:-replace-me}/data/raw"
+  validated_data: "gs://${GCS_BUCKET_NAME:-replace-me}/data/validation"
   interim: "gs://${GCS_BUCKET_NAME:-replace-me}/data/interim"
   processed: "gs://${GCS_BUCKET_NAME:-replace-me}/data/processed"
   artifacts: "gs://${GCS_BUCKET_NAME:-replace-me}/artifacts"
