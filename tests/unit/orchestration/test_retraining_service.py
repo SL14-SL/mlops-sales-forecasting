@@ -11,6 +11,30 @@ from mlops_sales_forecasting.orchestration import (
 )
 
 
+@pytest.fixture(autouse=True)
+def mock_monitoring_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> MagicMock:
+    result = MagicMock()
+    result.ground_truth_rows = 10
+    result.inference_rows = 8
+    result.performance_updated = True
+    result.performance_rows = 2
+    result.feature_drift_updated = True
+    result.feature_drift_rows = 3
+    result.performance_reason = "Performance history refreshed."
+
+    refresh = MagicMock(return_value=result)
+
+    monkeypatch.setattr(
+        retraining_service,
+        "refresh_monitoring_signals",
+        refresh,
+    )
+
+    return refresh
+
+
 def config() -> dict:
     return {
         "paths": {
@@ -212,6 +236,48 @@ def test_authorized_decision_executes_lifecycle(
     )
 
 
+def test_monitoring_is_refreshed_before_signal_collection(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_monitoring_refresh: MagicMock,
+) -> None:
+    call_order: list[str] = []
+
+    mock_monitoring_refresh.side_effect = lambda **_: (
+        call_order.append("refresh")
+        or MagicMock(
+            ground_truth_rows=0,
+            inference_rows=0,
+            performance_updated=False,
+            performance_rows=0,
+            feature_drift_updated=False,
+            feature_drift_rows=0,
+            performance_reason="No data.",
+        )
+    )
+
+    collect_signals = MagicMock(side_effect=lambda **_: call_order.append("collect") or MagicMock())
+
+    monkeypatch.setattr(
+        retraining_service,
+        "collect_retraining_signals",
+        collect_signals,
+    )
+    monkeypatch.setattr(
+        retraining_service,
+        "decide_retraining",
+        MagicMock(return_value=decision(RetrainingAction.SKIP)),
+    )
+
+    result = retraining_service.run_auto_retraining(config=config())
+
+    assert result.status == "skipped"
+    assert call_order == [
+        "refresh",
+        "collect",
+    ]
+    mock_monitoring_refresh.assert_called_once_with(config=config())
+
+
 def test_result_is_serializable() -> None:
     result = retraining_service.AutoRetrainingResult(
         status="skipped",
@@ -226,3 +292,25 @@ def test_result_is_serializable() -> None:
         "candidate_run_id": None,
         "champion_promoted": False,
     }
+
+
+def test_monitoring_refresh_failure_stops_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_monitoring_refresh: MagicMock,
+) -> None:
+    mock_monitoring_refresh.side_effect = OSError("Monitoring storage unavailable.")
+    collect_signals = MagicMock()
+
+    monkeypatch.setattr(
+        retraining_service,
+        "collect_retraining_signals",
+        collect_signals,
+    )
+
+    with pytest.raises(
+        OSError,
+        match="Monitoring storage unavailable",
+    ):
+        retraining_service.run_auto_retraining(config=config())
+
+    collect_signals.assert_not_called()

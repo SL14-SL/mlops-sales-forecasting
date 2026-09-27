@@ -2,6 +2,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ..monitoring.monitoring_refresh import (
+    refresh_monitoring_signals,
+)
 from ..monitoring.retraining_policy import (
     RetrainingAction,
     RetrainingDecision,
@@ -18,10 +21,13 @@ from ..monitoring.signal_collector import (
 from ..pipeline.project_factory import (
     build_project_training_pipeline,
 )
+from ..utils.logger import get_logger
 from .lifecycle_adapter import (
     PrefectTrainingLifecycleResult,
     run_prefect_model_lifecycle,
 )
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -96,6 +102,26 @@ def run_auto_retraining(
     config: Mapping[str, Any],
 ) -> AutoRetrainingResult:
     """Evaluate signals and run at most one training lifecycle."""
+    refresh_result = refresh_monitoring_signals(config=config)
+
+    logger.info(
+        "Monitoring evidence refreshed | "
+        "ground_truth_rows=%s | "
+        "inference_rows=%s | "
+        "performance_updated=%s | "
+        "performance_rows=%s | "
+        "feature_drift_updated=%s | "
+        "feature_drift_rows=%s | "
+        "performance_reason=%s",
+        refresh_result.ground_truth_rows,
+        refresh_result.inference_rows,
+        refresh_result.performance_updated,
+        refresh_result.performance_rows,
+        refresh_result.feature_drift_updated,
+        refresh_result.feature_drift_rows,
+        refresh_result.performance_reason,
+    )
+
     signals = collect_retraining_signals(config=config)
     decision = decide_retraining(signals)
 
