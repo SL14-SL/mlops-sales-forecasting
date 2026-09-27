@@ -165,3 +165,12 @@ tracking:
     minimum_improvement: 0.0
 
     allow_initial_champion: true
+
+costs:
+  training:
+    enabled: true
+    currency: EUR
+    estimated_hourly_rate: 0.40
+    window_days: 30
+  scenarios:
+    drift_triggered_runs_per_month: 8
