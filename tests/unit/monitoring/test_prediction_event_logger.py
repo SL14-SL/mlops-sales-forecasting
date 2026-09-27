@@ -19,11 +19,10 @@ APPLICATION_CONFIG = {
     },
 }
 
+
 def build_http_request() -> MagicMock:
     request = MagicMock()
-    request.state = SimpleNamespace(
-        request_id="request-123"
-    )
+    request.state = SimpleNamespace(request_id="request-123")
     return request
 
 
@@ -31,10 +30,7 @@ def build_prediction_request(
     batch_size: int = 2,
 ) -> MagicMock:
     request = MagicMock()
-    request.inputs = [
-        {"feature": index}
-        for index in range(batch_size)
-    ]
+    request.inputs = [{"feature": index} for index in range(batch_size)]
     return request
 
 
@@ -63,17 +59,13 @@ def test_successful_prediction_records_event(
 ) -> None:
     manager, _ = build_model_manager()
     http_request = build_http_request()
-    prediction_request = build_prediction_request(
-        batch_size=3
-    )
+    prediction_request = build_prediction_request(batch_size=3)
     response = MagicMock()
 
     service = MagicMock()
     service.predict.return_value = response
 
-    service_factory = MagicMock(
-        return_value=service
-    )
+    service_factory = MagicMock(return_value=service)
     event_logger = MagicMock()
 
     monkeypatch.setattr(
@@ -89,9 +81,7 @@ def test_successful_prediction_records_event(
     monkeypatch.setattr(
         prediction.time,
         "perf_counter",
-        MagicMock(
-            side_effect=[10.0, 10.025]
-        ),
+        MagicMock(side_effect=[10.0, 10.025]),
     )
 
     result = prediction.predict(
@@ -105,7 +95,8 @@ def test_successful_prediction_records_event(
     assert result is response
     service_factory.assert_called_once_with(manager, APPLICATION_CONFIG)
     service.predict.assert_called_once_with(
-        prediction_request
+        prediction_request,
+        request_id="request-123",
     )
     event_logger.assert_called_once()
 
@@ -131,9 +122,7 @@ def test_validation_error_records_failed_event(
     prediction_request = build_prediction_request()
 
     service = MagicMock()
-    service.predict.side_effect = ValueError(
-        "Invalid prediction input."
-    )
+    service.predict.side_effect = ValueError("Invalid prediction input.")
 
     event_logger = MagicMock()
 
@@ -150,9 +139,7 @@ def test_validation_error_records_failed_event(
     monkeypatch.setattr(
         prediction.time,
         "perf_counter",
-        MagicMock(
-            side_effect=[20.0, 20.01]
-        ),
+        MagicMock(side_effect=[20.0, 20.01]),
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -181,11 +168,7 @@ def test_model_not_ready_error_records_failed_event(
     prediction_request = build_prediction_request()
 
     service = MagicMock()
-    service.predict.side_effect = (
-        prediction.ModelNotReadyError(
-            "Bundle unavailable."
-        )
-    )
+    service.predict.side_effect = prediction.ModelNotReadyError("Bundle unavailable.")
 
     event_logger = MagicMock()
 
@@ -225,9 +208,7 @@ def test_unexpected_error_is_logged_and_propagated(
     prediction_request = build_prediction_request()
 
     service = MagicMock()
-    service.predict.side_effect = RuntimeError(
-        "Internal model failure."
-    )
+    service.predict.side_effect = RuntimeError("Internal model failure.")
 
     event_logger = MagicMock()
 
@@ -285,6 +266,7 @@ def test_request_without_loaded_bundle_is_not_logged(
     assert exc_info.value.status_code == 503
     event_logger.assert_not_called()
 
+
 def test_logging_failure_does_not_break_prediction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -302,11 +284,7 @@ def test_logging_failure_does_not_break_prediction(
     monkeypatch.setattr(
         prediction,
         "log_prediction_event",
-        MagicMock(
-            side_effect=TypeError(
-                "Event is not serializable."
-            )
-        ),
+        MagicMock(side_effect=TypeError("Event is not serializable.")),
     )
 
     result = prediction.predict(

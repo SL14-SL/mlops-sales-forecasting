@@ -45,8 +45,26 @@ paths:
   splits: "data/splits"
   versioning: "data/versioning"
   monitoring: "data/monitoring"
+  prediction: "data/prediction"
 
 monitoring:
+  inference_logging:
+    enabled: true
+    fail_on_error: false
+
+  feature_drift:
+    enabled: true
+    numeric_features:
+      - CompetitionDistance
+    categorical_features:
+      - Promo
+      - Store
+      - StoreType
+      - Assortment
+      - StateHoliday
+    minimum_samples: 50
+    p_value_threshold: 0.01
+    statistic_threshold: 0.10
   retraining:
     minimum_new_training_rows: 500
     cooldown_hours: 168

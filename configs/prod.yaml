@@ -45,8 +45,26 @@ paths:
   splits: "gs://${GCS_BUCKET_NAME:-replace-me}/data/splits"
   versioning: "gs://${GCS_BUCKET_NAME:-replace-me}/data/versioning"
   monitoring: "gs://${GCS_BUCKET_NAME:-replace-me}/data/monitoring"
+  predictions: "gs://${GCS_BUCKET_NAME:-replace-me}/data/predictions"
 
 monitoring:
+  inference_logging:
+    enabled: true
+    fail_on_error: false
+
+  feature_drift:
+    enabled: true
+    numeric_features:
+      - CompetitionDistance
+    categorical_features:
+      - Promo
+      - Store
+      - StoreType
+      - Assortment
+      - StateHoliday
+    minimum_samples: 50
+    p_value_threshold: 0.01
+    statistic_threshold: 0.10
   retraining:
     minimum_new_training_rows: 500
     cooldown_hours: 168
