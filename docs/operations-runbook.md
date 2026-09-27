@@ -395,6 +395,218 @@ gh workflow run \
 The apply workflow publishes a new Secret Manager version. Cloud Run
 continues to reference the latest version.
 
+## Incident: monitoring evidence is stale
+
+### Symptoms
+
+- `/monitoring/summary` reports that performance or feature-drift evidence is
+  unavailable;
+- the latest performance or drift timestamp is older than expected;
+- `performance_rolling.parquet` is missing or unchanged;
+- `feature_drift_history.parquet` is missing or unchanged;
+- automated retraining repeatedly reports insufficient or absent monitoring
+  evidence.
+
+### Investigation
+
+Inspect the persisted monitoring summary:
+
+```bash
+curl \
+  --fail \
+  --silent \
+  --show-error \
+  "${SERVICE_URI}/monitoring/summary"
+```
+
+For an IAM-protected Cloud Run service:
+
+```bash
+curl \
+  --fail \
+  --silent \
+  --show-error \
+  --header "Authorization: Bearer ${IDENTITY_TOKEN}" \
+  "${SERVICE_URI}/monitoring/summary"
+```
+
+Verify that inference partitions exist:
+
+```bash
+gcloud storage ls \
+  "gs://${GCS_BUCKET_NAME}/data/predictions/history/**"
+```
+
+Verify that delayed Ground-Truth batches exist:
+
+```bash
+gcloud storage ls \
+  "gs://${GCS_BUCKET_NAME}/data/raw/new_batches/ground_truth_*.csv"
+```
+
+Verify the generated monitoring artifacts:
+
+```bash
+gcloud storage ls \
+  "gs://${GCS_BUCKET_NAME}/data/monitoring/**"
+```
+
+Check recent Prefect flow runs:
+
+```bash
+uv run prefect flow-run ls \
+  --limit 20
+```
+
+Inspect API logs for inference persistence failures:
+
+```bash
+gcloud logging read \
+  "resource.type=cloud_run_revision AND resource.labels.service_name=${CLOUD_RUN_SERVICE} AND textPayload:\"Could not persist inference monitoring batch\"" \
+  --project "$GCP_PROJECT_ID" \
+  --limit 100 \
+  --order desc
+```
+
+Common causes include:
+
+- no successful predictions have been made;
+- Ground Truth has not arrived yet;
+- prediction and Ground-Truth keys do not overlap;
+- the minimum performance sample count has not been reached;
+- the configured GCS bucket is unavailable;
+- the runtime identity cannot read or write monitoring objects;
+- feature-reference data is unavailable;
+- a monitoring file has an invalid schema.
+
+### Recovery
+
+1. restore access to the configured storage bucket;
+2. verify that new predictions create partitioned Parquet files;
+3. upload or restore valid Ground-Truth batches;
+4. correct invalid `Store`, `Date` or `Sales` values;
+5. run the scheduled auto-retraining deployment only after confirming that a
+   real training run is acceptable;
+6. verify that the monitoring timestamps advance;
+7. verify `/monitoring/summary` again.
+
+Do not fabricate Ground Truth merely to clear monitoring warnings. Missing
+labels are preferable to incorrect performance evidence.
+
+## Incident: automated retraining did not behave as expected
+
+### Symptoms
+
+- the scheduled Prefect deployment did not create a flow run;
+- a flow run completed with `blocked`, `skipped` or `duplicate`;
+- a Candidate was trained unexpectedly;
+- repeated flow runs do not start another Candidate;
+- the Prefect work pool remains not ready;
+- monitoring evidence indicates degradation but no training starts.
+
+### Investigation
+
+Verify the deployment and its schedule:
+
+```bash
+uv run prefect deployment inspect \
+  mlops-sales-forecasting-auto-retraining/auto-retraining
+```
+
+The expected schedule is:
+
+```text
+cron: 0 3 * * *
+timezone: Europe/Berlin
+active: true
+```
+
+List the work pool:
+
+```bash
+uv run prefect work-pool ls
+```
+
+List recent flow runs:
+
+```bash
+uv run prefect flow-run ls \
+  --limit 20
+```
+
+Inspect the persisted retraining state:
+
+```bash
+gcloud storage cat \
+  "gs://${GCS_BUCKET_NAME}/data/monitoring/retraining_state.json"
+```
+
+Check the latest operational evidence:
+
+```bash
+curl \
+  --fail \
+  --silent \
+  --show-error \
+  --header "Authorization: Bearer ${IDENTITY_TOKEN}" \
+  "${SERVICE_URI}/monitoring/summary"
+```
+
+A `skipped` result is expected when:
+
+- fewer than the configured minimum number of new rows are available;
+- the cooldown is active;
+- no scheduled, performance or persistent-drift trigger is active;
+- monitoring is still in its bootstrap state.
+
+A `blocked` result is expected when:
+
+- Ground-Truth validation failed;
+- the configured row budget was exceeded.
+
+A `duplicate` result is expected when the same deterministic decision ID was
+already processed successfully.
+
+### Recovery
+
+If the work pool has no active worker, start one in the environment that is
+allowed to run training:
+
+```bash
+export PREFECT_API_URL="https://your-prefect-server/api"
+
+uv run prefect worker start \
+  --pool local-process-pool
+```
+
+If the deployment is missing, register the declarative configuration again:
+
+```bash
+uv run prefect deploy \
+  --all
+```
+
+Do not delete `retraining_state.json` merely to force another run. The state
+prevents duplicate training for identical evidence.
+
+Before manually starting auto-retraining, verify:
+
+1. the Ground-Truth batches are valid;
+2. the number of new rows is within budget;
+3. monitoring evidence is current;
+4. no recent successful retraining is still inside the cooldown;
+5. starting a real MLflow training lifecycle is intended.
+
+Only then start a manual run:
+
+```bash
+uv run prefect deployment run \
+  mlops-sales-forecasting-auto-retraining/auto-retraining
+```
+
+After completion, verify the Prefect result, MLflow Candidate, promotion
+decision, serving release and persisted retraining state.
+
 ## Post-incident checks
 
 After recovery:
@@ -406,6 +618,13 @@ After recovery:
 5. verify the active Cloud Run revision;
 6. verify the active model serving release;
 7. document the incident and corrective action.
+8. verify `/monitoring/summary`;
+9. verify that inference partitions are being created;
+10. verify the latest performance and drift timestamps;
+11. verify the Prefect deployment schedule;
+12. verify that the work pool has an active worker when scheduled training is
+    expected;
+13. verify the latest persisted retraining decision.
 
 ## Escalation information
 

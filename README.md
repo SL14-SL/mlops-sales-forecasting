@@ -26,6 +26,18 @@ The generated project provides a reusable MLOps foundation with:
 - privacy-safe prediction event logging
 - Docker and Docker Compose support
 - automated unit and integration tests
+- Rossmann-specific ingestion and schema validation
+- stateful time-series feature engineering
+- chronological forecasting splits
+- XGBoost training with transformed targets
+- forecasting evaluation and promotion policy
+- immutable serving releases with forecasting artifacts
+- partitioned inference monitoring records
+- delayed-label rolling performance monitoring
+- numeric and categorical feature-drift detection
+- policy-controlled automated retraining
+- scheduled Prefect auto-retraining deployment
+- persisted operational monitoring summary
 
 ## Technology stack
 
@@ -182,16 +194,39 @@ curl \
   --request POST \
   --header "Content-Type: application/json" \
   --header "X-API-Key: replace-with-a-local-development-key" \
-  --data '{"inputs": []}' \
+  --data '{
+    "inputs": [
+      {
+        "Store": 1,
+        "Date": "2026-09-28",
+        "Open": 1,
+        "Promo": 1,
+        "StateHoliday": "0",
+        "SchoolHoliday": 0
+      }
+    ]
+  }' \
   http://localhost:8000/predict
 ```
 
-The exact request fields depend on the selected project type. Empty inputs
-are rejected with a validation error.
+Each input row represents one store and forecast date. The serving layer
+validates the request, joins the active store metadata and known calendar,
+injects the latest forecasting state, aligns the generated features with the
+MLflow model signature and applies the configured inverse target
+transformation.
 
-Prediction event logs contain operational metadata such as request ID,
-release ID, model version, batch size and execution time. Raw input features
-and prediction values are not written to these technical logs.
+Unknown stores, invalid dates, missing required fields and incomplete
+calendar coverage are rejected with HTTP `422`.
+
+Structured application logs contain privacy-safe operational metadata such
+as request ID, release ID, model version, batch size and execution time. They
+do not contain raw request records or prediction values.
+
+A separate monitoring store persists only explicitly allowlisted forecasting
+features, the store/date matching keys, prediction value, release ID and
+request ID. Each request is written as an immutable daily partition under
+`data/predictions/history/`. This data supports delayed-label performance and
+feature-drift monitoring.
 
 ## Metrics
 
@@ -203,6 +238,98 @@ http://localhost:8000/metrics
 
 The metrics include request counts, response status codes and request
 latencies.
+
+## Operational monitoring
+
+The API exposes an aggregate monitoring view at:
+
+```text
+http://localhost:8000/monitoring/summary
+```
+
+The response includes:
+
+- serving readiness and the active release ID;
+- the latest rolling RMSE, MAE and forecast bias;
+- the most recent feature-drift evaluation;
+- the latest persisted automated-retraining state.
+
+Prometheus metrics remain available at `/metrics`. Grafana and Alertmanager
+provide service-level visualization and alerting, while the summary endpoint
+presents persisted model-operational state.
+
+Successful predictions create immutable Parquet files under:
+
+```text
+data/predictions/history/date=YYYY-MM-DD/
+```
+
+Delayed Ground Truth is supplied through CSV files matching:
+
+```text
+data/raw/new_batches/ground_truth_*.csv
+```
+
+Each Ground-Truth row must contain at least `Store`, `Date` and `Sales`.
+Repeated monitoring refreshes rebuild cumulative Ground Truth from all
+available batches and retain the latest value for duplicate `Store` and
+`Date` keys.
+
+The refresh produces:
+
+```text
+data/monitoring/cumulative_ground_truth.csv
+data/monitoring/performance_rolling.parquet
+data/monitoring/feature_drift_history.parquet
+```
+
+Missing labels or insufficient sample counts are normal bootstrap states and
+do not fail the API.
+
+## Automated retraining
+
+The scheduled Prefect deployment evaluates monitoring evidence every day at
+03:00 in the `Europe/Berlin` timezone.
+
+Start the local orchestration components:
+
+```bash
+make prefect-up
+
+export PREFECT_API_URL=http://127.0.0.1:4200/api
+
+make prefect-pool
+make prefect-deploy
+```
+
+Start the worker in a separate terminal:
+
+```bash
+export PREFECT_API_URL=http://127.0.0.1:4200/api
+
+make prefect-worker
+```
+
+The automated cycle performs the following operations:
+
+1. rebuild cumulative Ground Truth;
+2. refresh rolling forecast performance;
+3. evaluate feature drift;
+4. validate new Ground-Truth batches;
+5. evaluate minimum rows, cooldown and budget limits;
+6. evaluate scheduled, performance and drift triggers;
+7. train at most one Candidate for a unique decision;
+8. run the normal MLflow registration, promotion and serving-release
+   lifecycle;
+9. persist the completed decision to prevent duplicate retraining.
+
+New data alone does not automatically replace the Champion. Training requires
+enough new validated rows and at least one configured trigger. Candidate
+promotion remains subject to the normal evaluation and promotion policy.
+
+Do not manually run the `auto-retraining` deployment against production-like
+data merely as a connectivity test because it may start a real training
+lifecycle.
 
 ## Serving releases
 
@@ -259,23 +386,33 @@ requirement.
 ```text
 .
 ├── configs
+├── data
+│   ├── predictions
+│   └── monitoring
+├── docs
+├── infrastructure
+├── monitoring
 ├── src
 │   └── mlops_sales_forecasting
 │       ├── api
 │       ├── configs
+│       ├── data
 │       ├── inference
-│       │   └── releases
 │       ├── monitoring
+│       ├── notifications
+│       ├── orchestration
+│       ├── pipeline
 │       ├── storage
-│       └── utils
+│       ├── tracking
+│       └── training
 ├── tests
 │   ├── integration
 │   └── unit
+├── compose.yaml
 ├── Dockerfile
 ├── Makefile
-├── compose.yaml
-├── pyproject.toml
-└── uv.lock
+├── prefect.yaml
+└── pyproject.toml
 ```
 
 ## Project status
