@@ -258,6 +258,56 @@ Prometheus metrics remain available at `/metrics`. Grafana and Alertmanager
 provide service-level visualization and alerting, while the summary endpoint
 presents persisted model-operational state.
 
+### Operations dashboard
+
+A Streamlit operations dashboard combines the current serving state with
+persisted forecast performance, feature drift, automated-retraining state
+and estimated training costs.
+
+Start the complete local monitoring stack:
+
+```bash
+make monitoring-up
+```
+
+Or start only the API and dashboard:
+
+```bash
+make dashboard-up
+```
+
+Open the dashboard at:
+
+```text
+http://localhost:8501
+```
+
+The dashboard and Grafana serve different purposes:
+
+- Streamlit provides a compact model-operations and business-facing overview;
+- Grafana visualizes Prometheus time series, service-level objectives and
+  alerts;
+- MLflow remains the source of experiment and model-run metadata;
+- Prefect provides flow-run and deployment visibility.
+
+Training costs are explicitly estimates. They are calculated from completed
+MLflow run durations and the configured hourly rate:
+
+```yaml
+costs:
+  training:
+    enabled: true
+    currency: EUR
+    estimated_hourly_rate: 0.40
+    window_days: 30
+  scenarios:
+    drift_triggered_runs_per_month: 8
+```
+
+The resulting report shows observed-window cost estimates and projected
+monthly costs for daily, weekly and drift-triggered retraining. It does not
+replace provider billing data.
+
 Successful predictions create immutable Parquet files under:
 
 ```text

@@ -15,6 +15,7 @@ dependencies = [
     "numpy==2.5.3",
     "pandas==2.3.3",
     "pandera==0.29.0",
+    "plotly==6.3.0",
     "prefect>=3,<4",
     "prometheus-client==0.23.1",
     "pyarrow==25.0.1",
@@ -23,6 +24,7 @@ dependencies = [
     "pyyaml>=6,<7",
     "scikit-learn==1.8.0",
     "scipy==1.18.1",
+    "streamlit==1.50.0",
     "uvicorn==0.40.0",
     "xgboost==3.1.3",
 ]

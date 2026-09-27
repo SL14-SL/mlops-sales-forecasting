@@ -33,7 +33,7 @@ FROM python:3.12.9-slim AS runtime
 RUN apt-get update \
     && apt-get upgrade --yes \
     && rm -rf /var/lib/apt/lists/*
-    
+
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
@@ -45,7 +45,7 @@ RUN useradd \
 
 RUN mkdir -p /app/runtime/mlflow \
     && chown -R appuser:appuser /app/runtime
-    
+
 WORKDIR /app
 
 COPY --from=builder \
@@ -63,9 +63,14 @@ COPY --from=builder \
     /app/configs \
     /app/configs
 
+COPY --from=builder \
+    --chown=appuser:appuser \
+    /app/src \
+    /app/src
+
 USER appuser
 
-EXPOSE 8000
+EXPOSE 8000 8501
 
 HEALTHCHECK \
     --interval=30s \

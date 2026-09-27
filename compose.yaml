@@ -28,6 +28,55 @@ services:
       start_period: 15s
       retries: 3
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlops-sales-forecasting-api:${IMAGE_TAG:-local}
+    profiles:
+      - monitoring
+    init: true
+    restart: unless-stopped
+    command:
+      - streamlit
+      - run
+      - /app/src/mlops_sales_forecasting/monitoring/dashboard.py
+      - --server.address
+      - 0.0.0.0
+      - --server.port
+      - "8501"
+      - --server.headless
+      - "true"
+      - --browser.gatherUsageStats
+      - "false"
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      DASHBOARD_API_URL: http://api:8000
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports:
+      - "${DASHBOARD_PORT:-8501}:8501"
+    volumes:
+      - ./data:/app/data:ro
+      - ./artifacts:/app/artifacts:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:8501/_stcore/health',
+          timeout=3
+          )
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+      
   prefect-server:
     build:
       context: .

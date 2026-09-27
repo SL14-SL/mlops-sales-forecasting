@@ -124,34 +124,54 @@ monitoring-config: ## Validate the monitoring Compose configuration
 
 
 .PHONY: monitoring-up
-monitoring-up: ## Start API, Prometheus, Alertmanager and Grafana
-	$(COMPOSE) --profile monitoring up --detach api prometheus alertmanager grafana
+monitoring-up: ## Start API and all local monitoring services
+	$(COMPOSE) --profile monitoring up --detach api dashboard prometheus alertmanager grafana
 
 
 .PHONY: monitoring-rebuild
 monitoring-rebuild: ## Rebuild API and recreate the monitoring stack
-	$(COMPOSE) --profile monitoring up --detach --build --force-recreate api prometheus alertmanager grafana
+	$(COMPOSE) --profile monitoring up --detach --build --force-recreate api dashboard prometheus alertmanager grafana
 
 
 .PHONY: monitoring-ps
 monitoring-ps: ## Show monitoring service status
-	$(COMPOSE) --profile monitoring ps api prometheus alertmanager grafana
+	$(COMPOSE) --profile monitoring ps api dashboard prometheus alertmanager grafana
 
 
 .PHONY: monitoring-logs
 monitoring-logs: ## Follow monitoring service logs
-	$(COMPOSE) --profile monitoring logs --follow prometheus alertmanager grafana
+	$(COMPOSE) --profile monitoring logs --follow api dashboard prometheus alertmanager grafana
 
 
 .PHONY: monitoring-down
 monitoring-down: ## Stop and remove monitoring services
-	$(COMPOSE) --profile monitoring rm --force --stop prometheus alertmanager grafana
+	$(COMPOSE) --profile monitoring rm --force --stop dashboard prometheus alertmanager grafana
+
+
+.PHONY: dashboard-up
+dashboard-up: ## Build and start the operations dashboard
+	$(COMPOSE) --profile monitoring up --detach --build dashboard
+
+
+.PHONY: dashboard-ps
+dashboard-ps: ## Show the operations dashboard status
+	$(COMPOSE) --profile monitoring ps dashboard
+
+
+.PHONY: dashboard-logs
+dashboard-logs: ## Follow operations dashboard logs
+	$(COMPOSE) --profile monitoring logs --follow dashboard
+
+
+.PHONY: dashboard-down
+dashboard-down: ## Stop and remove the operations dashboard
+	$(COMPOSE) --profile monitoring rm --force --stop dashboard
+
 
 .PHONY: monitoring-validate
 monitoring-validate: ## Validate Prometheus and Alertmanager configuration
 	$(COMPOSE) --profile monitoring run --rm --no-deps --entrypoint /bin/promtool prometheus check config /etc/prometheus/prometheus.yml
 	$(COMPOSE) --profile monitoring run --rm --no-deps --entrypoint /bin/amtool alertmanager check-config /etc/alertmanager/alertmanager.yml
-
 .PHONY: terraform-fmt
 terraform-fmt: ## Check Terraform formatting
 	terraform -chdir=infrastructure/terraform-bootstrap fmt -check -recursive
