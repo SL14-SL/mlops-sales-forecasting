@@ -10,6 +10,7 @@ from .middleware import request_context_middleware
 from .routers.admin import router as admin_router
 from .routers.health import router as health_router
 from .routers.metrics import router as metrics_router
+from .routers.monitoring import router as monitoring_router
 from .routers.prediction import router as prediction_router
 
 logger = get_logger(__name__)
@@ -29,10 +30,7 @@ def create_app(
     async def lifespan(
         app: FastAPI,
     ) -> AsyncIterator[None]:
-        if (
-            model_manager is not None
-            and load_model_on_startup
-        ):
+        if model_manager is not None and load_model_on_startup:
             try:
                 model_manager.load_initial()
             except Exception as exc:
@@ -50,13 +48,12 @@ def create_app(
     )
     app.state.model_manager = model_manager
     app.state.api_key = api_key
-    app.state.config = dict(
-        config or {}
-    )
+    app.state.config = dict(config or {})
     app.middleware("http")(request_context_middleware)
     app.include_router(health_router)
     app.include_router(admin_router)
     app.include_router(metrics_router)
+    app.include_router(monitoring_router)
     app.include_router(prediction_router)
 
     return app
