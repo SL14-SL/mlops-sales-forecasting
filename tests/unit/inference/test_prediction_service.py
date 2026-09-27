@@ -75,9 +75,7 @@ def build_bundle() -> MagicMock:
         "Store",
         "feature",
     ]
-    bundle.model.metadata.get_input_schema.return_value = (
-        input_schema
-    )
+    bundle.model.metadata.get_input_schema.return_value = input_schema
 
     return bundle
 
@@ -109,9 +107,7 @@ def test_forecasting_prediction(
             ],
         }
     )
-    build_features = MagicMock(
-        return_value=features
-    )
+    build_features = MagicMock(return_value=features)
 
     monkeypatch.setattr(
         prediction_service,
@@ -126,28 +122,17 @@ def test_forecasting_prediction(
     )
 
     assert response.release_id == "release-1"
-    assert [
-        result.prediction
-        for result in response.predictions
-    ] == [
+    assert [result.prediction for result in response.predictions] == [
         100.0,
         0.0,
     ]
-    assert [
-        result.row_index
-        for result in response.predictions
-    ] == [
+    assert [result.row_index for result in response.predictions] == [
         0,
         1,
     ]
-    assert all(
-        result.horizon_step == 1
-        for result in response.predictions
-    )
+    assert all(result.horizon_step == 1 for result in response.predictions)
 
-    model_input = (
-        bundle.model.predict.call_args.args[0]
-    )
+    model_input = bundle.model.predict.call_args.args[0]
 
     assert list(model_input.columns) == [
         "Store",
@@ -193,9 +178,7 @@ def test_prediction_rejects_model_without_signature(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bundle = build_bundle()
-    bundle.model.metadata.get_input_schema.return_value = (
-        None
-    )
+    bundle.model.metadata.get_input_schema.return_value = None
 
     monkeypatch.setattr(
         prediction_service,
@@ -270,9 +253,7 @@ def test_prediction_service_uses_active_bundle(
     model_manager = MagicMock()
     model_manager.get_bundle.return_value = bundle
     expected_response = MagicMock()
-    predict = MagicMock(
-        return_value=expected_response
-    )
+    predict = MagicMock(return_value=expected_response)
 
     monkeypatch.setattr(
         prediction_service,
@@ -292,4 +273,144 @@ def test_prediction_service_uses_active_bundle(
         request(),
         bundle,
         config(),
+        request_id=None,
     )
+
+
+def test_prediction_records_inference_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = build_bundle()
+    bundle.model.predict.return_value = np.log1p(
+        [
+            100.0,
+            200.0,
+        ]
+    )
+    features = pd.DataFrame(
+        {
+            "Store": [
+                1,
+                2,
+            ],
+            "feature": [
+                1.0,
+                2.0,
+            ],
+            "Promo": [
+                1,
+                0,
+            ],
+        }
+    )
+    record_batch = MagicMock()
+
+    monkeypatch.setattr(
+        prediction_service,
+        "build_forecasting_inference_features",
+        MagicMock(return_value=features),
+    )
+    monkeypatch.setattr(
+        prediction_service,
+        "record_inference_batch",
+        record_batch,
+    )
+
+    monitoring_config = config()
+    monitoring_config["paths"] = {
+        "predictions": "data/predictions",
+    }
+    monitoring_config["monitoring"] = {
+        "inference_logging": {
+            "enabled": True,
+            "fail_on_error": False,
+        },
+        "feature_drift": {
+            "numeric_features": [],
+            "categorical_features": [
+                "Promo",
+            ],
+        },
+    }
+
+    predict_with_bundle(
+        request(),
+        bundle,
+        monitoring_config,
+        request_id="request-123",
+    )
+
+    record_batch.assert_called_once()
+
+    call = record_batch.call_args
+    assert call.kwargs["release_id"] == ("release-1")
+    assert call.kwargs["request_id"] == ("request-123")
+    assert call.kwargs["predictions"] == [
+        100.0,
+        0.0,
+    ]
+    assert call.kwargs["feature_allowlist"] == [
+        "Promo",
+    ]
+    assert call.kwargs["predictions_path"] == ("data/predictions")
+
+
+def test_prediction_ignores_monitoring_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = build_bundle()
+    bundle.model.predict.return_value = np.log1p(
+        [
+            100.0,
+            200.0,
+        ]
+    )
+
+    monkeypatch.setattr(
+        prediction_service,
+        "build_forecasting_inference_features",
+        MagicMock(
+            return_value=pd.DataFrame(
+                {
+                    "Store": [
+                        1,
+                        2,
+                    ],
+                    "feature": [
+                        1.0,
+                        2.0,
+                    ],
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        prediction_service,
+        "record_inference_batch",
+        MagicMock(side_effect=OSError("storage unavailable")),
+    )
+
+    monitoring_config = config()
+    monitoring_config["paths"] = {
+        "predictions": "data/predictions",
+    }
+    monitoring_config["monitoring"] = {
+        "inference_logging": {
+            "enabled": True,
+            "fail_on_error": False,
+        },
+        "feature_drift": {
+            "numeric_features": [],
+            "categorical_features": [],
+        },
+    }
+
+    response = predict_with_bundle(
+        request(),
+        bundle,
+        monitoring_config,
+        request_id="request-123",
+    )
+
+    assert response.release_id == "release-1"
+    assert len(response.predictions) == 2

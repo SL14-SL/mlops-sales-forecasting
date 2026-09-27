@@ -1470,6 +1470,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "scikit-learn" },
+    { name = "scipy" },
     { name = "uvicorn" },
     { name = "xgboost" },
 ]
@@ -1498,6 +1499,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2,<2" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "scikit-learn", specifier = "==1.8.0" },
+    { name = "scipy", specifier = "==1.18.1" },
     { name = "uvicorn", specifier = "==0.40.0" },
     { name = "xgboost", specifier = "==3.1.3" },
 ]

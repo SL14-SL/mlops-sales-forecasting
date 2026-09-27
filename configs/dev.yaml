@@ -44,7 +44,44 @@ paths:
   features: "data/features"
   splits: "data/splits"
   versioning: "data/versioning"
+  monitoring: "data/monitoring"
+  prediction: "data/prediction"
 
+monitoring:
+  inference_logging:
+    enabled: true
+    fail_on_error: false
+
+  feature_drift:
+    lookback_days: 14
+    enabled: true
+    numeric_features:
+      - CompetitionDistance
+    categorical_features:
+      - Promo
+      - Store
+      - StoreType
+      - Assortment
+      - StateHoliday
+    minimum_samples: 50
+    p_value_threshold: 0.01
+    statistic_threshold: 0.10
+  retraining:
+    minimum_new_training_rows: 500
+    cooldown_hours: 168
+    scheduled_interval_hours: 168
+    maximum_new_training_rows: 1000000
+    drift:
+      lookback_days: 14
+      consecutive_windows: 2
+    performance:
+      rolling_window: "7D"
+      minimum_samples: 500
+      consecutive_windows: 2
+      rmse_limit: 1375.0
+      mae_limit: 990.0
+      absolute_bias_limit: 900.0
+      
 data:
   target_column: Sales
   known_targets:

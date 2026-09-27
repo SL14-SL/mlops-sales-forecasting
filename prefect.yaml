@@ -22,3 +22,24 @@ deployments:
       name: local-process-pool
       work_queue_name: default
       job_variables: {}
+
+  - name: auto-retraining
+    version: null
+    tags:
+      - local
+      - retraining
+      - forecasting
+    description: >-
+      Scheduled evaluation of monitoring signals and
+      automated Rossmann model retraining.
+    entrypoint: >-
+      mlops_sales_forecasting.orchestration.auto_retraining_flow.auto_retraining_flow
+    parameters: {}
+    schedules:
+      - cron: "0 3 * * *"
+        timezone: Europe/Berlin
+        active: true
+    work_pool:
+      name: local-process-pool
+      work_queue_name: default
+      job_variables: {}
