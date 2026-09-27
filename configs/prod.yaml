@@ -53,6 +53,7 @@ monitoring:
     fail_on_error: false
 
   feature_drift:
+    lookback_days: 14
     enabled: true
     numeric_features:
       - CompetitionDistance
@@ -74,6 +75,8 @@ monitoring:
       lookback_days: 14
       consecutive_windows: 2
     performance:
+      rolling_window: "7D"
+      minimum_samples: 500
       consecutive_windows: 2
       rmse_limit: 1375.0
       mae_limit: 990.0
