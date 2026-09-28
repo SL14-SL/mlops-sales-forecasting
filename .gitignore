@@ -61,3 +61,11 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 terraform.tfvars
+
+# Local lifecycle simulation source data
+/data/simulation/
+# Local datasets and runtime state
+/data/
+
+# Generated lifecycle simulation runs
+/examples/lifecycle_simulation/generated/

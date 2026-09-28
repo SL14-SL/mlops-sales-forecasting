@@ -45,7 +45,7 @@ paths:
   splits: "data/splits"
   versioning: "data/versioning"
   monitoring: "data/monitoring"
-  prediction: "data/prediction"
+  predictions: "data/predictions"
 
 monitoring:
   inference_logging:
@@ -174,3 +174,14 @@ costs:
     window_days: 30
   scenarios:
     drift_triggered_runs_per_month: 8
+
+simulation:
+  source_path: "data/simulation/simulation_ground_truth.csv"
+  runtime_path: "data/simulation/runtime"
+  output_path: "examples/lifecycle_simulation/generated"
+  scenario: "gradual_promo_shift"
+  drift_start_day: 20
+  drift_duration_days: 14
+  maximum_base_uplift: 0.0
+  maximum_promo_uplift: -0.25
+  maximum_days: 95

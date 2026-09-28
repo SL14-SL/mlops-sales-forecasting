@@ -1,0 +1,297 @@
+from __future__ import annotations
+
+import argparse
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from mlops_sales_forecasting.configs.loader import (
+    load_config,
+)
+from mlops_sales_forecasting.configs.paths import (
+    join_uri,
+)
+from mlops_sales_forecasting.inference.model_manager import (
+    ModelManager,
+)
+from mlops_sales_forecasting.inference.serving import (
+    load_active_bundle,
+)
+from mlops_sales_forecasting.storage.filesystem import (
+    file_exists,
+)
+
+from .ground_truth import DriftScenario
+from .reporting import (
+    summarize_simulation_comparison,
+)
+from .runner import run_lifecycle_simulation
+from .workspace import (
+    SimulationWorkspace,
+    prepare_simulation_workspace,
+)
+
+_ACTIVE_POINTER_FILENAME = "active_serving_release.json"
+
+
+def _require_mapping(
+    mapping: Mapping[str, Any],
+    name: str,
+) -> Mapping[str, Any]:
+    value = mapping.get(name)
+
+    if not isinstance(value, Mapping):
+        raise ValueError(f"Config must contain a valid '{name}' section.")
+
+    return value
+
+
+def _require_string(
+    mapping: Mapping[str, Any],
+    name: str,
+) -> str:
+    value = mapping.get(name)
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Simulation setting '{name}' must be a non-empty string.")
+
+    return value
+
+
+def _positive_integer(
+    mapping: Mapping[str, Any],
+    name: str,
+) -> int:
+    value = mapping.get(name)
+
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"Simulation setting '{name}' must be a positive integer.")
+
+    return value
+
+
+def load_simulation_pool(
+    source_path: str | Path,
+) -> pd.DataFrame:
+    """Load the immutable Rossmann simulation source."""
+    path = Path(source_path)
+
+    if not path.is_file():
+        raise FileNotFoundError(f"Simulation source not found: {path}")
+
+    return pd.read_csv(
+        path,
+        parse_dates=[
+            "Date",
+        ],
+        dtype={
+            "StateHoliday": str,
+        },
+    )
+
+
+def scenario_from_config(
+    config: Mapping[str, Any],
+) -> DriftScenario:
+    """Build the configured controlled-drift scenario."""
+    simulation = _require_mapping(
+        config,
+        "simulation",
+    )
+
+    return DriftScenario(
+        name=_require_string(
+            simulation,
+            "scenario",
+        ),
+        drift_start_day=_positive_integer(
+            simulation,
+            "drift_start_day",
+        ),
+        drift_duration_days=_positive_integer(
+            simulation,
+            "drift_duration_days",
+        ),
+        maximum_base_uplift=float(
+            simulation.get(
+                "maximum_base_uplift",
+                0.0,
+            )
+        ),
+        maximum_promo_uplift=float(
+            simulation.get(
+                "maximum_promo_uplift",
+                0.0,
+            )
+        ),
+    )
+
+
+def build_simulation_model_manager(
+    *,
+    base_config: dict[str, Any],
+    workspace: SimulationWorkspace,
+) -> ModelManager:
+    """
+    Load the original release first and simulation releases later.
+
+    The isolated release pointer only exists after the simulation
+    lifecycle has successfully promoted a candidate.
+    """
+
+    def bundle_loader():
+        models_path = workspace.config["paths"]["models"]
+        pointer_path = join_uri(
+            models_path,
+            _ACTIVE_POINTER_FILENAME,
+        )
+
+        if file_exists(pointer_path):
+            return load_active_bundle(workspace.config)
+
+        return load_active_bundle(base_config)
+
+    return ModelManager(bundle_loader)
+
+
+def _default_output_path(
+    *,
+    config: Mapping[str, Any],
+    retraining_enabled: bool,
+) -> Path:
+    simulation = _require_mapping(
+        config,
+        "simulation",
+    )
+    output_root = Path(
+        _require_string(
+            simulation,
+            "output_path",
+        )
+    )
+    filename = "with_retraining.csv" if retraining_enabled else "without_retraining.csv"
+
+    return output_root / filename
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=("Run the isolated Rossmann lifecycle simulation.")
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=("Configuration filename from configs/. Defaults to the active environment."),
+    )
+    parser.add_argument(
+        "--retraining",
+        choices=[
+            "enabled",
+            "disabled",
+        ],
+        default="disabled",
+    )
+    parser.add_argument(
+        "--maximum-days",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+    )
+    parser.add_argument(
+        "--keep-runtime",
+        action="store_true",
+        help=("Reuse the existing simulation runtime instead of resetting it."),
+    )
+
+    return parser
+
+
+def main(
+    argv: Sequence[str] | None = None,
+) -> int:
+    """Run the configured lifecycle simulation."""
+    args = _build_parser().parse_args(argv)
+    config = load_config(args.config)
+    simulation = _require_mapping(
+        config,
+        "simulation",
+    )
+
+    configured_days = _positive_integer(
+        simulation,
+        "maximum_days",
+    )
+    maximum_days = args.maximum_days if args.maximum_days is not None else configured_days
+
+    if maximum_days < 1:
+        raise ValueError("Maximum simulation days must be positive.")
+
+    retraining_enabled = args.retraining == "enabled"
+    source_path = _require_string(
+        simulation,
+        "source_path",
+    )
+    output_path = (
+        Path(args.output)
+        if args.output is not None
+        else _default_output_path(
+            config=config,
+            retraining_enabled=(retraining_enabled),
+        )
+    )
+
+    pool = load_simulation_pool(source_path)
+    scenario = scenario_from_config(config)
+    workspace = prepare_simulation_workspace(
+        config,
+        reset=not args.keep_runtime,
+    )
+    model_manager = build_simulation_model_manager(
+        base_config=config,
+        workspace=workspace,
+    )
+    initial_bundle = model_manager.load_initial()
+
+    print(
+        "Simulation started | "
+        f"initial_release={initial_bundle.release_id} | "
+        f"scenario={scenario.name} | "
+        f"retraining={args.retraining} | "
+        f"maximum_days={maximum_days}"
+    )
+
+    result = run_lifecycle_simulation(
+        pool=pool,
+        scenario=scenario,
+        workspace=workspace,
+        model_manager=model_manager,
+        retraining_enabled=retraining_enabled,
+        output_path=output_path,
+        maximum_days=maximum_days,
+    )
+
+    final_row = result.iloc[-1]
+
+    print(
+        "Simulation completed | "
+        f"days={len(result)} | "
+        f"final_rmse={final_row['rmse']} | "
+        f"final_event={final_row['event']} | "
+        f"output={output_path}"
+    )
+
+    return 0
+
+
+__all__ = [
+    "build_simulation_model_manager",
+    "load_simulation_pool",
+    "main",
+    "scenario_from_config",
+    "summarize_simulation_comparison",
+]

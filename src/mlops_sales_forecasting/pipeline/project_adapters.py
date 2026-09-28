@@ -115,8 +115,33 @@ class PersistingRossmannFeatureBuilder:
         known_calendar = datasets.datasets.get("known_calendar")
 
         if known_calendar is None:
+            calendar_source = pd.concat(
+                [
+                    datasets.require("train"),
+                    datasets.require("simulation_truth"),
+                ],
+                ignore_index=True,
+            )
+
+            calendar_source = (
+                calendar_source.sort_values(
+                    [
+                        entity_column,
+                        date_column,
+                    ]
+                )
+                .drop_duplicates(
+                    subset=[
+                        entity_column,
+                        date_column,
+                    ],
+                    keep="last",
+                )
+                .reset_index(drop=True)
+            )
+
             known_calendar = build_known_calendar(
-                datasets.require("train"),
+                calendar_source,
                 entity_column=entity_column,
                 date_column=date_column,
             )

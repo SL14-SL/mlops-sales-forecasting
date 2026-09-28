@@ -101,6 +101,15 @@ def test_persisting_feature_builder_writes_artifacts(
             ],
         }
     )
+    simulation_truth = train.copy()
+    simulation_truth["Date"] = pd.to_datetime(
+        [
+            "2026-01-02",
+        ]
+    )
+    simulation_truth["Sales"] = [
+        110.0,
+    ]
     datasets = DatasetCollection(
         datasets={
             "train": train,
@@ -111,36 +120,79 @@ def test_persisting_feature_builder_writes_artifacts(
                     ],
                 }
             ),
-            "simulation_truth": train.copy(),
+            "simulation_truth": simulation_truth,
         }
     )
     calendar = pd.DataFrame(
         {
             "Store": [
                 1,
+                1,
             ],
             "Date": pd.to_datetime(
                 [
                     "2026-01-01",
+                    "2026-01-02",
                 ]
             ),
-            "calendar_feature": [
+            "days_until_state_holiday": [
+                0,
+                0,
+            ],
+            "days_since_state_holiday": [
+                0,
+                0,
+            ],
+            "is_day_before_state_holiday": [
+                0,
+                0,
+            ],
+            "is_day_after_state_holiday": [
+                0,
+                0,
+            ],
+            "days_until_school_holiday_start": [
+                0,
+                0,
+            ],
+            "days_since_school_holiday_start": [
+                0,
+                0,
+            ],
+            "days_until_school_holiday_end": [
+                0,
+                0,
+            ],
+            "days_since_school_holiday_end": [
+                0,
+                0,
+            ],
+            "is_school_holiday_start": [
+                0,
+                0,
+            ],
+            "is_school_holiday_end": [
+                0,
                 0,
             ],
         }
     )
     features = train.assign(sales_lag_1=0.0)
 
+    build_calendar = MagicMock(return_value=calendar)
     monkeypatch.setattr(
         project_adapters,
         "build_known_calendar",
-        MagicMock(return_value=calendar),
+        build_calendar,
     )
+
+    build_features = MagicMock(return_value=features)
     monkeypatch.setattr(
         project_adapters.RossmannFeatureBuilder,
         "build_features",
-        MagicMock(return_value=features),
+        build_features,
     )
+
     create_state = MagicMock()
     monkeypatch.setattr(
         project_adapters,
@@ -168,3 +220,26 @@ def test_persisting_feature_builder_writes_artifacts(
     assert (tmp_path / "features" / "features.parquet").is_file()
     assert (tmp_path / "features" / "known_calendar.parquet").is_file()
     create_state.assert_called_once()
+    build_calendar.assert_called_once()
+
+    calendar_source = build_calendar.call_args.args[0]
+
+    assert calendar_source["Date"].tolist() == [
+        pd.Timestamp("2026-01-01"),
+        pd.Timestamp("2026-01-02"),
+    ]
+    assert calendar_source["Sales"].tolist() == [
+        100.0,
+        110.0,
+    ]
+    assert build_calendar.call_args.kwargs["entity_column"] == "Store"
+    assert build_calendar.call_args.kwargs["date_column"] == "Date"
+
+    build_features.assert_called_once()
+
+    feature_datasets = build_features.call_args.args[0]
+
+    pd.testing.assert_frame_equal(
+        feature_datasets.require("known_calendar"),
+        calendar,
+    )
