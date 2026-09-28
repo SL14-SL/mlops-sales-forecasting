@@ -121,6 +121,9 @@ services:
       - tracking
     init: true
     restart: unless-stopped
+    environment:
+      MLFLOW_SERVER_ALLOWED_HOSTS: >-
+        mlflow:5000,localhost:*,127.0.0.1:*
     command:
       - mlflow
       - server

@@ -124,49 +124,48 @@ monitoring-config: ## Validate the monitoring Compose configuration
 
 
 .PHONY: monitoring-up
-monitoring-up: ## Start API and all local monitoring services
-	$(COMPOSE) --profile monitoring up --detach api dashboard prometheus alertmanager grafana
+monitoring-up: ## Start the complete local monitoring stack
+	$(COMPOSE) --profile monitoring --profile tracking up --detach api mlflow dashboard prometheus alertmanager grafana
 
 
 .PHONY: monitoring-rebuild
-monitoring-rebuild: ## Rebuild API and recreate the monitoring stack
-	$(COMPOSE) --profile monitoring up --detach --build --force-recreate api dashboard prometheus alertmanager grafana
+monitoring-rebuild: ## Rebuild and recreate the complete monitoring stack
+	$(COMPOSE) --profile monitoring --profile tracking up --detach --build --force-recreate api mlflow dashboard prometheus alertmanager grafana
 
 
 .PHONY: monitoring-ps
 monitoring-ps: ## Show monitoring service status
-	$(COMPOSE) --profile monitoring ps api dashboard prometheus alertmanager grafana
+	$(COMPOSE) --profile monitoring --profile tracking ps api mlflow dashboard prometheus alertmanager grafana
 
 
 .PHONY: monitoring-logs
 monitoring-logs: ## Follow monitoring service logs
-	$(COMPOSE) --profile monitoring logs --follow api dashboard prometheus alertmanager grafana
+	$(COMPOSE) --profile monitoring --profile tracking logs --follow api mlflow dashboard prometheus alertmanager grafana
 
 
 .PHONY: monitoring-down
 monitoring-down: ## Stop and remove monitoring services
-	$(COMPOSE) --profile monitoring rm --force --stop dashboard prometheus alertmanager grafana
+	$(COMPOSE) --profile monitoring --profile tracking rm --force --stop mlflow dashboard prometheus alertmanager grafana
 
 
 .PHONY: dashboard-up
-dashboard-up: ## Build and start the operations dashboard
-	$(COMPOSE) --profile monitoring up --detach --build dashboard
+dashboard-up: ## Build and start API, MLflow and operations dashboard
+	$(COMPOSE) --profile monitoring --profile tracking up --detach --build api mlflow dashboard
 
 
 .PHONY: dashboard-ps
-dashboard-ps: ## Show the operations dashboard status
-	$(COMPOSE) --profile monitoring ps dashboard
+dashboard-ps: ## Show API, MLflow and dashboard status
+	$(COMPOSE) --profile monitoring --profile tracking ps api mlflow dashboard
 
 
 .PHONY: dashboard-logs
 dashboard-logs: ## Follow operations dashboard logs
-	$(COMPOSE) --profile monitoring logs --follow dashboard
+	$(COMPOSE) --profile monitoring --profile tracking logs --follow dashboard
 
 
 .PHONY: dashboard-down
 dashboard-down: ## Stop and remove the operations dashboard
-	$(COMPOSE) --profile monitoring rm --force --stop dashboard
-
+	$(COMPOSE) --profile monitoring --profile tracking rm --force --stop dashboard
 
 .PHONY: monitoring-validate
 monitoring-validate: ## Validate Prometheus and Alertmanager configuration
