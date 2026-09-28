@@ -20,6 +20,7 @@ RUN uv sync \
 
 COPY README.md ./
 COPY configs ./configs
+COPY examples ./examples
 COPY src ./src
 
 RUN uv sync \
@@ -63,6 +64,11 @@ COPY --from=builder \
     /app/configs \
     /app/configs
 
+COPY --from=builder \
+    --chown=appuser:appuser \
+    /app/examples \
+    /app/examples
+    
 COPY --from=builder \
     --chown=appuser:appuser \
     /app/src \
