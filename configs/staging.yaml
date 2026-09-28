@@ -34,18 +34,18 @@ metrics:
   evaluate_on_original_scale: true
 
 paths:
-  data_root: "gs://${GCS_BUCKET_NAME:-replace-me}/data"
-  raw_data: "gs://${GCS_BUCKET_NAME:-replace-me}/data/raw"
-  validated_data: "gs://${GCS_BUCKET_NAME:-replace-me}/data/validation"
-  interim: "gs://${GCS_BUCKET_NAME:-replace-me}/data/interim"
-  processed: "gs://${GCS_BUCKET_NAME:-replace-me}/data/processed"
-  artifacts: "gs://${GCS_BUCKET_NAME:-replace-me}/artifacts"
-  models: "gs://${GCS_BUCKET_NAME:-replace-me}/models"
-  features: "gs://${GCS_BUCKET_NAME:-replace-me}/data/features"
-  splits: "gs://${GCS_BUCKET_NAME:-replace-me}/data/splits"
-  versioning: "gs://${GCS_BUCKET_NAME:-replace-me}/data/versioning"
-  monitoring: "gs://${GCS_BUCKET_NAME:-replace-me}/data/monitoring"
-  predictions: "gs://${GCS_BUCKET_NAME:-replace-me}/data/predictions"
+  data_root: "gs://${GCS_BUCKET_NAME}/data"
+  raw_data: "gs://${GCS_BUCKET_NAME}/data/raw"
+  validated_data: "gs://${GCS_BUCKET_NAME}/data/validation"
+  interim: "gs://${GCS_BUCKET_NAME}/data/interim"
+  processed: "gs://${GCS_BUCKET_NAME}/data/processed"
+  artifacts: "gs://${GCS_BUCKET_NAME}/artifacts"
+  models: "gs://${GCS_BUCKET_NAME}/models"
+  features: "gs://${GCS_BUCKET_NAME}/data/features"
+  splits: "gs://${GCS_BUCKET_NAME}/data/splits"
+  versioning: "gs://${GCS_BUCKET_NAME}/data/versioning"
+  monitoring: "gs://${GCS_BUCKET_NAME}/data/monitoring"
+  predictions: "gs://${GCS_BUCKET_NAME}/data/predictions"
 
 monitoring:
   inference_logging:

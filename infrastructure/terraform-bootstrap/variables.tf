@@ -23,11 +23,11 @@ variable "enable_github_actions" {
 variable "github_repository_owner" {
   description = "Owner of the GitHub repository."
   type        = string
-  default     = "replace-me"
+  default     = ""
 }
 
 variable "github_repository_name" {
   description = "Name of the GitHub repository."
   type        = string
-  default     = "replace-me"
+  default     = ""
 }

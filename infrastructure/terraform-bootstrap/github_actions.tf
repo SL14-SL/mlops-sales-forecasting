@@ -134,3 +134,27 @@ resource "google_storage_bucket_iam_member" "github_state" {
     google_service_account.github_actions[0].email,
   )
 }
+check "github_repository_configuration" {
+  assert {
+    condition = (
+      !var.enable_github_actions
+      || (
+        length(trimspace(var.github_repository_owner)) > 0
+        && length(trimspace(var.github_repository_name)) > 0
+        && !startswith(
+          lower(trimspace(var.github_repository_owner)),
+          "replace"
+        )
+        && !startswith(
+          lower(trimspace(var.github_repository_name)),
+          "replace"
+        )
+      )
+    )
+
+    error_message = <<-EOT
+      github_repository_owner and github_repository_name must contain
+      real repository values when enable_github_actions is true.
+    EOT
+  }
+}

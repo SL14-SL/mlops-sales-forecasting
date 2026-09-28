@@ -18,17 +18,13 @@ PROJECT_ROOT = get_project_root()
 def _load_yaml(config_path: Path) -> dict[str, Any]:
     """Load and validate a YAML configuration file."""
     if not config_path.is_file():
-        raise FileNotFoundError(
-            f"Config file not found: {config_path}"
-        )
+        raise FileNotFoundError(f"Config file not found: {config_path}")
 
     with config_path.open("r", encoding="utf-8") as file:
         config = yaml.safe_load(file) or {}
 
     if not isinstance(config, dict):
-        raise ValueError(
-            f"Config file must contain a YAML mapping: {config_path}"
-        )
+        raise ValueError(f"Config file must contain a YAML mapping: {config_path}")
 
     return config
 
@@ -42,16 +38,50 @@ def _resolve_config_filename(
     candidate = Path(filename)
 
     if candidate.name != filename:
-        raise ValueError(
-            "Config name must be a filename without directory components."
-        )
+        raise ValueError("Config name must be a filename without directory components.")
 
     if candidate.suffix not in {".yaml", ".yml"}:
-        raise ValueError(
-            "Config name must use the .yaml or .yml extension."
-        )
+        raise ValueError("Config name must use the .yaml or .yml extension.")
 
     return filename
+
+
+def _validate_cloud_paths(
+    config: dict[str, Any],
+    *,
+    config_name: str,
+) -> None:
+    """Reject unresolved or placeholder cloud paths."""
+    environment_name = Path(config_name).stem.lower()
+
+    if environment_name not in {
+        "staging",
+        "prod",
+    }:
+        return
+
+    paths = config.get("paths")
+
+    if not isinstance(paths, dict):
+        raise ValueError("Cloud config must contain a valid 'paths' section.")
+
+    invalid_paths: list[str] = []
+
+    for name, value in paths.items():
+        if not isinstance(value, str):
+            invalid_paths.append(str(name))
+            continue
+
+        if "${" in value or "replace-me" in value or not value.startswith("gs://"):
+            invalid_paths.append(str(name))
+
+    if invalid_paths:
+        raise ValueError(
+            "Cloud config contains unresolved or invalid "
+            "storage paths. Set GCS_BUCKET_NAME before "
+            f"loading {config_name}. Invalid paths: "
+            f"{sorted(invalid_paths)}."
+        )
 
 
 def load_config(
@@ -70,6 +100,10 @@ def load_config(
     config = _load_yaml(config_path)
     resolved_config = resolve_env_placeholders(config)
     resolved_config = override_gcs_bucket_paths(resolved_config)
+    _validate_cloud_paths(
+        resolved_config,
+        config_name=filename,
+    )
     resolved_config.setdefault("environment", environment)
 
     inject_runtime_env(resolved_config)
@@ -85,13 +119,9 @@ def get_path(
     paths = config.get("paths")
 
     if not isinstance(paths, dict):
-        raise KeyError(
-            "Config does not contain a valid 'paths' section."
-        )
+        raise KeyError("Config does not contain a valid 'paths' section.")
 
     if name not in paths:
-        raise KeyError(
-            f"Path '{name}' not found in config paths."
-        )
+        raise KeyError(f"Path '{name}' not found in config paths.")
 
     return str(paths[name])

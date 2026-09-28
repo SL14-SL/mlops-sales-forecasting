@@ -118,22 +118,23 @@ def test_load_config_uses_active_environment(
     write_config(
         tmp_path,
         "staging.yaml",
-        (
-            "project:\n"
-            "  name: example\n"
-            "paths:\n"
-            "  raw: data/raw\n"
-        ),
+        ("project:\n  name: example\npaths:\n  raw: gs://${GCS_BUCKET_NAME}/data/raw\n"),
     )
 
     monkeypatch.setattr(loader, "PROJECT_ROOT", tmp_path)
     monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("GCS_BUCKET_NAME", "staging-bucket")
     monkeypatch.delenv("K_SERVICE", raising=False)
 
     result = loader.load_config()
 
     assert result["environment"] == "staging"
+    monkeypatch.setenv(
+        "GCS_BUCKET_NAME",
+        "staging-bucket",
+    )
     assert result["project"]["name"] == "example"
+    assert result["paths"]["raw"] == ("gs://staging-bucket/data/raw")
 
 
 def test_load_config_resolves_environment_placeholders(
@@ -143,10 +144,7 @@ def test_load_config_resolves_environment_placeholders(
     write_config(
         tmp_path,
         "example.yaml",
-        (
-            "services:\n"
-            "  endpoint: '${EXAMPLE_ENDPOINT}'\n"
-        ),
+        ("services:\n  endpoint: '${EXAMPLE_ENDPOINT}'\n"),
     )
 
     monkeypatch.setattr(loader, "PROJECT_ROOT", tmp_path)
@@ -157,10 +155,7 @@ def test_load_config_resolves_environment_placeholders(
 
     result = loader.load_config("example.yaml")
 
-    assert (
-        result["services"]["endpoint"]
-        == "https://example.test"
-    )
+    assert result["services"]["endpoint"] == "https://example.test"
 
 
 def test_load_config_overrides_gcs_bucket(
@@ -170,10 +165,7 @@ def test_load_config_overrides_gcs_bucket(
     write_config(
         tmp_path,
         "example.yaml",
-        (
-            "paths:\n"
-            "  raw: gs://old-bucket/data/raw\n"
-        ),
+        ("paths:\n  raw: gs://old-bucket/data/raw\n"),
     )
 
     monkeypatch.setattr(loader, "PROJECT_ROOT", tmp_path)
@@ -191,10 +183,7 @@ def test_get_path_returns_configured_path(
     write_config(
         tmp_path,
         "example.yaml",
-        (
-            "paths:\n"
-            "  processed: data/processed\n"
-        ),
+        ("paths:\n  processed: data/processed\n"),
     )
 
     monkeypatch.setattr(loader, "PROJECT_ROOT", tmp_path)
@@ -243,3 +232,83 @@ def test_get_path_rejects_unknown_path(
         match="Path 'processed' not found",
     ):
         loader.get_path("processed", "example.yaml")
+
+
+def test_cloud_config_rejects_unresolved_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_config(
+        tmp_path,
+        "staging.yaml",
+        ("paths:\n  raw_data: 'gs://${GCS_BUCKET_NAME}/data/raw'\n"),
+    )
+
+    monkeypatch.setattr(
+        loader,
+        "PROJECT_ROOT",
+        tmp_path,
+    )
+    monkeypatch.delenv(
+        "GCS_BUCKET_NAME",
+        raising=False,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Set GCS_BUCKET_NAME",
+    ):
+        loader.load_config("staging.yaml")
+
+
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "staging.yaml",
+        "prod.yaml",
+    ],
+)
+def test_cloud_config_resolves_required_bucket(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config_name: str,
+) -> None:
+    write_config(
+        tmp_path,
+        config_name,
+        (
+            "paths:\n"
+            "  raw_data: "
+            "'gs://${GCS_BUCKET_NAME}/data/raw'\n"
+            "  models: "
+            "'gs://${GCS_BUCKET_NAME}/models'\n"
+        ),
+    )
+
+    monkeypatch.setattr(
+        loader,
+        "PROJECT_ROOT",
+        tmp_path,
+    )
+    monkeypatch.setenv(
+        "GCS_BUCKET_NAME",
+        "forecasting-bucket",
+    )
+
+    result = loader.load_config(config_name)
+
+    assert result["paths"] == {
+        "raw_data": ("gs://forecasting-bucket/data/raw"),
+        "models": ("gs://forecasting-bucket/models"),
+    }
+
+
+def test_non_cloud_config_allows_local_paths() -> None:
+    loader._validate_cloud_paths(
+        {
+            "paths": {
+                "raw_data": "data/raw",
+            },
+        },
+        config_name="dev.yaml",
+    )
