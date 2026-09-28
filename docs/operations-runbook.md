@@ -688,3 +688,129 @@ Verify that the webhook endpoint:
 
 Notification retries are not performed automatically. The lifecycle event
 remains available in the structured application logs.
+## Local lifecycle simulation
+
+The lifecycle simulation is a controlled demonstration environment and must
+not share mutable paths with normal development or production workloads.
+
+### Preconditions
+
+Verify that MLflow is available:
+
+```bash
+curl \
+  --fail \
+  --silent \
+  --show-error \
+  http://localhost:5000/health
+```
+
+Verify that the active serving pointer exists:
+
+```bash
+test \
+  -f artifacts/models/active_serving_release.json
+```
+
+Verify the simulation source:
+
+```bash
+test \
+  -f data/simulation/simulation_ground_truth.csv
+```
+
+For retraining-enabled runs, start Prefect and configure the local API:
+
+```bash
+make prefect-up
+
+export PREFECT_API_URL=http://127.0.0.1:4200/api
+```
+
+### Smoke test
+
+```bash
+uv run python \
+  scripts/run_lifecycle_simulation.py \
+  --config dev.yaml \
+  --retraining disabled \
+  --maximum-days 1 \
+  --output examples/lifecycle_simulation/generated/smoke-test.csv
+```
+
+### Full comparison
+
+Run the static baseline:
+
+```bash
+uv run python \
+  scripts/run_lifecycle_simulation.py \
+  --config dev.yaml \
+  --retraining disabled
+```
+
+Run the managed lifecycle:
+
+```bash
+uv run python \
+  scripts/run_lifecycle_simulation.py \
+  --config dev.yaml \
+  --retraining enabled
+```
+
+Do not pass `--keep-runtime` when producing a new comparison. The default
+reset ensures both runs start from a controlled workspace.
+
+### Validate the outputs
+
+```bash
+uv run python - <<'PY'
+from pathlib import Path
+
+from mlops_sales_forecasting.simulation.reporting import (
+    load_lifecycle_results,
+    summarize_simulation_comparison,
+)
+
+root = Path(
+    "examples/lifecycle_simulation/generated"
+)
+
+without = load_lifecycle_results(
+    root / "without_retraining.csv"
+)
+with_run = load_lifecycle_results(
+    root / "with_retraining.csv"
+)
+
+summary = summarize_simulation_comparison(
+    without,
+    with_run,
+)
+
+for name, value in summary.items():
+    print(f"{name}: {value}")
+PY
+```
+
+Expected invariants:
+
+- both runs cover the same scenario and time horizon;
+- the enabled run records retraining events;
+- promotion occurs only when evaluation approves the challenger;
+- the original development serving pointer remains unchanged;
+- no target values are used before their simulated arrival.
+
+### Dashboard verification
+
+```bash
+make dashboard-up
+
+curl \
+  --fail \
+  --silent \
+  --show-error \
+  http://localhost:8501/_stcore/health
+```
+
+Open `http://localhost:8501` and select **Lifecycle Simulation**.

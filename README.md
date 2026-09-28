@@ -336,6 +336,131 @@ data/monitoring/feature_drift_history.parquet
 Missing labels or insufficient sample counts are normal bootstrap states and
 do not fail the API.
 
+## Lifecycle simulation
+
+The project includes a reproducible Rossmann lifecycle simulation for
+demonstrating gradual promotional drift, monitoring decisions, candidate
+training and controlled model promotion.
+
+The simulation compares two otherwise matching scenarios:
+
+- a static champion that remains active while promotional behavior changes;
+- a managed lifecycle that trains challenger models after monitoring signals
+  trigger retraining and promotes only candidates that pass evaluation.
+
+A retraining event does not automatically replace the active model. The
+serving release changes only when the challenger satisfies the configured
+promotion policy.
+
+### Prerequisites
+
+The simulation requires:
+
+- `data/raw/train.csv` and `data/raw/store.csv`;
+- `data/simulation/simulation_ground_truth.csv`;
+- a running MLflow tracking server;
+- an initial registered champion and active serving-release pointer;
+- a running Prefect server when retraining is enabled.
+
+Start the required local services:
+
+```bash
+make mlflow-up
+make prefect-up
+
+export PREFECT_API_URL=http://127.0.0.1:4200/api
+```
+
+If no initial serving release exists, run the regular training bootstrap
+before starting the simulation.
+
+### Run the simulation
+
+Run a one-day smoke test without retraining:
+
+```bash
+uv run python \
+  scripts/run_lifecycle_simulation.py \
+  --config dev.yaml \
+  --retraining disabled \
+  --maximum-days 1 \
+  --output examples/lifecycle_simulation/generated/smoke-test.csv
+```
+
+Run the complete static-model baseline:
+
+```bash
+uv run python \
+  scripts/run_lifecycle_simulation.py \
+  --config dev.yaml \
+  --retraining disabled
+```
+
+Run the complete managed lifecycle:
+
+```bash
+uv run python \
+  scripts/run_lifecycle_simulation.py \
+  --config dev.yaml \
+  --retraining enabled
+```
+
+By default, every invocation recreates the isolated simulation workspace
+under `data/simulation/runtime/`. Pass `--keep-runtime` only when deliberately
+continuing an interrupted or partially completed run.
+
+The simulation never changes the normal development paths or active serving
+pointer. Candidate models, monitoring files, batches, feature state and
+serving releases are written into the isolated runtime workspace.
+
+### Reference results
+
+Versioned reference results are stored under:
+
+```text
+examples/lifecycle_simulation/
+```
+
+Generated runs are written below:
+
+```text
+examples/lifecycle_simulation/generated/
+```
+
+Generated results are ignored by Git, while the reference results remain
+stable and reviewable.
+
+In the checked-in reference scenario, the managed lifecycle reduces final
+RMSE from approximately `2487.88` to `1065.79`, a relative improvement of
+about `57.2%`. Three retraining events occur, but only the final challenger is
+promoted to champion.
+
+### Simulation dashboard
+
+Start the dashboard:
+
+```bash
+make dashboard-up
+```
+
+Open:
+
+```text
+http://localhost:8501
+```
+
+Select **Lifecycle Simulation** in the Streamlit navigation.
+
+The page shows:
+
+- final RMSE with and without retraining;
+- relative RMSE improvement;
+- retraining and promotion counts;
+- RMSE, MAE and bias over the simulated lifecycle;
+- retraining events as purple diamonds;
+- successful champion promotion as an orange star;
+- final performance for promotional and non-promotional stores.
+
 ## Automated retraining
 
 The scheduled Prefect deployment evaluates monitoring evidence every day at
