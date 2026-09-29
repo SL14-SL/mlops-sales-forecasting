@@ -40,10 +40,21 @@ jobs:
       # Remove PYSEC-2026-3552 when MLflow supports cryptography>=50.
       # Remove PYSEC-2026-3865 when a patched MLflow release is available.
       - name: Audit Python dependencies
-        run: >-
-          uv run pip-audit
-          --ignore-vuln PYSEC-2026-3552
-          --ignore-vuln PYSEC-2026-3865
+        run: |
+          for attempt in 1 2 3; do
+            if uv run pip-audit \
+              --ignore-vuln PYSEC-2026-3552 \
+              --ignore-vuln PYSEC-2026-3865; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+
+            echo "pip-audit failed; retrying..."
+            sleep $((attempt * 10))
+          done
 
   repository-scan:
     name: Scan repository
@@ -62,6 +73,7 @@ jobs:
           scanners: vuln,secret,misconfig
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
           format: table
           exit-code: "1"
 
@@ -88,5 +100,6 @@ jobs:
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
           format: table
           exit-code: "1"
