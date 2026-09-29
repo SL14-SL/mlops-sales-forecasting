@@ -10,7 +10,20 @@ updates:
       timezone: Europe/Berlin
     open-pull-requests-limit: 5
     groups:
+      gcs-filesystem-stack:
+        patterns:
+          - fsspec
+          - gcsfs
+        update-types:
+          - minor
+          - patch
+
       python-minor-and-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - fsspec
+          - gcsfs
         update-types:
           - minor
           - patch
