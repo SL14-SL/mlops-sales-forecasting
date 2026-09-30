@@ -60,6 +60,22 @@ and changed the active serving release.
 Versioned reference results are available in
 [`examples/lifecycle_simulation/`](examples/lifecycle_simulation/).
 
+<p align="center">
+  <img
+    src="docs/images/lifecycle-simulation.png"
+    alt="Rossmann lifecycle simulation comparing a static model with the promotion-aware retraining lifecycle"
+    width="900"
+  >
+</p>
+
+<p align="center">
+  <em>
+    The static and managed scenarios follow the same model until an approved
+    challenger is promoted. The managed lifecycle finishes with a 57.2% lower
+    RMSE after three retraining events and one promotion.
+  </em>
+</p>
+
 ## What This Project Demonstrates
 
 | Capability | Implementation |

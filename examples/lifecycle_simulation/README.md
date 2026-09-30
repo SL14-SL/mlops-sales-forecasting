@@ -114,3 +114,20 @@ Open `http://localhost:8501` and select **Lifecycle Simulation**.
 
 Purple diamonds mark retraining events. The orange star marks the challenger
 that passed evaluation and was promoted to champion.
+
+<p align="center">
+  <img
+    src="../../docs/images/lifecycle-segment-performance.png"
+    alt="RMSE comparison for all open, promotional and non-promotional store segments"
+    width="900"
+  >
+</p>
+
+<p align="center">
+  <em>
+    Segment-level RMSE shows that the promoted final refit improves the
+    forecast particularly strongly for stores affected by the simulated
+    promotional drift.
+  </em>
+</p>
+
