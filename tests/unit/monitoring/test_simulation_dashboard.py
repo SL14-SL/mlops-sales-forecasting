@@ -223,18 +223,11 @@ def test_build_lifecycle_metric_chart(
     )
 
     assert len(figure.data) == 4
-    assert figure.data[0].name == (
-        "Without retraining"
-    )
-    assert figure.data[1].name == (
-        "With retraining"
-    )
-    assert figure.data[2].name == (
-        "Retraining event"
-    )
-    assert figure.data[3].name == (
-        "Challenger promoted"
-    )
+    assert figure.data[0].name == ("With retraining")
+    assert figure.data[1].name == ("Without retraining")
+    assert figure.data[1].line.dash == "dash"
+    assert figure.data[2].name == ("Retraining event")
+    assert figure.data[3].name == ("Challenger promoted")
     assert list(figure.data[3].x) == [
         2,
     ]

@@ -151,18 +151,6 @@ def build_lifecycle_metric_chart(
 
     figure.add_trace(
         go.Scatter(
-            x=without_retraining["day"],
-            y=without_retraining[metric],
-            mode="lines",
-            name="Without retraining",
-            line={
-                "color": "#EF553B",
-                "width": 2.5,
-            },
-        )
-    )
-    figure.add_trace(
-        go.Scatter(
             x=with_retraining["day"],
             y=with_retraining[metric],
             mode="lines",
@@ -171,6 +159,21 @@ def build_lifecycle_metric_chart(
                 "color": "#00CC96",
                 "width": 2.5,
             },
+            legendrank=2,
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=without_retraining["day"],
+            y=without_retraining[metric],
+            mode="lines",
+            name="Without retraining",
+            line={
+                "color": "#EF553B",
+                "width": 3,
+                "dash": "dash",
+            },
+            legendrank=1,
         )
     )
 
@@ -201,11 +204,7 @@ def build_lifecycle_metric_chart(
                 )
             )
     if "champion_promoted" in with_retraining.columns:
-        promotions = with_retraining.loc[
-            with_retraining[
-                "champion_promoted"
-            ].eq(True)
-        ]
+        promotions = with_retraining.loc[with_retraining["champion_promoted"].eq(True)]
 
         if not promotions.empty:
             figure.add_trace(
@@ -223,10 +222,7 @@ def build_lifecycle_metric_chart(
                             "width": 1,
                         },
                     },
-                    text=[
-                        "Challenger promoted to champion"
-                    ]
-                    * len(promotions),
+                    text=["Challenger promoted to champion"] * len(promotions),
                     hovertemplate=(
                         "Day %{x}<br>"
                         f"{supported_metrics[metric]}: "
