@@ -16,7 +16,12 @@ def build_config(
         parents=True,
     )
     (source_raw / "train.csv").write_text(
-        "Store,Date,Sales\n1,2026-01-01,100\n",
+        (
+            "Store,Date,Sales,StateHoliday\n"
+            "1,2026-01-01,100,0\n"
+            "1,2026-01-02,110,0\n"
+            "1,2026-01-03,120,0\n"
+        ),
         encoding="utf-8",
     )
     (source_raw / "store.csv").write_text(
@@ -38,6 +43,10 @@ def build_config(
         "simulation": {
             "runtime_path": str(tmp_path / "simulation" / "runtime"),
         },
+        "tracking": {
+            "experiment_name": "forecasting-dev",
+            "model_name": "forecasting-model-dev",
+        },
     }
 
 
@@ -57,6 +66,10 @@ def test_build_simulation_config_isolates_mutable_paths(
     assert result["paths"]["predictions"] == str(runtime_root / "predictions")
 
     assert config["paths"]["raw_data"] != (result["paths"]["raw_data"])
+    assert result["tracking"]["experiment_name"] == ("forecasting-dev-simulation")
+    assert result["tracking"]["model_name"] == ("forecasting-model-dev-simulation")
+    assert config["tracking"]["experiment_name"] == ("forecasting-dev")
+    assert config["tracking"]["model_name"] == ("forecasting-model-dev")
 
 
 def test_prepare_workspace_copies_base_data(
@@ -66,20 +79,28 @@ def test_prepare_workspace_copies_base_data(
 
     workspace = prepare_simulation_workspace(config)
 
-    assert (workspace.raw_path / "train.csv").is_file()
+    source_train = Path(config["paths"]["raw_data"]) / "train.csv"
+    copied_train = workspace.raw_path / "train.csv"
+
+    assert copied_train.is_file()
+    assert copied_train.read_text(encoding="utf-8") == source_train.read_text(encoding="utf-8")
+
     assert (workspace.raw_path / "store.csv").is_file()
     assert (workspace.raw_path / "test.csv").is_file()
     assert workspace.batch_path.is_dir()
     assert workspace.state_path.parent.is_dir()
 
     assert workspace.config["paths"]["raw_data"] == str(workspace.raw_path)
+    assert workspace.config["tracking"]["model_name"] == ("forecasting-model-dev-simulation")
 
 
 def test_prepare_workspace_resets_previous_runtime(
     tmp_path: Path,
 ) -> None:
     config = build_config(tmp_path)
-    workspace = prepare_simulation_workspace(config)
+    workspace = prepare_simulation_workspace(
+        config,
+    )
     obsolete = workspace.runtime_root / "obsolete.txt"
     obsolete.write_text(
         "old simulation state",
@@ -106,7 +127,9 @@ def test_prepare_workspace_requires_base_training_data(
         FileNotFoundError,
         match="train.csv",
     ):
-        prepare_simulation_workspace(config)
+        prepare_simulation_workspace(
+            config,
+        )
 
 
 def test_workspace_rejects_remote_runtime_path(
@@ -119,4 +142,6 @@ def test_workspace_rejects_remote_runtime_path(
         ValueError,
         match="local paths",
     ):
-        prepare_simulation_workspace(config)
+        prepare_simulation_workspace(
+            config,
+        )

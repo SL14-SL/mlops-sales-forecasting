@@ -105,6 +105,22 @@ def build_simulation_config(
     }
 
     paths.update({name: str(path) for name, path in path_values.items()})
+    tracking = isolated.get("tracking")
+
+    if not isinstance(tracking, dict):
+        raise ValueError("Config must contain a mutable 'tracking' mapping.")
+
+    experiment_name = tracking.get("experiment_name")
+    model_name = tracking.get("model_name")
+
+    if not isinstance(experiment_name, str) or not experiment_name.strip():
+        raise ValueError("Config must define tracking.experiment_name.")
+
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise ValueError("Config must define tracking.model_name.")
+
+    tracking["experiment_name"] = f"{experiment_name}-simulation"
+    tracking["model_name"] = f"{model_name}-simulation"
 
     return isolated
 

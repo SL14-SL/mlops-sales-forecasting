@@ -26,8 +26,7 @@ def _numeric_values(
 def _categorical_values(
     series: pd.Series,
 ) -> pd.Series:
-    """Return normalized categorical values."""
-    return series.fillna("MISSING").astype(str)
+    return series.astype("string").fillna("MISSING").astype(str)
 
 
 def _insufficient_samples_result(

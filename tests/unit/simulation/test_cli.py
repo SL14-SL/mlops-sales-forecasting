@@ -92,80 +92,41 @@ def test_scenario_from_config(
     assert scenario.maximum_promo_uplift == -0.25
 
 
-def test_manager_initially_uses_base_release(
+def test_bootstrap_publishes_initial_release(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    base_config = build_config(tmp_path)
     workspace = build_workspace(tmp_path)
-    base_bundle = MagicMock()
+    pipeline = MagicMock()
+    lifecycle_result = MagicMock()
+    lifecycle_result.serving_release = MagicMock()
 
-    file_exists = MagicMock(return_value=False)
-    load_bundle = MagicMock(return_value=base_bundle)
-
-    monkeypatch.setattr(
-        cli,
-        "file_exists",
-        file_exists,
-    )
-    monkeypatch.setattr(
-        cli,
-        "load_active_bundle",
-        load_bundle,
-    )
-    monkeypatch.setattr(
-        cli,
-        "ModelManager",
-        MagicMock(),
-    )
-
-    cli.build_simulation_model_manager(
-        base_config=base_config,
-        workspace=workspace,
-    )
-
-    loader = cli.ModelManager.call_args.args[0]
-    result = loader()
-
-    assert result is base_bundle
-    load_bundle.assert_called_once_with(base_config)
-
-
-def test_manager_switches_to_simulation_release(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    base_config = build_config(tmp_path)
-    workspace = build_workspace(tmp_path)
-    simulation_bundle = MagicMock()
+    build_pipeline = MagicMock(return_value=pipeline)
+    run_lifecycle = MagicMock(return_value=lifecycle_result)
 
     monkeypatch.setattr(
         cli,
-        "file_exists",
-        MagicMock(return_value=True),
-    )
-    load_bundle = MagicMock(return_value=simulation_bundle)
-    monkeypatch.setattr(
-        cli,
-        "load_active_bundle",
-        load_bundle,
+        "build_project_training_pipeline",
+        build_pipeline,
     )
     monkeypatch.setattr(
         cli,
-        "ModelManager",
-        MagicMock(),
+        "run_prefect_model_lifecycle",
+        run_lifecycle,
     )
 
-    cli.build_simulation_model_manager(
-        base_config=base_config,
-        workspace=workspace,
+    result = cli.bootstrap_simulation_release(workspace)
+
+    assert result is lifecycle_result
+    build_pipeline.assert_called_once_with(workspace.config)
+    run_lifecycle.assert_called_once_with(
+        pipeline=pipeline,
+        mlflow_run_name=("simulation-initial-champion"),
+        mlflow_tags={
+            "lifecycle": "simulation",
+            "simulation_role": ("initial_champion"),
+        },
     )
-
-    loader = cli.ModelManager.call_args.args[0]
-    result = loader()
-
-    assert result is simulation_bundle
-    load_bundle.assert_called_once_with(workspace.config)
 
 
 def test_default_output_depends_on_retraining(
@@ -184,3 +145,33 @@ def test_default_output_depends_on_retraining(
 
     assert without.name == ("without_retraining.csv")
     assert with_run.name == ("with_retraining.csv")
+
+
+def test_manager_only_uses_simulation_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = build_workspace(tmp_path)
+    simulation_bundle = MagicMock()
+
+    load_bundle = MagicMock(return_value=simulation_bundle)
+    monkeypatch.setattr(
+        cli,
+        "load_active_bundle",
+        load_bundle,
+    )
+    monkeypatch.setattr(
+        cli,
+        "ModelManager",
+        MagicMock(),
+    )
+
+    cli.build_simulation_model_manager(
+        workspace=workspace,
+    )
+
+    loader = cli.ModelManager.call_args.args[0]
+    result = loader()
+
+    assert result is simulation_bundle
+    load_bundle.assert_called_once_with(workspace.config)

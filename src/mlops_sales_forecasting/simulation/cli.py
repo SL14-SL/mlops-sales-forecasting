@@ -10,17 +10,18 @@ import pandas as pd
 from mlops_sales_forecasting.configs.loader import (
     load_config,
 )
-from mlops_sales_forecasting.configs.paths import (
-    join_uri,
-)
 from mlops_sales_forecasting.inference.model_manager import (
     ModelManager,
 )
 from mlops_sales_forecasting.inference.serving import (
     load_active_bundle,
 )
-from mlops_sales_forecasting.storage.filesystem import (
-    file_exists,
+from mlops_sales_forecasting.orchestration.lifecycle_adapter import (
+    PrefectTrainingLifecycleResult,
+    run_prefect_model_lifecycle,
+)
+from mlops_sales_forecasting.pipeline.project_factory import (
+    build_project_training_pipeline,
 )
 
 from .ground_truth import DriftScenario
@@ -131,29 +132,35 @@ def scenario_from_config(
 
 def build_simulation_model_manager(
     *,
-    base_config: dict[str, Any],
     workspace: SimulationWorkspace,
 ) -> ModelManager:
-    """
-    Load the original release first and simulation releases later.
-
-    The isolated release pointer only exists after the simulation
-    lifecycle has successfully promoted a candidate.
-    """
+    """Load serving bundles only from the simulation workspace."""
 
     def bundle_loader():
-        models_path = workspace.config["paths"]["models"]
-        pointer_path = join_uri(
-            models_path,
-            _ACTIVE_POINTER_FILENAME,
-        )
-
-        if file_exists(pointer_path):
-            return load_active_bundle(workspace.config)
-
-        return load_active_bundle(base_config)
+        return load_active_bundle(workspace.config)
 
     return ModelManager(bundle_loader)
+
+
+def bootstrap_simulation_release(
+    workspace: SimulationWorkspace,
+) -> PrefectTrainingLifecycleResult:
+    """Train and publish the initial isolated simulation champion."""
+    pipeline = build_project_training_pipeline(workspace.config)
+
+    result = run_prefect_model_lifecycle(
+        pipeline=pipeline,
+        mlflow_run_name="simulation-initial-champion",
+        mlflow_tags={
+            "lifecycle": "simulation",
+            "simulation_role": "initial_champion",
+        },
+    )
+
+    if result.serving_release is None:
+        raise RuntimeError("Initial simulation training did not publish a serving release.")
+
+    return result
 
 
 def _default_output_path(
@@ -246,13 +253,17 @@ def main(
     )
 
     pool = load_simulation_pool(source_path)
+    if pool.empty:
+        raise ValueError("Simulation source must contain at least one row.")
+
     scenario = scenario_from_config(config)
     workspace = prepare_simulation_workspace(
         config,
         reset=not args.keep_runtime,
     )
+    bootstrap_simulation_release(workspace)
+
     model_manager = build_simulation_model_manager(
-        base_config=config,
         workspace=workspace,
     )
     initial_bundle = model_manager.load_initial()
