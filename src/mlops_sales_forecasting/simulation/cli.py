@@ -24,6 +24,12 @@ from mlops_sales_forecasting.pipeline.project_factory import (
     build_project_training_pipeline,
 )
 
+from .baseline import (
+    restore_simulation_baseline,
+    simulation_baseline_exists,
+    simulation_baseline_root,
+    snapshot_simulation_baseline,
+)
 from .ground_truth import DriftScenario
 from .reporting import (
     summarize_simulation_comparison,
@@ -163,6 +169,36 @@ def bootstrap_simulation_release(
     return result
 
 
+def prepare_simulation_baseline(
+    *,
+    config: Mapping[str, Any],
+    workspace: SimulationWorkspace,
+    rebuild: bool = False,
+) -> str:
+    """
+    Restore an existing baseline or create one from a fresh bootstrap.
+
+    Returns:
+        Either ``"restored"`` or ``"created"`` for operational logging.
+    """
+    baseline_root = simulation_baseline_root(config)
+
+    if not rebuild and simulation_baseline_exists(baseline_root):
+        restore_simulation_baseline(
+            workspace,
+            baseline_root=baseline_root,
+        )
+        return "restored"
+
+    bootstrap_simulation_release(workspace)
+    snapshot_simulation_baseline(
+        workspace,
+        baseline_root=baseline_root,
+    )
+
+    return "created"
+
+
 def _default_output_path(
     *,
     config: Mapping[str, Any],
@@ -214,6 +250,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=("Reuse the existing simulation runtime instead of resetting it."),
     )
+    parser.add_argument(
+        "--rebuild-baseline",
+        action="store_true",
+        help=("Retrain and replace the saved initial simulation baseline."),
+    )
 
     return parser
 
@@ -261,7 +302,24 @@ def main(
         config,
         reset=not args.keep_runtime,
     )
-    bootstrap_simulation_release(workspace)
+    if args.keep_runtime and args.rebuild_baseline:
+        raise ValueError("--keep-runtime and --rebuild-baseline cannot be used together.")
+
+    if args.keep_runtime:
+        pointer_path = Path(workspace.config["paths"]["models"]) / "active_serving_release.json"
+
+        if not pointer_path.is_file():
+            raise FileNotFoundError(
+                "--keep-runtime requires an existing simulation serving release."
+            )
+
+        baseline_action = "kept"
+    else:
+        baseline_action = prepare_simulation_baseline(
+            config=config,
+            workspace=workspace,
+            rebuild=args.rebuild_baseline,
+        )
 
     model_manager = build_simulation_model_manager(
         workspace=workspace,
@@ -271,6 +329,7 @@ def main(
     print(
         "Simulation started | "
         f"initial_release={initial_bundle.release_id} | "
+        f"baseline={baseline_action} | "
         f"scenario={scenario.name} | "
         f"retraining={args.retraining} | "
         f"maximum_days={maximum_days}"
@@ -305,4 +364,5 @@ __all__ = [
     "main",
     "scenario_from_config",
     "summarize_simulation_comparison",
+    "prepare_simulation_baseline",
 ]

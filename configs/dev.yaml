@@ -178,6 +178,7 @@ costs:
 simulation:
   source_path: "data/simulation/simulation_ground_truth.csv"
   runtime_path: "data/simulation/runtime"
+  baseline_path: "data/simulation/baseline"
   output_path: "examples/lifecycle_simulation/generated"
   scenario: "gradual_promo_shift"
   drift_start_day: 20

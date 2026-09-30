@@ -175,3 +175,108 @@ def test_manager_only_uses_simulation_release(
 
     assert result is simulation_bundle
     load_bundle.assert_called_once_with(workspace.config)
+
+
+def test_existing_baseline_is_restored(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = build_config(tmp_path)
+    config["simulation"]["baseline_path"] = str(tmp_path / "baseline")
+    workspace = build_workspace(tmp_path)
+    baseline_root = Path(config["simulation"]["baseline_path"])
+
+    monkeypatch.setattr(
+        cli,
+        "simulation_baseline_root",
+        MagicMock(return_value=baseline_root),
+    )
+    monkeypatch.setattr(
+        cli,
+        "simulation_baseline_exists",
+        MagicMock(return_value=True),
+    )
+    restore = MagicMock()
+    monkeypatch.setattr(
+        cli,
+        "restore_simulation_baseline",
+        restore,
+    )
+    bootstrap = MagicMock()
+    monkeypatch.setattr(
+        cli,
+        "bootstrap_simulation_release",
+        bootstrap,
+    )
+    snapshot = MagicMock()
+    monkeypatch.setattr(
+        cli,
+        "snapshot_simulation_baseline",
+        snapshot,
+    )
+
+    result = cli.prepare_simulation_baseline(
+        config=config,
+        workspace=workspace,
+    )
+
+    assert result == "restored"
+    restore.assert_called_once_with(
+        workspace,
+        baseline_root=baseline_root,
+    )
+    bootstrap.assert_not_called()
+    snapshot.assert_not_called()
+
+
+def test_rebuild_creates_new_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = build_config(tmp_path)
+    config["simulation"]["baseline_path"] = str(tmp_path / "baseline")
+    workspace = build_workspace(tmp_path)
+    baseline_root = Path(config["simulation"]["baseline_path"])
+
+    monkeypatch.setattr(
+        cli,
+        "simulation_baseline_root",
+        MagicMock(return_value=baseline_root),
+    )
+    monkeypatch.setattr(
+        cli,
+        "simulation_baseline_exists",
+        MagicMock(return_value=True),
+    )
+    restore = MagicMock()
+    monkeypatch.setattr(
+        cli,
+        "restore_simulation_baseline",
+        restore,
+    )
+    bootstrap = MagicMock()
+    monkeypatch.setattr(
+        cli,
+        "bootstrap_simulation_release",
+        bootstrap,
+    )
+    snapshot = MagicMock()
+    monkeypatch.setattr(
+        cli,
+        "snapshot_simulation_baseline",
+        snapshot,
+    )
+
+    result = cli.prepare_simulation_baseline(
+        config=config,
+        workspace=workspace,
+        rebuild=True,
+    )
+
+    assert result == "created"
+    restore.assert_not_called()
+    bootstrap.assert_called_once_with(workspace)
+    snapshot.assert_called_once_with(
+        workspace,
+        baseline_root=baseline_root,
+    )
