@@ -26,6 +26,7 @@ from mlops_sales_forecasting.pipeline.project_factory import (
 
 from .baseline import (
     restore_simulation_baseline,
+    restore_simulation_champion_alias,
     simulation_baseline_exists,
     simulation_baseline_root,
     snapshot_simulation_baseline,
@@ -185,6 +186,10 @@ def prepare_simulation_baseline(
 
     if not rebuild and simulation_baseline_exists(baseline_root):
         restore_simulation_baseline(
+            workspace,
+            baseline_root=baseline_root,
+        )
+        restore_simulation_champion_alias(
             workspace,
             baseline_root=baseline_root,
         )

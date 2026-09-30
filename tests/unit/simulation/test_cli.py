@@ -202,6 +202,12 @@ def test_existing_baseline_is_restored(
         "restore_simulation_baseline",
         restore,
     )
+    restore_alias = MagicMock()
+    monkeypatch.setattr(
+        cli,
+        "restore_simulation_champion_alias",
+        restore_alias,
+    )
     bootstrap = MagicMock()
     monkeypatch.setattr(
         cli,
@@ -227,6 +233,10 @@ def test_existing_baseline_is_restored(
     )
     bootstrap.assert_not_called()
     snapshot.assert_not_called()
+    restore_alias.assert_called_once_with(
+        workspace,
+        baseline_root=(tmp_path / "baseline").resolve(),
+    )
 
 
 def test_rebuild_creates_new_baseline(

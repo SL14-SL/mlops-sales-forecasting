@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+from mlflow import MlflowClient
 
 from .workspace import SimulationWorkspace
 
@@ -124,6 +127,116 @@ def snapshot_simulation_baseline(
         runtime_root,
         baseline_root,
     )
+
+
+def _require_config_string(
+    mapping: Mapping[str, Any],
+    name: str,
+    *,
+    section_name: str,
+) -> str:
+    value = mapping.get(name)
+
+    if not isinstance(value, str) or not value.strip() or value.startswith("${"):
+        raise ValueError(
+            f"Config value '{section_name}.{name}' must be a resolved non-empty string."
+        )
+
+    return value
+
+
+def _baseline_model_identity(
+    baseline_root: Path,
+) -> tuple[str, str]:
+    pointer_path = baseline_root / _ACTIVE_POINTER_PATH
+
+    pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+
+    if not isinstance(pointer, dict):
+        raise ValueError("Simulation baseline pointer must contain a JSON object.")
+
+    release_id = pointer.get("release_id")
+
+    if not isinstance(release_id, str) or not release_id.strip():
+        raise ValueError("Simulation baseline pointer does not contain a valid release ID.")
+
+    manifest_path = (
+        baseline_root / "models" / "serving_releases" / release_id / "serving_manifest.json"
+    )
+
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Simulation baseline serving manifest is missing: {manifest_path}")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    if not isinstance(manifest, dict):
+        raise ValueError("Simulation baseline serving manifest must contain a JSON object.")
+
+    model = manifest.get("model")
+
+    if not isinstance(model, dict):
+        raise ValueError(
+            "Simulation baseline serving manifest does not contain a valid model reference."
+        )
+
+    model_name = model.get("name")
+    model_version = model.get("version")
+
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise ValueError("Simulation baseline model name is invalid.")
+
+    if not isinstance(model_version, str) or not model_version.strip():
+        raise ValueError("Simulation baseline model version is invalid.")
+
+    return model_name, model_version
+
+
+def restore_simulation_champion_alias(
+    workspace: SimulationWorkspace,
+    *,
+    baseline_root: Path,
+) -> tuple[str, str]:
+    """Restore the MLflow serving alias saved in the baseline."""
+    runtime_root = workspace.runtime_root.resolve()
+    baseline_root = baseline_root.resolve()
+
+    _validate_separate_roots(
+        runtime_root=runtime_root,
+        baseline_root=baseline_root,
+    )
+
+    model_name, model_version = _baseline_model_identity(baseline_root)
+
+    tracking = workspace.config.get("tracking")
+    serving = workspace.config.get("serving")
+
+    if not isinstance(tracking, Mapping):
+        raise ValueError("Config must contain a valid 'tracking' section.")
+
+    if not isinstance(serving, Mapping):
+        raise ValueError("Config must contain a valid 'serving' section.")
+
+    tracking_uri = _require_config_string(
+        tracking,
+        "mlflow_tracking_uri",
+        section_name="tracking",
+    )
+    serving_alias = _require_config_string(
+        serving,
+        "alias",
+        section_name="serving",
+    )
+
+    client = MlflowClient(
+        tracking_uri=tracking_uri,
+    )
+    client.set_registered_model_alias(
+        name=model_name,
+        alias=serving_alias,
+        version=model_version,
+    )
+
+    return model_name, model_version
 
 
 def restore_simulation_baseline(
