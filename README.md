@@ -325,6 +325,21 @@ Each input row represents one store and forecast date. The serving layer:
 Unknown stores, malformed fields and dates outside the known calendar are
 rejected with HTTP `422`.
 
+<p align="center">
+  <img
+    src="docs/images/api-openapi-contract.png"
+    alt="FastAPI OpenAPI contract with health, reload and prediction endpoints"
+    width="900"
+  >
+</p>
+
+<p align="center">
+  <em>
+    The generated OpenAPI contract exposes separate liveness, readiness,
+    controlled reload and authenticated prediction endpoints.
+  </em>
+</p>
+
 ## Monitoring and Dashboards
 
 Prometheus metrics are exposed at:
@@ -357,6 +372,21 @@ values.
 
 See [Monitoring, SLOs and alerting](docs/monitoring-and-slos.md) for metric
 definitions, thresholds and alert rules.
+
+<p align="center">
+  <img
+    src="docs/images/grafana-prediction-overview.png"
+    alt="Grafana dashboard showing prediction traffic, error rate and latency percentiles"
+    width="900"
+  >
+</p>
+
+<p align="center">
+  <em>
+    Prometheus and Grafana expose prediction throughput, request status,
+    error rate and p50/p95 model-serving latency from real API requests.
+  </em>
+</p>
 
 ## Lifecycle Simulation
 
@@ -498,6 +528,21 @@ git diff --check
 
 GitHub Actions workflows cover CI, security scanning, Terraform validation,
 deployment and Cloud Run rollback.
+
+<p align="center">
+  <img
+    src="docs/images/github-actions-checks.png"
+    alt="Successful GitHub Actions checks for tests, dependency audit, repository scan and container scan"
+    width="900"
+  >
+</p>
+
+<p align="center">
+  <em>
+    Pull requests are gated by automated tests, dependency auditing,
+    repository scanning and container-image scanning.
+  </em>
+</p>
 
 ## Technology Stack
 

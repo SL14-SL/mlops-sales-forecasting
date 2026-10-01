@@ -262,6 +262,21 @@ Possible service-level statuses are:
 - `duplicate`;
 - `retrained`.
 
+<p align="center">
+  <img
+    src="images/prefect-lifecycle-runs.png"
+    alt="Completed Prefect runs for the training model lifecycle"
+    width="900"
+  >
+</p>
+
+<p align="center">
+  <em>
+    Prefect records repeated policy-controlled lifecycle executions with
+    explicit run status, parameters and execution duration.
+  </em>
+</p>
+
 ## Retraining and Promotion Are Independent
 
 `train_candidate` authorizes model training, not champion replacement.
@@ -283,6 +298,21 @@ The required evaluation segments are:
 
 A rejected challenger remains recorded in MLflow but does not modify the
 active serving-release pointer.
+
+<p align="center">
+  <img
+    src="images/mlflow-model-registry.png"
+    alt="MLflow Model Registry showing the promoted simulation champion and prior model versions"
+    width="900"
+  >
+</p>
+
+<p align="center">
+  <em>
+    MLflow retains the complete candidate history while the champion alias
+    identifies the model version approved for serving.
+  </em>
+</p>
 
 ## Design Limitations
 
