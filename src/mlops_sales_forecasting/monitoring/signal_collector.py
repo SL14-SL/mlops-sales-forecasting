@@ -270,6 +270,27 @@ def _require_path(
     return value
 
 
+def _trigger_enabled(
+    settings: Mapping[str, Any],
+    name: str,
+) -> bool:
+    """Return whether one retraining trigger is enabled."""
+    triggers = settings.get(
+        "triggers",
+        {},
+    )
+
+    if not isinstance(triggers, Mapping):
+        raise ValueError("Retraining trigger settings must be a mapping.")
+
+    return bool(
+        triggers.get(
+            name,
+            True,
+        )
+    )
+
+
 def collect_retraining_signals(
     *,
     config: Mapping[str, Any],
@@ -370,7 +391,18 @@ def collect_retraining_signals(
         mae_limit=float(performance_settings["mae_limit"]),
         absolute_bias_limit=float(performance_settings["absolute_bias_limit"]),
     )
-
+    performance_trigger_enabled = _trigger_enabled(
+        settings,
+        "performance_degradation",
+    )
+    drift_trigger_enabled = _trigger_enabled(
+        settings,
+        "feature_drift",
+    )
+    scheduled_trigger_enabled = _trigger_enabled(
+        settings,
+        "scheduled_refresh",
+    )
     effective_training_state = {
         **retraining_state,
         "last_retrained_at_utc": (last_training_at_utc),
@@ -398,12 +430,12 @@ def collect_retraining_signals(
         new_training_rows=new_training_rows,
         minimum_training_rows=int(settings["minimum_new_training_rows"]),
         data_quality_ok=data_quality_ok,
-        performance_degraded=(performance_result.triggered),
-        feature_drift_persistent=(drift_result.triggered),
+        performance_degraded=(performance_trigger_enabled and performance_result.triggered),
+        feature_drift_persistent=(drift_trigger_enabled and drift_result.triggered),
         cooldown_active=cooldown_active,
         budget_available=(new_training_rows <= maximum_rows),
         batch_ids=batch_ids,
-        scheduled_retraining_due=(scheduled_retraining_due),
+        scheduled_retraining_due=(scheduled_trigger_enabled and scheduled_retraining_due),
         days_since_last_training=(days_since_last_training),
         performance_window_end=(performance_result.window_end),
         drift_window_end=(drift_result.window_end),

@@ -187,3 +187,8 @@ simulation:
   maximum_base_uplift: 0.0
   maximum_promo_uplift: -0.25
   maximum_days: 95
+  retraining_triggers:
+    scheduled_refresh: true
+    feature_drift: false
+    performance_degradation: true
+  scheduled_interval_hours: 720

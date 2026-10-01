@@ -1,6 +1,10 @@
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
+
+import pandas as pd
 
 from ..monitoring.monitoring_refresh import (
     refresh_monitoring_signals,
@@ -97,12 +101,61 @@ def _decision_result(
     )
 
 
+def _utc_isoformat(
+    value: datetime | pd.Timestamp | None,
+) -> str | None:
+    """Normalize an optional logical evaluation time to UTC."""
+    if value is None:
+        return None
+
+    timestamp = pd.Timestamp(value)
+
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("UTC")
+    else:
+        timestamp = timestamp.tz_convert("UTC")
+
+    return timestamp.isoformat()
+
+
+def _build_retraining_config(
+    config: Mapping[str, Any],
+    decision: RetrainingDecision,
+) -> dict[str, Any]:
+    """Build isolated training config for one policy decision."""
+    training_config = deepcopy(dict(config))
+    training = training_config.get("training")
+
+    if not isinstance(training, dict):
+        training = {}
+        training_config["training"] = training
+
+    drift_triggers = {
+        "performance_degradation",
+        "feature_drift",
+    }
+    training["is_drift_run"] = bool(drift_triggers.intersection(decision.trigger_types))
+
+    return training_config
+
+
 def run_auto_retraining(
     *,
     config: Mapping[str, Any],
+    evaluated_at: datetime | pd.Timestamp | None = None,
 ) -> AutoRetrainingResult:
     """Evaluate signals and run at most one training lifecycle."""
-    refresh_result = refresh_monitoring_signals(config=config)
+    normalized_evaluation_time = _utc_isoformat(evaluated_at)
+    observed_at = (
+        None
+        if normalized_evaluation_time is None
+        else pd.Timestamp(normalized_evaluation_time).to_pydatetime()
+    )
+
+    refresh_result = refresh_monitoring_signals(
+        config=config,
+        observed_at=observed_at,
+    )
 
     logger.info(
         "Monitoring evidence refreshed | "
@@ -122,7 +175,10 @@ def run_auto_retraining(
         refresh_result.performance_reason,
     )
 
-    signals = collect_retraining_signals(config=config)
+    signals = collect_retraining_signals(
+        config=config,
+        evaluated_at=evaluated_at,
+    )
     decision = decide_retraining(signals)
 
     if decision.action is RetrainingAction.BLOCK:
@@ -149,10 +205,14 @@ def run_auto_retraining(
             reasons=("Decision was already processed.",),
         )
 
-    pipeline = build_project_training_pipeline(config)
+    lifecycle_config = _build_retraining_config(
+        config,
+        decision,
+    )
+    pipeline = build_project_training_pipeline(lifecycle_config)
     lifecycle = run_prefect_model_lifecycle(
         pipeline=pipeline,
-        pipeline_run_id=(decision.decision_id),
+        pipeline_run_id=decision.decision_id,
         mlflow_tags={
             "retraining.decision_id": (decision.decision_id),
             "retraining.trigger_types": ",".join(decision.trigger_types),
@@ -164,6 +224,7 @@ def run_auto_retraining(
         decision=decision,
         training_result=lifecycle_state,
         state_path=state_path,
+        recorded_at_utc=normalized_evaluation_time,
     )
 
     return AutoRetrainingResult(

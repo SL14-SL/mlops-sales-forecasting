@@ -1,6 +1,7 @@
 import io
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -287,6 +288,7 @@ def _load_reference_features(
 def refresh_monitoring_signals(
     *,
     config: Mapping[str, Any],
+    observed_at: datetime | None = None,
 ) -> MonitoringRefreshResult:
     """Refresh performance and feature-drift evidence."""
     paths = _require_mapping(
@@ -501,6 +503,7 @@ def refresh_monitoring_signals(
                 0.10,
             )
         ),
+        observed_at=observed_at,
     )
 
     return MonitoringRefreshResult(

@@ -147,6 +147,16 @@ def test_default_output_depends_on_retraining(
     assert with_run.name == ("with_retraining.csv")
 
 
+def test_default_evaluation_output_uses_lifecycle_stem(
+    tmp_path: Path,
+) -> None:
+    lifecycle_path = tmp_path / "results" / "with_retraining.csv"
+
+    result = cli._default_evaluation_output_path(lifecycle_path)
+
+    assert result == (tmp_path / "results" / "with_retraining_evaluation.parquet")
+
+
 def test_manager_only_uses_simulation_release(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

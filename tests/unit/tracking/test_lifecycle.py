@@ -62,18 +62,9 @@ def build_registration() -> ModelRegistrationResult:
     )
 
 
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "evaluate_and_promote_candidate"
-)
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "assign_challenger"
-)
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "register_approved_model"
-)
+@patch("mlops_sales_forecasting.tracking.lifecycle.evaluate_and_promote_candidate")
+@patch("mlops_sales_forecasting.tracking.lifecycle.assign_challenger")
+@patch("mlops_sales_forecasting.tracking.lifecycle.register_approved_model")
 def test_approved_candidate_completes_lifecycle(
     register_approved_model: MagicMock,
     assign_challenger: MagicMock,
@@ -102,10 +93,7 @@ def test_approved_candidate_completes_lifecycle(
     )
 
     assert result.registration is registration
-    assert (
-        result.challenger_assignment
-        is challenger_assignment
-    )
+    assert result.challenger_assignment is challenger_assignment
     assert result.promotion is promotion
 
     register_approved_model.assert_called_once_with(
@@ -124,21 +112,14 @@ def test_approved_candidate_completes_lifecycle(
         evaluation=evaluation_result,
         policy=POLICY,
         config=CONFIG,
+        champion_metrics_provider=None,
+        promotion_guardrail=None,
     )
 
 
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "evaluate_and_promote_candidate"
-)
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "assign_challenger"
-)
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "register_approved_model"
-)
+@patch("mlops_sales_forecasting.tracking.lifecycle.evaluate_and_promote_candidate")
+@patch("mlops_sales_forecasting.tracking.lifecycle.assign_challenger")
+@patch("mlops_sales_forecasting.tracking.lifecycle.register_approved_model")
 def test_rejected_candidate_stops_after_registration_decision(
     register_approved_model: MagicMock,
     assign_challenger: MagicMock,
@@ -172,18 +153,9 @@ def test_rejected_candidate_stops_after_registration_decision(
     evaluate_and_promote_candidate.assert_not_called()
 
 
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "evaluate_and_promote_candidate"
-)
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "assign_challenger"
-)
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "register_approved_model"
-)
+@patch("mlops_sales_forecasting.tracking.lifecycle.evaluate_and_promote_candidate")
+@patch("mlops_sales_forecasting.tracking.lifecycle.assign_challenger")
+@patch("mlops_sales_forecasting.tracking.lifecycle.register_approved_model")
 def test_custom_artifact_path_is_forwarded(
     register_approved_model: MagicMock,
     assign_challenger: MagicMock,
@@ -213,14 +185,9 @@ def test_custom_artifact_path_is_forwarded(
         model_uri=None,
     )
 
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "finalize_model_candidate"
-)
-@patch(
-    "mlops_sales_forecasting.tracking.lifecycle."
-    "load_promotion_policy"
-)
+
+@patch("mlops_sales_forecasting.tracking.lifecycle.finalize_model_candidate")
+@patch("mlops_sales_forecasting.tracking.lifecycle.load_promotion_policy")
 def test_configured_lifecycle_loads_policy(
     load_promotion_policy: MagicMock,
     finalize_model_candidate: MagicMock,
@@ -230,9 +197,7 @@ def test_configured_lifecycle_loads_policy(
     lifecycle_result = MagicMock()
 
     load_promotion_policy.return_value = POLICY
-    finalize_model_candidate.return_value = (
-        lifecycle_result
-    )
+    finalize_model_candidate.return_value = lifecycle_result
 
     result = finalize_configured_model_candidate(
         training_result=training_result,
@@ -243,9 +208,7 @@ def test_configured_lifecycle_loads_policy(
     )
 
     assert result is lifecycle_result
-    load_promotion_policy.assert_called_once_with(
-        CONFIG
-    )
+    load_promotion_policy.assert_called_once_with(CONFIG)
     finalize_model_candidate.assert_called_once_with(
         training_result=training_result,
         evaluation_result=evaluation_result,
@@ -253,4 +216,6 @@ def test_configured_lifecycle_loads_policy(
         config=CONFIG,
         artifact_path="trained/model",
         logged_model_uri="models:/m-logged-model",
+        champion_metrics_provider=None,
+        promotion_guardrail=None,
     )

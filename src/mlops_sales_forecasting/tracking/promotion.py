@@ -1,7 +1,11 @@
 import math
-from collections.abc import Mapping
+from collections.abc import (
+    Callable,
+    Mapping,
+)
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 
 
 class MetricDirection(StrEnum):
@@ -9,6 +13,38 @@ class MetricDirection(StrEnum):
 
     MAXIMIZE = "maximize"
     MINIMIZE = "minimize"
+
+
+ChampionMetricsProvider = Callable[
+    [str],
+    Mapping[str, float],
+]
+
+
+class PromotionGuardrailOutcome(Protocol):
+    """Minimal result required from a promotion guardrail."""
+
+    approved: bool
+    reasons: tuple[str, ...]
+
+
+class PromotionGuardrail(Protocol):
+    """Callable paired-metric promotion guardrail."""
+
+    def __call__(
+        self,
+        *,
+        candidate_metrics: Mapping[
+            str,
+            float,
+        ],
+        champion_metrics: Mapping[
+            str,
+            float,
+        ],
+    ) -> PromotionGuardrailOutcome:
+        """Evaluate paired candidate and champion metrics."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -21,21 +57,14 @@ class PromotionPolicy:
     allow_initial_champion: bool = True
 
     def __post_init__(self) -> None:
-        if (
-            not isinstance(self.metric_name, str)
-            or not self.metric_name
-        ):
-            raise ValueError(
-                "Promotion metric name must not be empty."
-            )
+        if not isinstance(self.metric_name, str) or not self.metric_name:
+            raise ValueError("Promotion metric name must not be empty.")
 
         if not isinstance(
             self.direction,
             MetricDirection,
         ):
-            raise TypeError(
-                "Promotion metric direction is invalid."
-            )
+            raise TypeError("Promotion metric direction is invalid.")
 
         if (
             isinstance(
@@ -46,23 +75,16 @@ class PromotionPolicy:
                 self.minimum_improvement,
                 (int, float),
             )
-            or not math.isfinite(
-                float(self.minimum_improvement)
-            )
+            or not math.isfinite(float(self.minimum_improvement))
             or self.minimum_improvement < 0
         ):
-            raise ValueError(
-                "Minimum improvement must be "
-                "a finite non-negative number."
-            )
+            raise ValueError("Minimum improvement must be a finite non-negative number.")
 
         if not isinstance(
             self.allow_initial_champion,
             bool,
         ):
-            raise TypeError(
-                "allow_initial_champion must be a boolean."
-            )
+            raise TypeError("allow_initial_champion must be a boolean.")
 
 
 @dataclass(frozen=True)
@@ -85,10 +107,7 @@ def _metric_value(
 ) -> float:
     """Return one validated model metric."""
     if metric_name not in metrics:
-        raise ValueError(
-            f"{source} metrics do not contain "
-            f"promotion metric '{metric_name}'."
-        )
+        raise ValueError(f"{source} metrics do not contain promotion metric '{metric_name}'.")
 
     value = metrics[metric_name]
 
@@ -97,10 +116,7 @@ def _metric_value(
         or not isinstance(value, (int, float))
         or not math.isfinite(float(value))
     ):
-        raise ValueError(
-            f"{source} promotion metric "
-            f"'{metric_name}' must be finite."
-        )
+        raise ValueError(f"{source} promotion metric '{metric_name}' must be finite.")
 
     return float(value)
 
@@ -113,9 +129,7 @@ def evaluate_promotion(
 ) -> PromotionDecision:
     """Evaluate whether a candidate should become champion."""
     if not isinstance(policy, PromotionPolicy):
-        raise TypeError(
-            "Promotion evaluation requires PromotionPolicy."
-        )
+        raise TypeError("Promotion evaluation requires PromotionPolicy.")
 
     candidate_value = _metric_value(
         candidate_metrics,
@@ -131,13 +145,9 @@ def evaluate_promotion(
             champion_value=None,
             improvement=None,
             reason=(
-                "No champion exists; candidate may "
-                "become the initial champion."
+                "No champion exists; candidate may become the initial champion."
                 if policy.allow_initial_champion
-                else (
-                    "No champion exists and automatic "
-                    "initial promotion is disabled."
-                )
+                else ("No champion exists and automatic initial promotion is disabled.")
             ),
         )
 
@@ -147,24 +157,17 @@ def evaluate_promotion(
         source="Champion",
     )
 
-    if (
-        policy.direction
-        is MetricDirection.MAXIMIZE
-    ):
-        improvement = (
-            candidate_value - champion_value
-        )
+    if policy.direction is MetricDirection.MAXIMIZE:
+        improvement = candidate_value - champion_value
     else:
-        improvement = (
-            champion_value - candidate_value
-        )
+        improvement = champion_value - candidate_value
 
     promote = improvement > policy.minimum_improvement or math.isclose(
         improvement,
         policy.minimum_improvement,
         rel_tol=1e-9,
         abs_tol=1e-12,
-    )   
+    )
 
     return PromotionDecision(
         promote=promote,
@@ -173,12 +176,8 @@ def evaluate_promotion(
         champion_value=champion_value,
         improvement=improvement,
         reason=(
-            "Candidate satisfies the configured "
-            "promotion threshold."
+            "Candidate satisfies the configured promotion threshold."
             if promote
-            else (
-                "Candidate does not satisfy the "
-                "configured promotion threshold."
-            )
+            else ("Candidate does not satisfy the configured promotion threshold.")
         ),
     )

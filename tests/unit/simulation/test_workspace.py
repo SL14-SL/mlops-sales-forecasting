@@ -40,12 +40,21 @@ def build_config(
             "monitoring": "data/monitoring",
             "predictions": "data/predictions",
         },
-        "simulation": {
-            "runtime_path": str(tmp_path / "simulation" / "runtime"),
+        "monitoring": {
+            "retraining": {},
         },
         "tracking": {
             "experiment_name": "forecasting-dev",
             "model_name": "forecasting-model-dev",
+        },
+        "simulation": {
+            "retraining_triggers": {
+                "scheduled_refresh": False,
+                "feature_drift": False,
+                "performance_degradation": True,
+            },
+            "runtime_path": str(tmp_path / "simulation" / "runtime"),
+            "scheduled_interval_hours": 720,
         },
     }
 
@@ -60,6 +69,13 @@ def test_build_simulation_config_isolates_mutable_paths(
         config,
         runtime_root=runtime_root,
     )
+
+    assert result["monitoring"]["retraining"]["triggers"] == {
+        "scheduled_refresh": False,
+        "feature_drift": False,
+        "performance_degradation": True,
+    }
+    assert result["monitoring"]["retraining"]["scheduled_interval_hours"] == 720
 
     assert result["paths"]["raw_data"] == str(runtime_root / "raw")
     assert result["paths"]["monitoring"] == str(runtime_root / "monitoring")

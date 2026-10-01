@@ -31,6 +31,9 @@ from .baseline import (
     simulation_baseline_root,
     snapshot_simulation_baseline,
 )
+from .evaluation import (
+    export_runtime_evaluation,
+)
 from .ground_truth import DriftScenario
 from .reporting import (
     summarize_simulation_comparison,
@@ -224,6 +227,15 @@ def _default_output_path(
     return output_root / filename
 
 
+def _default_evaluation_output_path(
+    output_path: str | Path,
+) -> Path:
+    """Return the companion evaluation path."""
+    lifecycle_path = Path(output_path)
+
+    return lifecycle_path.with_name(f"{lifecycle_path.stem}_evaluation.parquet")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=("Run the isolated Rossmann lifecycle simulation.")
@@ -249,6 +261,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         default=None,
+    )
+    parser.add_argument(
+        "--evaluation-output",
+        default=None,
+        help=("Optional Parquet destination for the final open-store evaluation window."),
     )
     parser.add_argument(
         "--keep-runtime",
@@ -296,6 +313,11 @@ def main(
             config=config,
             retraining_enabled=(retraining_enabled),
         )
+    )
+    evaluation_output_path = (
+        Path(args.evaluation_output)
+        if args.evaluation_output is not None
+        else _default_evaluation_output_path(output_path)
     )
 
     pool = load_simulation_pool(source_path)
@@ -349,6 +371,10 @@ def main(
         output_path=output_path,
         maximum_days=maximum_days,
     )
+    evaluation = export_runtime_evaluation(
+        runtime_root=workspace.runtime_root,
+        output_path=evaluation_output_path,
+    )
 
     final_row = result.iloc[-1]
 
@@ -357,7 +383,9 @@ def main(
         f"days={len(result)} | "
         f"final_rmse={final_row['rmse']} | "
         f"final_event={final_row['event']} | "
-        f"output={output_path}"
+        f"evaluation_rows={len(evaluation)} | "
+        f"output={output_path} | "
+        f"evaluation_output={evaluation_output_path}"
     )
 
     return 0

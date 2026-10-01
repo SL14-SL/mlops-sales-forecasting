@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from prefect import flow
@@ -35,6 +36,12 @@ from ..tracking.model_artifact import (
     LoggedModelArtifact,
     log_model_artifact,
 )
+from ..training.promotion_guardrails import (
+    evaluate_promotion_guardrails,
+)
+from .champion_evaluation import (
+    build_champion_metrics_provider,
+)
 from .lifecycle_notifications import (
     notify_candidate_outcome,
     notify_lifecycle_failure,
@@ -51,9 +58,7 @@ class PrefectTrainingLifecycleResult:
     pipeline: TrackedPipelineResult
     model_artifact: LoggedModelArtifact
     candidate: CandidateLifecycleResult
-    serving_release: (
-        PublishedServingRelease | None
-    )
+    serving_release: PublishedServingRelease | None
 
 
 def _models_path(
@@ -64,22 +69,12 @@ def _models_path(
     paths = config.get("paths")
 
     if not isinstance(paths, Mapping):
-        raise ValueError(
-            "Config must contain a valid "
-            "'paths' section."
-        )
+        raise ValueError("Config must contain a valid 'paths' section.")
 
     models_path = paths.get("models")
 
-    if (
-        not isinstance(models_path, str)
-        or not models_path.strip()
-        or models_path.startswith("${")
-    ):
-        raise ValueError(
-            "Config path 'models' must be a "
-            "resolved non-empty string."
-        )
+    if not isinstance(models_path, str) or not models_path.strip() or models_path.startswith("${"):
+        raise ValueError("Config path 'models' must be a resolved non-empty string.")
 
     return models_path
 
@@ -94,70 +89,41 @@ def _publish_promoted_release(
 
     promotion = candidate_result.promotion
 
-    if (
-        promotion is None
-        or not promotion.decision.promote
-    ):
+    if promotion is None or not promotion.decision.promote:
         return None
 
     pipeline_result = tracked_result.pipeline
 
     try:
-        release_input = (
-            build_serving_release_input(
-                provider=(
-                    pipeline.release_input_provider
-                ),
-                training_result=(
-                    pipeline_result.training
-                ),
-                evaluation_result=(
-                    pipeline_result.evaluation
-                ),
-                config=pipeline.config,
-            )
+        release_input = build_serving_release_input(
+            provider=(pipeline.release_input_provider),
+            training_result=(pipeline_result.training),
+            evaluation_result=(pipeline_result.evaluation),
+            config=pipeline.config,
         )
 
         return publish_serving_release(
-            models_path=_models_path(
-                pipeline.config
-            ),
-            registration=(
-                candidate_result.registration
-            ),
+            models_path=_models_path(pipeline.config),
+            registration=(candidate_result.registration),
             promotion=promotion,
             task_type=release_input.task_type,
-            model_type=(
-                release_input.model_type
-            ),
+            model_type=(release_input.model_type),
             sources=release_input.sources,
             metadata=release_input.metadata,
-            dataset_version=(
-                release_input.dataset_version
-            ),
-            config_hash=(
-                release_input.config_hash
-            ),
-            git_commit=(
-                release_input.git_commit
-            ),
+            dataset_version=(release_input.dataset_version),
+            config_hash=(release_input.config_hash),
+            git_commit=(release_input.git_commit),
         )
     except Exception as release_error:
         try:
             restore_champion(
-                registration=(
-                    candidate_result.registration
-                ),
-                previous_champion_version=(
-                    promotion
-                    .previous_champion_version
-                ),
+                registration=(candidate_result.registration),
+                previous_champion_version=(promotion.previous_champion_version),
                 config=pipeline.config,
             )
         except Exception as restoration_error:
             raise ExceptionGroup(
-                "Serving release publication and "
-                "champion restoration both failed.",
+                "Serving release publication and champion restoration both failed.",
                 [
                     release_error,
                     restoration_error,
@@ -179,23 +145,12 @@ def run_prefect_model_lifecycle(
     mlflow_run_name: str | None = None,
     mlflow_tags: Mapping[str, str] | None = None,
     artifact_path: str = "model",
-    notification_sink: (
-        NotificationSink | None
-    ) = None,
+    notification_sink: (NotificationSink | None) = None,
 ) -> PrefectTrainingLifecycleResult:
     """Run training, finalization and lifecycle notifications."""
 
-    sink = (
-        notification_sink
-        or build_notification_sink(
-            pipeline.config
-        )
-    )
-    active_run_id = (
-        pipeline_run_id
-        or mlflow_run_name
-        or "unassigned"
-    )
+    sink = notification_sink or build_notification_sink(pipeline.config)
+    active_run_id = pipeline_run_id or mlflow_run_name or "unassigned"
 
     try:
         with start_training_run(
@@ -203,65 +158,48 @@ def run_prefect_model_lifecycle(
             run_name=mlflow_run_name,
             tags=mlflow_tags,
         ) as mlflow_run_id:
-            active_run_id = (
-                pipeline_run_id
-                or mlflow_run_id
+            active_run_id = pipeline_run_id or mlflow_run_id
+
+            tracked_result = run_prefect_training_pipeline(
+                pipeline=pipeline,
+                run_id=active_run_id,
             )
 
-            tracked_result = (
-                run_prefect_training_pipeline(
-                    pipeline=pipeline,
-                    run_id=active_run_id,
-                )
-            )
+            pipeline_result = tracked_result.pipeline
 
-            pipeline_result = (
-                tracked_result.pipeline
-            )
-
-            log_training_result(
-                pipeline_result.training
-            )
-            log_evaluation_result(
-                pipeline_result.evaluation
-            )
-            model_artifact = (
-                log_model_artifact(
-                    logger=(
-                        pipeline.model_logger
-                    ),
-                    training_result=(
-                        pipeline_result.training
-                    ),
-                    config=pipeline.config,
-                    artifact_path=artifact_path,
-                )
-            )
-
-        candidate_result = (
-            finalize_configured_model_candidate(
-                training_result=(
-                    pipeline_result.training
-                ),
-                evaluation_result=(
-                    pipeline_result.evaluation
-                ),
+            log_training_result(pipeline_result.training)
+            log_evaluation_result(pipeline_result.evaluation)
+            model_artifact = log_model_artifact(
+                logger=(pipeline.model_logger),
+                training_result=(pipeline_result.training),
                 config=pipeline.config,
                 artifact_path=artifact_path,
-                logged_model_uri=(
-                    model_artifact.model_uri
-                ),
             )
+
+        champion_metrics_provider = build_champion_metrics_provider(
+            evaluator=pipeline.evaluator,
+            datasets=(pipeline_result.splits),
+            config=pipeline.config,
+        )
+        promotion_guardrail = partial(
+            evaluate_promotion_guardrails,
+            config=pipeline.config,
         )
 
-        serving_release = (
-            _publish_promoted_release(
-                pipeline=pipeline,
-                tracked_result=tracked_result,
-                candidate_result=(
-                    candidate_result
-                ),
-            )
+        candidate_result = finalize_configured_model_candidate(
+            training_result=(pipeline_result.training),
+            evaluation_result=(pipeline_result.evaluation),
+            config=pipeline.config,
+            artifact_path=artifact_path,
+            logged_model_uri=(model_artifact.model_uri),
+            champion_metrics_provider=(champion_metrics_provider),
+            promotion_guardrail=(promotion_guardrail),
+        )
+
+        serving_release = _publish_promoted_release(
+            pipeline=pipeline,
+            tracked_result=tracked_result,
+            candidate_result=(candidate_result),
         )
 
         notify_candidate_outcome(
@@ -288,8 +226,7 @@ def run_prefect_model_lifecycle(
             )
         except Exception as notification_error:
             raise ExceptionGroup(
-                "Model lifecycle and failure "
-                "notification both failed.",
+                "Model lifecycle and failure notification both failed.",
                 [
                     lifecycle_error,
                     notification_error,
