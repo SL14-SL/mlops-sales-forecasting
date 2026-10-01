@@ -41,7 +41,7 @@ resource "google_artifact_registry_repository" "containers" {
 
 resource "google_storage_bucket" "artifacts" {
   project                     = var.gcp_project_id
-  name                        = "${var.gcp_project_id}-${local.name_prefix}-artifacts"
+  name                        = "${var.gcp_project_id}-${var.environment}-artifacts"
   location                    = var.storage_location
   uniform_bucket_level_access = true
   force_destroy               = var.force_destroy_artifact_bucket
