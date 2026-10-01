@@ -192,6 +192,21 @@ curl \
 After a valid release has been activated, the same endpoint returns HTTP
 `200` and the active release ID.
 
+<p align="center">
+  <img
+    src="images/api-serving-readiness.png"
+    alt="Ready forecasting API with an active immutable serving release"
+    width="900"
+  >
+</p>
+
+<p align="center">
+  <em>
+    Readiness requires a successfully loaded immutable serving release; the
+    monitoring summary exposes the same active release identifier.
+  </em>
+</p>
+
 ## Prefect Deployment and Worker
 
 Configure the Prefect API for commands running on the host:

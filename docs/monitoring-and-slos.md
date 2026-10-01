@@ -159,6 +159,21 @@ The repository contains four dashboards:
 | `prediction-overview.json` | Prediction traffic, failures and execution latency |
 | `model-observability.json` | Forecast quality, output distributions and feature drift |
 
+<p align="center">
+  <img
+    src="images/grafana-slo-overview.png"
+    alt="Grafana SLO dashboard with availability, error budget and p95 API latency"
+    width="900"
+  >
+</p>
+
+<p align="center">
+  <em>
+    The SLO overview derives availability, remaining error budget and p95
+    latency from Prometheus recording rules over observed API traffic.
+  </em>
+</p>
+
 Dashboard definitions are stored under:
 
 ```text
