@@ -77,10 +77,8 @@ jobs:
             fi
           done
 
-          if (
-            [ "$APPLY_CHANGES" = "true" ]
-            && [ -z "${DEPLOYMENT_API_KEY:-}" ]
-          ); then
+          if [ "$APPLY_CHANGES" = "true" ] \
+            && [ -z "${DEPLOYMENT_API_KEY:-}" ]; then
             echo "Missing GitHub environment secret: API_KEY"
             exit 1
           fi
