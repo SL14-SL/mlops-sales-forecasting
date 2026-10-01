@@ -105,6 +105,70 @@ def build_simulation_config(
     }
 
     paths.update({name: str(path) for name, path in path_values.items()})
+    tracking = isolated.get("tracking")
+
+    if not isinstance(tracking, dict):
+        raise ValueError("Config must contain a mutable 'tracking' mapping.")
+
+    experiment_name = tracking.get("experiment_name")
+    model_name = tracking.get("model_name")
+
+    if not isinstance(experiment_name, str) or not experiment_name.strip():
+        raise ValueError("Config must define tracking.experiment_name.")
+
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise ValueError("Config must define tracking.model_name.")
+
+    tracking["experiment_name"] = f"{experiment_name}-simulation"
+    tracking["model_name"] = f"{model_name}-simulation"
+
+    simulation = isolated.get("simulation")
+
+    if not isinstance(simulation, dict):
+        raise ValueError("Config must contain a mutable 'simulation' mapping.")
+
+    trigger_settings = simulation.get(
+        "retraining_triggers",
+        {},
+    )
+
+    if not isinstance(
+        trigger_settings,
+        Mapping,
+    ):
+        raise ValueError("Config value 'simulation.retraining_triggers' must be a mapping.")
+
+    monitoring = isolated.get("monitoring")
+
+    if not isinstance(monitoring, dict):
+        raise ValueError("Config must contain a mutable 'monitoring' mapping.")
+
+    retraining = monitoring.get("retraining")
+
+    if not isinstance(retraining, dict):
+        raise ValueError("Config must contain a mutable 'monitoring.retraining' mapping.")
+
+    retraining["triggers"] = dict(trigger_settings)
+
+    scheduled_interval_hours = simulation.get("scheduled_interval_hours")
+
+    if scheduled_interval_hours is not None:
+        if (
+            isinstance(
+                scheduled_interval_hours,
+                bool,
+            )
+            or not isinstance(
+                scheduled_interval_hours,
+                int,
+            )
+            or scheduled_interval_hours < 1
+        ):
+            raise ValueError(
+                "Config value 'simulation.scheduled_interval_hours' must be a positive integer."
+            )
+
+        retraining["scheduled_interval_hours"] = scheduled_interval_hours
 
     return isolated
 

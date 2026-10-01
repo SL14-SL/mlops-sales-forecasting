@@ -10,7 +10,11 @@ from .aliases import (
     AliasAssignment,
     assign_challenger,
 )
-from .promotion import PromotionPolicy
+from .promotion import (
+    ChampionMetricsProvider,
+    PromotionGuardrail,
+    PromotionPolicy,
+)
 from .promotion_config import load_promotion_policy
 from .promotion_service import (
     PromotionOutcome,
@@ -39,6 +43,8 @@ def finalize_model_candidate(
     config: Mapping[str, Any],
     artifact_path: str = "model",
     logged_model_uri: str | None = None,
+    champion_metrics_provider: (ChampionMetricsProvider | None) = None,
+    promotion_guardrail: (PromotionGuardrail | None) = None,
 ) -> CandidateLifecycleResult:
     """Register, alias and possibly promote a model candidate."""
 
@@ -67,6 +73,8 @@ def finalize_model_candidate(
         evaluation=evaluation_result,
         policy=promotion_policy,
         config=config,
+        champion_metrics_provider=(champion_metrics_provider),
+        promotion_guardrail=(promotion_guardrail),
     )
 
     return CandidateLifecycleResult(
@@ -75,6 +83,7 @@ def finalize_model_candidate(
         promotion=promotion,
     )
 
+
 def finalize_configured_model_candidate(
     *,
     training_result: TrainingResult,
@@ -82,12 +91,12 @@ def finalize_configured_model_candidate(
     config: Mapping[str, Any],
     artifact_path: str = "model",
     logged_model_uri: str | None = None,
+    champion_metrics_provider: (ChampionMetricsProvider | None) = None,
+    promotion_guardrail: (PromotionGuardrail | None) = None,
 ) -> CandidateLifecycleResult:
     """Finalize a candidate using the configured promotion policy."""
 
-    promotion_policy = load_promotion_policy(
-        config
-    )
+    promotion_policy = load_promotion_policy(config)
 
     return finalize_model_candidate(
         training_result=training_result,
@@ -96,4 +105,6 @@ def finalize_configured_model_candidate(
         config=config,
         artifact_path=artifact_path,
         logged_model_uri=logged_model_uri,
+        champion_metrics_provider=(champion_metrics_provider),
+        promotion_guardrail=(promotion_guardrail),
     )

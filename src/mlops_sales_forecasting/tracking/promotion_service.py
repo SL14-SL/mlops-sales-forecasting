@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from mlflow import MlflowClient
@@ -14,7 +14,9 @@ from ..training.contracts import EvaluationResult
 from .aliases import AliasAssignment, promote_to_champion
 from .mlflow import load_mlflow_tracking_settings
 from .promotion import (
+    ChampionMetricsProvider,
     PromotionDecision,
+    PromotionGuardrail,
     PromotionPolicy,
     evaluate_promotion,
 )
@@ -36,9 +38,7 @@ def _matches_error_code(
 ) -> bool:
     """Match numeric and string MLflow error codes."""
 
-    expected_name = ErrorCode.Name(
-        expected_code
-    )
+    expected_name = ErrorCode.Name(expected_code)
 
     return error.error_code in {
         expected_code,
@@ -72,7 +72,12 @@ def _is_missing_alias_error(
 def _load_champion_metrics(
     client: MlflowClient,
     model_name: str,
-) -> tuple[str | None, Mapping[str, float] | None]:
+    *,
+    metrics_provider: (ChampionMetricsProvider | None) = None,
+) -> tuple[
+    str | None,
+    Mapping[str, float] | None,
+]:
     """Load the current champion version and its recorded run metrics."""
 
     try:
@@ -86,14 +91,25 @@ def _load_champion_metrics(
         raise
 
     if champion.run_id is None:
-        raise ValueError(
-            "The current champion model version does not reference "
-            "an MLflow run."
+        raise ValueError("The current champion model version does not reference an MLflow run.")
+
+    champion_version = str(champion.version)
+
+    if metrics_provider is not None:
+        model_uri = f"models:/{model_name}/{champion_version}"
+        current_metrics = metrics_provider(model_uri)
+
+        return (
+            champion_version,
+            dict(current_metrics),
         )
 
     run = client.get_run(champion.run_id)
 
-    return str(champion.version), dict(run.data.metrics)
+    return (
+        champion_version,
+        dict(run.data.metrics),
+    )
 
 
 def evaluate_and_promote_candidate(
@@ -101,30 +117,31 @@ def evaluate_and_promote_candidate(
     evaluation: EvaluationResult,
     policy: PromotionPolicy,
     config: Mapping[str, Any],
+    *,
+    champion_metrics_provider: (ChampionMetricsProvider | None) = None,
+    promotion_guardrail: (PromotionGuardrail | None) = None,
 ) -> PromotionOutcome:
     """Evaluate a registered candidate and promote it when permitted."""
 
     if not registration.registered:
-        raise ValueError(
-            "Only registered model candidates can be promoted."
-        )
+        raise ValueError("Only registered model candidates can be promoted.")
 
     if registration.model_version is None:
-        raise ValueError(
-            "The registered candidate does not have a model version."
-        )
+        raise ValueError("The registered candidate does not have a model version.")
 
     if not evaluation.approved:
-        raise ValueError(
-            "Only candidates approved by the quality gate can be promoted."
-        )
+        raise ValueError("Only candidates approved by the quality gate can be promoted.")
 
     settings = load_mlflow_tracking_settings(config)
     client = MlflowClient(tracking_uri=settings.tracking_uri)
 
-    champion_version, champion_metrics = _load_champion_metrics(
+    (
+        champion_version,
+        champion_metrics,
+    ) = _load_champion_metrics(
         client=client,
         model_name=registration.model_name,
+        metrics_provider=(champion_metrics_provider),
     )
 
     decision = evaluate_promotion(
@@ -132,6 +149,22 @@ def evaluate_and_promote_candidate(
         champion_metrics=champion_metrics,
         policy=policy,
     )
+
+    if decision.promote and champion_metrics is not None and promotion_guardrail is not None:
+        guardrail_result = promotion_guardrail(
+            candidate_metrics=(evaluation.metrics),
+            champion_metrics=(champion_metrics),
+        )
+
+        if not guardrail_result.approved:
+            decision = replace(
+                decision,
+                promote=False,
+                reason=(
+                    "Candidate failed paired "
+                    "promotion guardrails: " + " ".join(guardrail_result.reasons)
+                ),
+            )
 
     assignment = None
 

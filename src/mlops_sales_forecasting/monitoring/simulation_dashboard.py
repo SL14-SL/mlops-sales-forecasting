@@ -131,6 +131,77 @@ def build_simulation_summary(
     )
 
 
+def build_drift_summary(
+    lifecycle: pd.DataFrame,
+) -> dict[str, float | int]:
+    """Extract the controlled-drift scenario metadata."""
+    required_columns = {
+        "drift_start_day",
+        "drift_duration_days",
+        "maximum_base_uplift",
+        "maximum_promo_uplift",
+    }
+    missing_columns = required_columns - set(lifecycle.columns)
+
+    if missing_columns:
+        raise KeyError(f"Lifecycle result is missing drift metadata: {sorted(missing_columns)}.")
+
+    values = lifecycle.iloc[0]
+    start_day = int(values["drift_start_day"])
+    duration_days = int(values["drift_duration_days"])
+
+    return {
+        "drift_start_day": start_day,
+        "drift_duration_days": duration_days,
+        "full_drift_day": (start_day + duration_days),
+        "maximum_base_uplift": float(values["maximum_base_uplift"]),
+        "maximum_promo_uplift": float(values["maximum_promo_uplift"]),
+    }
+
+
+def _add_drift_regions(
+    figure: go.Figure,
+    lifecycle: pd.DataFrame,
+) -> None:
+    """Mark the ramp and full-drift periods."""
+    summary = build_drift_summary(lifecycle)
+    start_day = int(summary["drift_start_day"])
+    full_drift_day = int(summary["full_drift_day"])
+    maximum_day = float(
+        pd.to_numeric(
+            lifecycle["day"],
+            errors="coerce",
+        ).max()
+    )
+
+    if maximum_day >= start_day:
+        figure.add_vrect(
+            x0=start_day,
+            x1=min(
+                full_drift_day,
+                maximum_day + 0.5,
+            ),
+            fillcolor="#FECB52",
+            opacity=0.12,
+            layer="below",
+            line_width=0,
+            annotation_text="Drift ramp",
+            annotation_position="top left",
+        )
+
+    if maximum_day >= full_drift_day:
+        figure.add_vrect(
+            x0=full_drift_day,
+            x1=maximum_day + 0.5,
+            fillcolor="#EF553B",
+            opacity=0.06,
+            layer="below",
+            line_width=0,
+            annotation_text=("Full promotional drift"),
+            annotation_position="top left",
+        )
+
+
 def build_lifecycle_metric_chart(
     without_retraining: pd.DataFrame,
     with_retraining: pd.DataFrame,
@@ -148,19 +219,11 @@ def build_lifecycle_metric_chart(
         raise ValueError(f"Unsupported simulation metric: {metric}.")
 
     figure = go.Figure()
-
-    figure.add_trace(
-        go.Scatter(
-            x=without_retraining["day"],
-            y=without_retraining[metric],
-            mode="lines",
-            name="Without retraining",
-            line={
-                "color": "#EF553B",
-                "width": 2.5,
-            },
-        )
+    _add_drift_regions(
+        figure,
+        with_retraining,
     )
+
     figure.add_trace(
         go.Scatter(
             x=with_retraining["day"],
@@ -171,6 +234,21 @@ def build_lifecycle_metric_chart(
                 "color": "#00CC96",
                 "width": 2.5,
             },
+            legendrank=2,
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=without_retraining["day"],
+            y=without_retraining[metric],
+            mode="lines",
+            name="Without retraining",
+            line={
+                "color": "#EF553B",
+                "width": 3,
+                "dash": "dash",
+            },
+            legendrank=1,
         )
     )
 
@@ -201,11 +279,7 @@ def build_lifecycle_metric_chart(
                 )
             )
     if "champion_promoted" in with_retraining.columns:
-        promotions = with_retraining.loc[
-            with_retraining[
-                "champion_promoted"
-            ].eq(True)
-        ]
+        promotions = with_retraining.loc[with_retraining["champion_promoted"].eq(True)]
 
         if not promotions.empty:
             figure.add_trace(
@@ -223,10 +297,7 @@ def build_lifecycle_metric_chart(
                             "width": 1,
                         },
                     },
-                    text=[
-                        "Challenger promoted to champion"
-                    ]
-                    * len(promotions),
+                    text=["Challenger promoted to champion"] * len(promotions),
                     hovertemplate=(
                         "Day %{x}<br>"
                         f"{supported_metrics[metric]}: "

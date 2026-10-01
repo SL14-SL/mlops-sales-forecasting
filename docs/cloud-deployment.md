@@ -50,7 +50,7 @@ From the generated project root:
 
 ```bash
 gh repo create \
-  mlops-sales-forecasting \
+  mlops-sales-forecasting-next \
   --private \
   --source=. \
   --remote=origin \
@@ -79,7 +79,7 @@ storage_location = "EU"
 enable_github_actions = true
 
 github_repository_owner = "your-github-owner"
-github_repository_name  = "mlops-sales-forecasting"
+github_repository_name  = "mlops-sales-forecasting-next"
 ```
 
 Initialize the bootstrap module:
@@ -376,14 +376,14 @@ curl \
   --header "Authorization: Bearer ${IDENTITY_TOKEN}" \
   --header "X-API-Key: ${API_KEY_VALUE}" \
   --header "Content-Type: application/json" \
-  --data '{"inputs":[{}]}' \
+  --data '{"inputs":[{"Store":1,"Date":"2026-09-28","Open":1,"Promo":1,"StateHoliday":"0","SchoolHoliday":0}]}' \
   "${SERVICE_URI}/predict"
 
 unset API_KEY_VALUE
 ```
 
-The example payload must be replaced with the project's actual feature
-schema.
+The example date must be covered by the active release's known calendar.
+Adjust the payload when the deployed release uses a different calendar range.
 
 ## Public access
 
@@ -490,7 +490,7 @@ terraform \
   init \
   -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
-  -backend-config="prefix=mlops-sales-forecasting/dev"
+  -backend-config="prefix=mlops-sales-forecasting-next/dev"
 ```
 
 Review the destroy plan carefully:

@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock
 
+import pandas as pd
 import pytest
 
 from mlops_sales_forecasting.monitoring.retraining_policy import (
@@ -216,7 +217,14 @@ def test_authorized_decision_executes_lifecycle(
     assert result.candidate_run_id == ("mlflow-run-123")
     assert result.champion_promoted is True
 
-    build_pipeline.assert_called_once_with(project_config)
+    expected_config = {
+        **project_config,
+        "training": {
+            "is_drift_run": True,
+        },
+    }
+
+    build_pipeline.assert_called_once_with(expected_config)
     execute_lifecycle.assert_called_once_with(
         pipeline=pipeline,
         pipeline_run_id=("retrain-test-123"),
@@ -233,6 +241,7 @@ def test_authorized_decision_executes_lifecycle(
             "champion_promoted": True,
         },
         state_path=("data/monitoring/retraining_state.json"),
+        recorded_at_utc=None,
     )
 
 
@@ -275,7 +284,10 @@ def test_monitoring_is_refreshed_before_signal_collection(
         "refresh",
         "collect",
     ]
-    mock_monitoring_refresh.assert_called_once_with(config=config())
+    mock_monitoring_refresh.assert_called_once_with(
+        config=config(),
+        observed_at=None,
+    )
 
 
 def test_result_is_serializable() -> None:
@@ -314,3 +326,63 @@ def test_monitoring_refresh_failure_stops_cycle(
         retraining_service.run_auto_retraining(config=config())
 
     collect_signals.assert_not_called()
+
+
+def test_logical_evaluation_time_is_propagated(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_monitoring_refresh: MagicMock,
+) -> None:
+    evaluated_at = pd.Timestamp("2015-06-04T00:00:00Z")
+    collect_signals = MagicMock(return_value=MagicMock())
+
+    monkeypatch.setattr(
+        retraining_service,
+        "collect_retraining_signals",
+        collect_signals,
+    )
+    monkeypatch.setattr(
+        retraining_service,
+        "decide_retraining",
+        MagicMock(return_value=decision(RetrainingAction.SKIP)),
+    )
+
+    result = retraining_service.run_auto_retraining(
+        config=config(),
+        evaluated_at=evaluated_at,
+    )
+
+    assert result.status == "skipped"
+    mock_monitoring_refresh.assert_called_once_with(
+        config=config(),
+        observed_at=evaluated_at.to_pydatetime(),
+    )
+    collect_signals.assert_called_once_with(
+        config=config(),
+        evaluated_at=evaluated_at,
+    )
+
+
+def test_scheduled_refresh_uses_normal_training_config() -> None:
+    scheduled_decision = RetrainingDecision(
+        action=(RetrainingAction.TRAIN_CANDIDATE),
+        decision_id="retrain-scheduled",
+        reasons=("Scheduled refresh.",),
+        trigger_types=("scheduled_refresh",),
+        evidence={},
+    )
+
+    result = retraining_service._build_retraining_config(
+        config(),
+        scheduled_decision,
+    )
+
+    assert result["training"]["is_drift_run"] is False
+
+
+def test_performance_trigger_uses_drift_training_config() -> None:
+    result = retraining_service._build_retraining_config(
+        config(),
+        decision(RetrainingAction.TRAIN_CANDIDATE),
+    )
+
+    assert result["training"]["is_drift_run"] is True
