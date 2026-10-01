@@ -46,6 +46,12 @@ promotional effectiveness and compares two matched scenarios:
 - a managed lifecycle with policy-triggered candidate training and gated
   promotion.
 
+This is controlled concept drift rather than feature drift: beginning on
+simulation day 20, promotional ground truth is reduced linearly over 14 days
+until it reaches 75% of its original value, while non-promotional sales remain
+unchanged. Predictions are generated before the corresponding delayed ground
+truth is modified and persisted, preventing target leakage.
+
 | Result | Static champion | Managed lifecycle |
 |---|---:|---:|
 | Final RMSE | `1099.00` | `1016.51` |

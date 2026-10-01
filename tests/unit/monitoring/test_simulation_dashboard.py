@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from mlops_sales_forecasting.monitoring.simulation_dashboard import (
+    build_drift_summary,
     build_lifecycle_metric_chart,
     build_segment_chart,
     build_simulation_summary,
@@ -257,3 +258,55 @@ def test_invalid_metric_is_rejected() -> None:
             frame,
             metric="unknown",
         )
+
+
+def test_build_drift_summary() -> None:
+    frame = build_lifecycle_frame(
+        final_rmse=1000.0,
+    )
+
+    result = build_drift_summary(frame)
+
+    assert result == {
+        "drift_start_day": 20,
+        "drift_duration_days": 14,
+        "full_drift_day": 34,
+        "maximum_base_uplift": 0.0,
+        "maximum_promo_uplift": -0.25,
+    }
+
+
+def test_lifecycle_chart_marks_drift_periods() -> None:
+    without = build_lifecycle_frame(
+        final_rmse=2000.0,
+    )
+    with_run = build_lifecycle_frame(
+        final_rmse=1000.0,
+    )
+
+    without["day"] = [
+        20,
+        34,
+    ]
+    with_run["day"] = [
+        20,
+        34,
+    ]
+
+    figure = build_lifecycle_metric_chart(
+        without,
+        with_run,
+        metric="rmse",
+    )
+
+    assert len(figure.layout.shapes) == 2
+    assert figure.layout.shapes[0].x0 == 20
+    assert figure.layout.shapes[0].x1 == 34
+    assert figure.layout.shapes[1].x0 == 34
+
+    annotation_texts = {annotation.text for annotation in (figure.layout.annotations)}
+
+    assert annotation_texts == {
+        "Drift ramp",
+        "Full promotional drift",
+    }
