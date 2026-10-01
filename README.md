@@ -43,19 +43,24 @@ The checked-in lifecycle simulation introduces a gradual reduction in
 promotional effectiveness and compares two matched scenarios:
 
 - a static champion without retraining;
-- a managed lifecycle with monitoring-triggered candidate training and gated
+- a managed lifecycle with policy-triggered candidate training and gated
   promotion.
 
 | Result | Static champion | Managed lifecycle |
 |---|---:|---:|
-| Final RMSE | `2487.88` | `1065.79` |
-| Relative final RMSE improvement | — | `57.2%` |
+| Final RMSE | `1099.00` | `1016.51` |
+| Relative final RMSE improvement | — | `7.5%` |
+| Final-window promo RMSE | `1157.08` | `1062.69` |
+| Final-window non-promo RMSE | `755.58` | `752.74` |
 | Candidate retraining events | `0` | `3` |
 | Champion promotions | `0` | `1` |
 
 The important result is not simply that retraining occurred. Three candidate
-runs were triggered, but only the final challenger passed the promotion gates
-and changed the active serving release.
+runs were triggered on simulation days 30, 39 and 69. The first candidate was
+worse overall. The second improved overall RMSE but was rejected because its
+non-promotional segment regression exceeded the configured guardrail. Only the
+final challenger improved overall and segment-level performance, passed the
+paired promotion checks and changed the active serving release.
 
 Versioned reference results are available in
 [`examples/lifecycle_simulation/`](examples/lifecycle_simulation/).
@@ -70,9 +75,10 @@ Versioned reference results are available in
 
 <p align="center">
   <em>
-    The static and managed scenarios follow the same model until an approved
-    challenger is promoted. The managed lifecycle finishes with a 57.2% lower
-    RMSE after three retraining events and one promotion.
+    The static and managed scenarios use the same champion through day 69.
+    After the final challenger passes the promotion guardrails, the managed
+    lifecycle finishes with a 7.5% lower RMSE and improves all evaluated
+    store segments.
   </em>
 </p>
 

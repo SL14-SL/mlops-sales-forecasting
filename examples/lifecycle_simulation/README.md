@@ -22,8 +22,10 @@ Two otherwise matching lifecycles are compared:
    promotion.
 
 Retraining and promotion are separate events. Three challengers are trained
-in the reference lifecycle, but only the final challenger passes evaluation
-and replaces the active champion.
+on simulation days 30, 39 and 69. The first is worse overall. The second
+improves overall RMSE but violates the non-promotional segment guardrail.
+Only the final challenger passes the paired overall and segment-level
+promotion checks and replaces the active champion.
 
 ## Reference files
 
@@ -33,8 +35,10 @@ and replaces the active champion.
 - `segment_metrics.csv`: final comparison for all open stores, promotional
   stores and non-promotional stores.
 
-The checked-in results show an approximate final-RMSE improvement from
-`2487.88` to `1065.79`, corresponding to about `57.2%`.
+The checked-in results show a final-RMSE improvement from `1099.00` to
+`1016.51`, corresponding to about `7.5%`. Across the identical final
+seven-day evaluation window, promotional-store RMSE improves by `8.2%`,
+while non-promotional-store RMSE improves by `0.4%`.
 
 ## Prerequisites
 
@@ -98,8 +102,9 @@ specified. This workspace isolates mutable raw batches, monitoring files,
 feature state, model artifacts and serving-release pointers from the normal
 development environment.
 
-Generated runs are written below `generated/` and are intentionally ignored
-by Git. The versioned CSV files in this directory remain stable portfolio
+Generated lifecycle CSV files and their companion final-window evaluation
+Parquet files are written below `generated/` and are intentionally ignored by
+Git. The versioned CSV files in this directory remain stable portfolio
 references and are not overwritten automatically.
 
 ## Dashboard
@@ -125,9 +130,9 @@ that passed evaluation and was promoted to champion.
 
 <p align="center">
   <em>
-    Segment-level RMSE shows that the promoted final refit improves the
-    forecast particularly strongly for stores affected by the simulated
-    promotional drift.
+    In the identical final seven-day evaluation window, the promoted champion
+    reduces RMSE by 7.5% across all open stores and by 8.2% for promotional
+    stores without degrading the non-promotional segment.
   </em>
 </p>
 
