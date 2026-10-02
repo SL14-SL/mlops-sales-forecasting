@@ -496,10 +496,22 @@ gh workflow run \
   --field apply_changes=true
 ```
 
+### Verified cloud deployment and rollback
+
+The development API was deployed to a real private Google Cloud Run service
+through Terraform and keyless GitHub Actions authentication. The deployed
+service loaded its portable model release from GCS and returned successful
+readiness and authenticated prediction responses.
+
+A second Cloud Run revision was then created and the repository's rollback
+workflow restored 100 percent of traffic to the previous revision. Readiness
+and model inference remained successful after the rollback.
+
 See:
 
 - [Cloud deployment](docs/cloud-deployment.md)
 - [Google Cloud production demo](docs/production-demo.md)
+- [Cloud deployment and rollback verification](docs/cloud-deployment-and-rollback.md)
 
 ## Testing and Security
 
