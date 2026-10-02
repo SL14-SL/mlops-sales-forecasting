@@ -169,18 +169,21 @@ jobs:
                 --data-file=-
 
       - name: Configure Docker authentication
+        if: ${{ inputs.apply_changes }}
         run: >-
           gcloud auth configure-docker
           "${GCP_REGION}-docker.pkg.dev"
           --quiet
 
       - name: Build container image
+        if: ${{ inputs.apply_changes }}
         run: >-
           docker build
           --tag "${IMAGE_URI}"
           .
 
       - name: Push container image
+        if: ${{ inputs.apply_changes }}
         run: docker push "${IMAGE_URI}"
 
       - name: Plan Cloud Run deployment
