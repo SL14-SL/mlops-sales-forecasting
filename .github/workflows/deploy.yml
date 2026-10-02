@@ -134,8 +134,16 @@ jobs:
           -out=foundation.tfplan
           -var="deploy_cloud_run=false"
           -var="container_image=${IMAGE_URI}"
+          -target="google_project_service.required"
+          -target="google_artifact_registry_repository.containers"
+          -target="google_storage_bucket.artifacts"
+          -target="google_service_account.api"
+          -target="google_storage_bucket_iam_member.api_artifacts"
+          -target="google_secret_manager_secret.api_key"
+          -target="google_secret_manager_secret_iam_member.api_access"
 
       - name: Apply foundational infrastructure
+        if: ${{ inputs.apply_changes }}
         working-directory: infrastructure/terraform
         run: >-
           terraform apply
@@ -192,6 +200,78 @@ jobs:
           deployment.tfplan
           >
           deployment-plan.txt
+
+      - name: Reject destructive Cloud Run plan
+        working-directory: infrastructure/terraform
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          terraform show \
+            -json \
+            deployment.tfplan \
+            > deployment-plan.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          plan = json.loads(
+              Path(
+                  "deployment-plan.json"
+              ).read_text(
+                  encoding="utf-8",
+              )
+          )
+
+          destructive_changes = []
+
+          for change in plan.get(
+              "resource_changes",
+              [],
+          ):
+              if (
+                  change.get("type")
+                  != "google_cloud_run_v2_service"
+              ):
+                  continue
+
+              actions = change.get(
+                  "change",
+                  {},
+              ).get(
+                  "actions",
+                  [],
+              )
+
+              if "delete" in actions:
+                  destructive_changes.append(
+                      {
+                          "address": change.get(
+                              "address"
+                          ),
+                          "actions": actions,
+                      }
+                  )
+
+          if destructive_changes:
+              for change in destructive_changes:
+                  print(
+                      "Destructive Cloud Run change: "
+                      f"{change['address']} "
+                      f"{change['actions']}"
+                  )
+
+              raise SystemExit(
+                  "Deployment plan would delete or "
+                  "replace the Cloud Run service."
+              )
+
+          print(
+              "Cloud Run deployment plan contains "
+              "no destructive service changes."
+          )
+          PY
 
       - name: Upload Cloud Run deployment plan
         uses: actions/upload-artifact@v4
