@@ -184,6 +184,55 @@ jobs:
             exit 1
           fi
 
+      - name: Verify rolled-back service readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          service_uri="$(
+            gcloud run services describe \
+              "$SERVICE_NAME" \
+              --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" \
+              --format="value(status.url)"
+          )"
+
+          identity_token="$(
+            gcloud auth print-identity-token \
+              --audiences="$service_uri"
+          )"
+
+          response_file="$RUNNER_TEMP/rollback-readiness.json"
+
+          for attempt in {1..12}; do
+            status_code="$(
+              curl \
+                --silent \
+                --show-error \
+                --output "$response_file" \
+                --write-out "%{http_code}" \
+                --header "Authorization: Bearer ${identity_token}" \
+                "${service_uri}/readyz"
+            )"
+
+            if [ "$status_code" = "200" ]; then
+              cat "$response_file"
+              echo
+              echo "Rolled-back service is ready."
+              exit 0
+            fi
+
+            echo \
+              "Readiness attempt ${attempt} returned HTTP ${status_code}."
+
+            sleep 5
+          done
+
+          echo "Rolled-back service did not become ready."
+          cat "$response_file"
+          echo
+          exit 1
+
       - name: Write rollback summary
         run: |
           {
@@ -193,4 +242,5 @@ jobs:
             echo "- Service: \`${SERVICE_NAME}\`"
             echo "- Revision: \`${TARGET_REVISION}\`"
             echo "- Traffic: \`100%\`"
+            echo "- Readiness: \`HTTP 200\`"
           } >> "$GITHUB_STEP_SUMMARY"
