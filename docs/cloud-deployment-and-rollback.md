@@ -165,18 +165,21 @@ service traffic. Revision `00001-brz` remained available as the rollback
 target.
 
 GitHub Actions run
-[`37000992162`](https://github.com/SL14-SL/mlops-sales-forecasting-next/actions/runs/37000992162)
+[`37005823895`](https://github.com/SL14-SL/mlops-sales-forecasting-next/actions/runs/37005823895)
 then executed the rollback workflow. The workflow:
 
 1. resolved the requested target revision;
 2. verified that the target revision was ready;
 3. routed 100 percent of Cloud Run traffic to the target;
-4. verified the resulting traffic assignment.
+4. verified the resulting traffic assignment;
+5. minted a service-account identity token for the private Cloud Run service;
+6. called `/readyz` with the service URI as token audience;
+7. required an HTTP `200` readiness response before completing successfully.
 
 <p align="center">
   <img
     src="images/cloud-run-rollback.png"
-    alt="Successful Cloud Run rollback with all traffic routed to the previous revision"
+    alt="Successful Cloud Run rollback with full traffic restoration and HTTP 200 readiness verification"
     width="900"
   >
 </p>
@@ -198,15 +201,17 @@ revision.
 
 ## Post-rollback verification
 
-After rollback, the service was tested again through the private Cloud Run
-URL.
+After rollback, the workflow authenticated to the private Cloud Run service
+through Workload Identity Federation and required `/readyz` to return HTTP
+`200`. An authenticated prediction request was also verified against the
+rolled-back revision.
 
 The results were:
 
 | Check | Result |
 |---|---:|
 | Traffic assigned to rollback target | `100%` |
-| Authenticated `/readyz` | HTTP `200` |
+| Automated authenticated `/readyz` | HTTP `200` |
 | Authenticated `/predict` | HTTP `200` |
 | Active serving release | `release-9f2f0965-ab8d-4517-bc9e-3b1f5a2c6558` |
 | Prediction | `6148.34` |
