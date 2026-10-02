@@ -3,6 +3,20 @@ import re
 from typing import Any
 
 _ENV_VAR_PATTERN = re.compile(r"\$\{([^}:]+)(?::-([^}]*))?\}")
+_GCS_PATH_SUFFIXES = {
+    "data_root": "data",
+    "raw_data": "data/raw",
+    "validated_data": "data/validation",
+    "interim": "data/interim",
+    "processed": "data/processed",
+    "artifacts": "artifacts",
+    "models": "models",
+    "features": "data/features",
+    "splits": "data/splits",
+    "versioning": "data/versioning",
+    "monitoring": "data/monitoring",
+    "predictions": "data/predictions",
+}
 
 
 def detect_environment() -> str:
@@ -21,10 +35,7 @@ def detect_environment() -> str:
 def resolve_env_placeholders(value: Any) -> Any:
     """Recursively resolve environment placeholders in configuration values."""
     if isinstance(value, dict):
-        return {
-            key: resolve_env_placeholders(item)
-            for key, item in value.items()
-        }
+        return {key: resolve_env_placeholders(item) for key, item in value.items()}
 
     if isinstance(value, list):
         return [resolve_env_placeholders(item) for item in value]
@@ -70,11 +81,23 @@ def override_gcs_bucket_paths(
     new_base_path = f"gs://{bucket_name}"
 
     for key, path in paths.items():
-        if not isinstance(path, str) or not path.startswith("gs://"):
+        if not isinstance(path, str):
+            continue
+
+        configured_suffix = _GCS_PATH_SUFFIXES.get(key)
+
+        if configured_suffix is not None:
+            paths[key] = f"{new_base_path}/{configured_suffix}"
+            continue
+
+        if not path.startswith("gs://"):
             continue
 
         path_without_scheme = path.removeprefix("gs://")
-        path_parts = path_without_scheme.split("/", maxsplit=1)
+        path_parts = path_without_scheme.split(
+            "/",
+            maxsplit=1,
+        )
 
         if len(path_parts) == 2:
             paths[key] = f"{new_base_path}/{path_parts[1]}"
