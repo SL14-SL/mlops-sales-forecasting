@@ -91,6 +91,7 @@ def test_load_pyfunc_model_rejects_empty_uri() -> None:
     ):
         model_loader.load_pyfunc_model("")
 
+
 def test_load_xgboost_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -109,17 +110,17 @@ def test_load_xgboost_model(
     signature = MagicMock()
     signature.inputs = input_schema
 
-    model_info = MagicMock()
-    model_info.signature = signature
+    model_metadata = MagicMock()
+    model_metadata.signature = signature
 
-    get_model_info = MagicMock(
-        return_value=model_info
+    load_metadata = MagicMock(
+        return_value=model_metadata
     )
 
     monkeypatch.setattr(
-        model_loader.mlflow.models,
-        "get_model_info",
-        get_model_info,
+        model_loader.Model,
+        "load",
+        load_metadata,
     )
     monkeypatch.setattr(
         model_loader.mlflow.xgboost,
@@ -138,7 +139,7 @@ def test_load_xgboost_model(
         "sales_lag_1",
     )
 
-    get_model_info.assert_called_once_with(
+    load_metadata.assert_called_once_with(
         "models:/m-test-model"
     )
     native_loader.assert_called_once_with(
@@ -149,13 +150,15 @@ def test_load_xgboost_model(
 def test_load_xgboost_model_requires_signature(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    model_info = MagicMock()
-    model_info.signature = None
+    model_metadata = MagicMock()
+    model_metadata.signature = None
 
     monkeypatch.setattr(
-        model_loader.mlflow.models,
-        "get_model_info",
-        MagicMock(return_value=model_info),
+        model_loader.Model,
+        "load",
+        MagicMock(
+            return_value=model_metadata
+        ),
     )
 
     with pytest.raises(
