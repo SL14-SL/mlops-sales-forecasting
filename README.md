@@ -632,6 +632,7 @@ integration.
 - [Retraining policy](docs/retraining-policy.md)
 - [Serving releases](docs/serving-releases.md)
 - [Cloud deployment](docs/cloud-deployment.md)
+- [Cloud teardown](docs/cloud-teardown.md)
 - [Google Cloud production demo](docs/production-demo.md)
 - [Operations runbook](docs/operations-runbook.md)
 - [Template update workflow](docs/template-updates.md)
