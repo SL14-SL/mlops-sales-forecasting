@@ -74,6 +74,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Resolve Cloud Run service
+        id: service
         shell: bash
         run: |
           set -euo pipefail
@@ -86,6 +87,17 @@ jobs:
           fi
 
           echo "SERVICE_NAME=${service_name}" >> "$GITHUB_ENV"
+
+          service_uri="$(
+            gcloud run services describe \
+              "$service_name" \
+              --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" \
+              --format="value(status.url)"
+          )"
+
+          echo "service_uri=${service_uri}" \
+            >> "$GITHUB_OUTPUT"
 
       - name: Resolve rollback revision
         shell: bash
@@ -184,6 +196,57 @@ jobs:
             exit 1
           fi
 
+      - name: Mint Cloud Run identity token
+        id: cloud_run_auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ steps.service.outputs.service_uri }}
+          id_token_include_email: true
+          create_credentials_file: false
+
+
+      - name: Verify rolled-back service readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          service_uri="${{ steps.service.outputs.service_uri }}"
+          identity_token="${{ steps.cloud_run_auth.outputs.id_token }}"
+
+          response_file="$RUNNER_TEMP/rollback-readiness.json"
+
+          for attempt in {1..12}; do
+            status_code="$(
+              curl \
+                --silent \
+                --show-error \
+                --output "$response_file" \
+                --write-out "%{http_code}" \
+                --header "Authorization: Bearer ${identity_token}" \
+                "${service_uri}/readyz"
+            )"
+
+            if [ "$status_code" = "200" ]; then
+              cat "$response_file"
+              echo
+              echo "Rolled-back service is ready."
+              exit 0
+            fi
+
+            echo \
+              "Readiness attempt ${attempt} returned HTTP ${status_code}."
+
+            sleep 5
+          done
+
+          echo "Rolled-back service did not become ready."
+          cat "$response_file"
+          echo
+          exit 1
+
       - name: Write rollback summary
         run: |
           {
@@ -193,4 +256,5 @@ jobs:
             echo "- Service: \`${SERVICE_NAME}\`"
             echo "- Revision: \`${TARGET_REVISION}\`"
             echo "- Traffic: \`100%\`"
+            echo "- Readiness: \`HTTP 200\`"
           } >> "$GITHUB_STEP_SUMMARY"

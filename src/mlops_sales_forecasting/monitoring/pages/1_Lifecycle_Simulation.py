@@ -4,6 +4,7 @@ from pathlib import Path
 import streamlit as st
 
 from mlops_sales_forecasting.monitoring.simulation_dashboard import (
+    build_drift_summary,
     build_lifecycle_metric_chart,
     build_segment_chart,
     build_simulation_summary,
@@ -32,7 +33,7 @@ def main() -> None:
 
     st.title("Rossmann Lifecycle Simulation")
     st.caption(
-        "Comparison of a static forecasting model with the drift-aware retraining lifecycle."
+        "Comparison of a static forecasting model with the policy-controlled retraining lifecycle."
     )
 
     results_path = _results_path()
@@ -55,6 +56,7 @@ def main() -> None:
         without_retraining,
         with_retraining,
     )
+    drift = build_drift_summary(with_retraining)
 
     st.subheader("Outcome")
 
@@ -96,6 +98,17 @@ def main() -> None:
 
     st.subheader("Performance over the simulation")
 
+    promo_multiplier = 1.0 + float(drift["maximum_promo_uplift"])
+
+    st.caption(
+        "Controlled concept-drift scenario: "
+        f"promotional Ground Truth begins changing on day "
+        f"{drift['drift_start_day']}, reaches its full effect on day "
+        f"{drift['full_drift_day']} and is then multiplied by "
+        f"{promo_multiplier:.2f}. Non-promotional Ground Truth remains "
+        "unchanged."
+    )
+
     selected_metric = st.selectbox(
         "Lifecycle metric",
         options=[
@@ -122,16 +135,27 @@ def main() -> None:
 
     with st.expander("How to read the lifecycle comparison"):
         st.markdown(
-            """
-- **Without retraining** keeps the original model active while
-  the promotion behavior changes.
-- **With retraining** evaluates monitoring signals, trains
-  candidates and promotes an approved replacement.
+            f"""
+- **Without retraining** keeps the original champion active for all
+  {summary["final_day"]} simulation days.
+- **With retraining** evaluates policy signals, trains challengers and
+  promotes only candidates that pass overall and segment-level guardrails.
+- The **yellow region** starts on day
+  {drift["drift_start_day"]} and shows the
+  {drift["drift_duration_days"]}-day drift ramp.
+- During the ramp, promotional Ground Truth is reduced linearly from its
+  original value to a multiplier of **{promo_multiplier:.2f}**.
+- The **red region** begins on day {drift["full_drift_day"]} and marks
+  the period with the full promotional effect.
+- Non-promotional Ground Truth is unchanged by the controlled scenario.
+- Each prediction is produced **before** that day's Ground Truth is persisted
+  and used for monitoring or state updates. This prevents target leakage.
 - Purple diamonds mark completed retraining events.
-- The orange star marks the challenger that passed evaluation and was promoted to champion.
-- Retrained challengers without a promotion did not replace the active champion.
-- Bias values near zero indicate more balanced over- and
-  under-forecasting.
+- The orange star marks the challenger that passed the paired promotion
+  checks and became champion.
+- Retrained challengers without a promotion did not replace the active
+  champion.
+- Bias values near zero indicate more balanced over- and under-forecasting.
 """
         )
 

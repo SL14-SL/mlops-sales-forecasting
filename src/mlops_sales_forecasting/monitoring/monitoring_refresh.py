@@ -1,6 +1,7 @@
 import io
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -287,6 +288,7 @@ def _load_reference_features(
 def refresh_monitoring_signals(
     *,
     config: Mapping[str, Any],
+    observed_at: datetime | None = None,
 ) -> MonitoringRefreshResult:
     """Refresh performance and feature-drift evidence."""
     paths = _require_mapping(
@@ -370,9 +372,41 @@ def refresh_monitoring_signals(
         latest_predictions = _latest_predictions_per_key(inference_history)
 
         try:
+            performance_settings = _require_mapping(
+                retraining_settings,
+                "performance",
+            )
+
+            evaluation_ground_truth = ground_truth
+
+            if bool(
+                performance_settings.get(
+                    "open_store_only",
+                    False,
+                )
+            ):
+                if "Open" not in evaluation_ground_truth.columns:
+                    raise ValueError(
+                        "Open-store-only performance "
+                        "evaluation requires the "
+                        "Ground-Truth column 'Open'."
+                    )
+
+                open_values = pd.to_numeric(
+                    evaluation_ground_truth["Open"],
+                    errors="coerce",
+                )
+
+                evaluation_ground_truth = evaluation_ground_truth.loc[open_values.eq(1)].copy()
+
+                if evaluation_ground_truth.empty:
+                    raise ValueError(
+                        "No open-store Ground-Truth rows are available for performance evaluation."
+                    )
+
             joined = prepare_evaluation_frame(
                 predictions=latest_predictions,
-                ground_truth=ground_truth,
+                ground_truth=(evaluation_ground_truth),
                 join_columns=(
                     "Store",
                     "Date",
@@ -382,10 +416,6 @@ def refresh_monitoring_signals(
                 time_column="Date",
             )
 
-            performance_settings = _require_mapping(
-                retraining_settings,
-                "performance",
-            )
             minimum_samples = int(
                 performance_settings.get(
                     "minimum_samples",
@@ -473,12 +503,13 @@ def refresh_monitoring_signals(
                 0.10,
             )
         ),
+        observed_at=observed_at,
     )
 
     return MonitoringRefreshResult(
         ground_truth_rows=len(ground_truth),
         inference_rows=len(inference_history),
-        performance_updated=performance_updated,
+        performance_updated=(performance_updated),
         performance_rows=performance_rows,
         feature_drift_updated=(not drift_result.empty),
         feature_drift_rows=len(drift_result),

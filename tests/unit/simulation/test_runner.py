@@ -1,3 +1,5 @@
+import json
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -510,15 +512,18 @@ def test_disabled_retraining_records_policy_signal(
         "replace",
         MagicMock(return_value=MagicMock()),
     )
+    refresh = MagicMock()
+    collect = MagicMock(return_value=MagicMock())
+
     monkeypatch.setattr(
         runner,
         "refresh_monitoring_signals",
-        MagicMock(),
+        refresh,
     )
     monkeypatch.setattr(
         runner,
         "collect_retraining_signals",
-        MagicMock(return_value=MagicMock()),
+        collect,
     )
     monkeypatch.setattr(
         runner,
@@ -551,3 +556,86 @@ def test_disabled_retraining_records_policy_signal(
     )
 
     assert result.event == "would_retrain"
+    expected_time = pd.Timestamp(build_batch().date).tz_localize("UTC")
+
+    refresh.assert_called_once_with(
+        config=workspace.config,
+        observed_at=(expected_time.to_pydatetime()),
+    )
+    collect.assert_called_once_with(
+        config=workspace.config,
+        evaluated_at=expected_time,
+    )
+
+
+def test_simulation_day_uses_logical_time(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = build_workspace(tmp_path)
+    manager, _ = build_manager()
+    retrain = MagicMock(
+        return_value=SimpleNamespace(
+            status="skipped",
+            candidate_run_id=None,
+            champion_promoted=False,
+        )
+    )
+
+    monkeypatch.setattr(
+        runner,
+        "update_feature_state_from_ground_truth",
+        lambda *args, **kwargs: workspace.state_path.write_text(
+            '{"1": [120.0]}',
+            encoding="utf-8",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "replace",
+        MagicMock(return_value=MagicMock()),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_auto_retraining",
+        retrain,
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_monitoring_summary",
+        MagicMock(
+            return_value={
+                "performance": {
+                    "available": False,
+                },
+            }
+        ),
+    )
+
+    batch = build_batch()
+
+    runner.run_simulation_day(
+        batch=batch,
+        scenario=DriftScenario(),
+        workspace=workspace,
+        model_manager=manager,
+        retraining_enabled=True,
+        prediction_service=MagicMock(),
+    )
+
+    expected_time = pd.Timestamp(batch.date).tz_localize("UTC").as_unit("ns")
+
+    retrain.assert_called_once_with(
+        config=workspace.config,
+        evaluated_at=expected_time,
+    )
+
+    state_path = workspace.runtime_root / "monitoring" / "retraining_state.json"
+    state = json.loads(
+        state_path.read_text(
+            encoding="utf-8",
+        )
+    )
+    expected_initial_training_at = expected_time.to_pydatetime() - timedelta(days=1)
+
+    assert state["last_retrained_at_utc"] == (expected_initial_training_at.isoformat())

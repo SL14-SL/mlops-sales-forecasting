@@ -312,3 +312,33 @@ def test_non_cloud_config_allows_local_paths() -> None:
         },
         config_name="dev.yaml",
     )
+
+
+def test_dev_config_uses_gcs_paths_when_bucket_is_configured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_config(
+        tmp_path,
+        "dev.yaml",
+        ("paths:\n  models: artifacts/models\n  monitoring: data/monitoring\n"),
+    )
+
+    monkeypatch.setattr(
+        loader,
+        "PROJECT_ROOT",
+        tmp_path,
+    )
+    monkeypatch.setenv(
+        "APP_ENV",
+        "dev",
+    )
+    monkeypatch.setenv(
+        "GCS_BUCKET_NAME",
+        "forecasting-dev-artifacts",
+    )
+
+    result = loader.load_config()
+
+    assert result["paths"]["models"] == ("gs://forecasting-dev-artifacts/models")
+    assert result["paths"]["monitoring"] == ("gs://forecasting-dev-artifacts/data/monitoring")

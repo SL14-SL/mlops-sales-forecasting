@@ -78,6 +78,7 @@ monitoring:
       rolling_window: "7D"
       minimum_samples: 500
       consecutive_windows: 2
+      open_store_only: true
       rmse_limit: 1375.0
       mae_limit: 990.0
       absolute_bias_limit: 900.0

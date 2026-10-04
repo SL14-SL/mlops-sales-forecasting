@@ -4,6 +4,7 @@ from typing import Any
 import mlflow
 import mlflow.pyfunc
 import mlflow.xgboost
+from mlflow.models import Model
 
 
 @dataclass(frozen=True)
@@ -71,10 +72,10 @@ def load_xgboost_model(
             "MLflow model URI must not be empty."
         )
 
-    model_info = mlflow.models.get_model_info(
+    model_metadata = Model.load(
         model_uri
     )
-    signature = model_info.signature
+    signature = model_metadata.signature
 
     if signature is None or signature.inputs is None:
         raise ValueError(

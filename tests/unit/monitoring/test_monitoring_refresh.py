@@ -163,6 +163,7 @@ def test_refresh_without_operational_data_is_safe(
                 "performance": {
                     "rolling_window": "7D",
                     "minimum_samples": 500,
+                    "open_store_only": True,
                 },
             },
         },
@@ -205,6 +206,10 @@ def test_refreshes_performance_and_drift(
             "Sales": [
                 100.0,
                 200.0,
+            ],
+            "Open": [
+                1,
+                0,
             ],
         }
     ).to_csv(
@@ -293,6 +298,7 @@ def test_refreshes_performance_and_drift(
                 "performance": {
                     "rolling_window": "7D",
                     "minimum_samples": 1,
+                    "open_store_only": True,
                 },
             },
         },
@@ -309,3 +315,27 @@ def test_refreshes_performance_and_drift(
 
     assert (monitoring_path / "performance_rolling.parquet").is_file()
     assert (monitoring_path / "feature_drift_history.parquet").is_file()
+
+    result = refresh_monitoring_signals(config=config)
+
+    assert result.ground_truth_rows == 2
+    assert result.inference_rows == 2
+    assert result.performance_updated is True
+    assert result.performance_rows == 1
+    assert result.feature_drift_updated is True
+    assert result.feature_drift_rows == 2
+
+    performance_path = monitoring_path / "performance_rolling.parquet"
+    drift_path = monitoring_path / "feature_drift_history.parquet"
+
+    assert performance_path.is_file()
+    assert drift_path.is_file()
+
+    performance = pd.read_parquet(performance_path)
+
+    latest_performance = performance.iloc[-1]
+
+    assert latest_performance["n_samples"] == 1
+    assert latest_performance["rmse"] == 10.0
+    assert latest_performance["mae"] == 10.0
+    assert latest_performance["bias"] == 10.0

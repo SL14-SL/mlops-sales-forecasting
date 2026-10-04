@@ -50,7 +50,7 @@ From the generated project root:
 
 ```bash
 gh repo create \
-  mlops-sales-forecasting \
+  mlops-sales-forecasting-next \
   --private \
   --source=. \
   --remote=origin \
@@ -79,7 +79,7 @@ storage_location = "EU"
 enable_github_actions = true
 
 github_repository_owner = "your-github-owner"
-github_repository_name  = "mlops-sales-forecasting"
+github_repository_name  = "mlops-sales-forecasting-next"
 ```
 
 Initialize the bootstrap module:
@@ -287,9 +287,9 @@ gh run download \
 
 Review `deployment-plan.txt` before requesting the apply.
 
-The planning run may create or update foundational resources such as
-Artifact Registry, the artifact bucket, service accounts and Secret
-Manager. It does not change the live Cloud Run revision.
+The planning run is read-only. It previews the foundational resources
+and the Cloud Run deployment without applying infrastructure changes,
+building an image or changing the live Cloud Run revision.
 
 ## Apply the deployment
 
@@ -321,6 +321,63 @@ environment. The apply workflow cannot begin before approval.
 
 The deployment summary contains the image URI, service name and
 Cloud Run URI.
+
+
+## Publish a portable serving release
+
+The Cloud Run service reads its active serving release from the
+environment-specific Google Cloud Storage artifact bucket. It does not
+require access to a local MLflow server at runtime.
+
+Before exporting, the local environment must contain:
+
+- an active serving-release pointer;
+- all task-specific release artifacts;
+- access to the MLflow model referenced by the active manifest;
+- Google Cloud credentials with write access to the artifact bucket.
+
+Set the project and target bucket:
+
+```bash
+GCP_PROJECT_ID="your-gcp-project-id"
+DEPLOYMENT_ENVIRONMENT="dev"
+
+TARGET_MODELS_PATH="gs://${GCP_PROJECT_ID}-${DEPLOYMENT_ENVIRONMENT}-artifacts/models"
+```
+
+Export the locally active release:
+
+```bash
+uv run python \
+  scripts/export_serving_release_to_cloud.py \
+  --source-models-path artifacts/models \
+  --target-models-path "$TARGET_MODELS_PATH" \
+  --mlflow-tracking-uri http://127.0.0.1:5000
+```
+
+The exporter:
+
+1. loads the locally active serving-release manifest;
+2. downloads and materializes the referenced MLflow model;
+3. copies all task-specific serving artifacts;
+4. writes and validates the portable release manifest;
+5. updates `active_serving_release.json` only after the complete release
+   has been published successfully.
+
+The resulting layout is:
+
+```text
+gs://PROJECT_ID-ENVIRONMENT-artifacts/models/
+├── active_serving_release.json
+└── serving_releases/
+    └── RELEASE_ID/
+        ├── model/
+        ├── serving_manifest.json
+        └── task-specific serving artifacts
+```
+
+The pointer-last publication order prevents the API from observing a
+partially uploaded serving release.
 
 
 ## Verify the deployment
@@ -355,6 +412,37 @@ Expected response:
 HTTP/2 200
 ```
 
+Load the newly published serving release without creating another
+Cloud Run revision:
+
+```bash
+read -r -s -p "API key: " API_KEY_VALUE
+echo
+
+curl \
+  --include \
+  --request POST \
+  --header "Authorization: Bearer ${IDENTITY_TOKEN}" \
+  --header "X-API-Key: ${API_KEY_VALUE}" \
+  "${SERVICE_URI}/admin/reload"
+```
+
+A successful response reports the newly active release ID. Verify
+application readiness afterwards:
+
+```bash
+curl \
+  --include \
+  --header "Authorization: Bearer ${IDENTITY_TOKEN}" \
+  "${SERVICE_URI}/readyz"
+```
+
+Expected response:
+
+```text
+HTTP/2 200
+```
+
 Readiness can return `503` until an active serving bundle exists:
 
 ```bash
@@ -367,8 +455,6 @@ curl \
 A prediction additionally requires the application API key:
 
 ```bash
-read -r -s -p "API key: " API_KEY_VALUE
-echo
 
 curl \
   --include \
@@ -376,14 +462,14 @@ curl \
   --header "Authorization: Bearer ${IDENTITY_TOKEN}" \
   --header "X-API-Key: ${API_KEY_VALUE}" \
   --header "Content-Type: application/json" \
-  --data '{"inputs":[{}]}' \
+  --data '{"inputs":[{"Store":1,"Date":"2026-09-28","Open":1,"Promo":1,"StateHoliday":"0","SchoolHoliday":0}]}' \
   "${SERVICE_URI}/predict"
 
 unset API_KEY_VALUE
 ```
 
-The example payload must be replaced with the project's actual feature
-schema.
+The example date must be covered by the active release's known calendar.
+Adjust the payload when the deployed release uses a different calendar range.
 
 ## Public access
 
@@ -481,42 +567,9 @@ A Cloud Run rollback and a model rollback are separate operations:
 
 ## Destroying an environment
 
-Initialize Terraform against the existing remote state before destroying
-resources:
+Application and bootstrap infrastructure must be destroyed in the
+correct order. The bootstrap state bucket is protected against
+accidental deletion.
 
-```bash
-terraform \
-  -chdir=infrastructure/terraform \
-  init \
-  -reconfigure \
-  -backend-config="bucket=${TF_STATE_BUCKET}" \
-  -backend-config="prefix=mlops-sales-forecasting/dev"
-```
-
-Review the destroy plan carefully:
-
-```bash
-terraform \
-  -chdir=infrastructure/terraform \
-  plan \
-  -destroy \
-  -var="gcp_project_id=your-gcp-project-id" \
-  -var="environment=dev" \
-  -var="container_image=unused" \
-  -var="deploy_cloud_run=true"
-```
-
-Only after reviewing it:
-
-```bash
-terraform \
-  -chdir=infrastructure/terraform \
-  destroy \
-  -var="gcp_project_id=your-gcp-project-id" \
-  -var="environment=dev" \
-  -var="container_image=unused" \
-  -var="deploy_cloud_run=true"
-```
-
-The bootstrap state bucket is protected with `prevent_destroy` and must
-not be deleted while any environment still uses it.
+Follow the reviewed procedure in
+[cloud-teardown.md](cloud-teardown.md).

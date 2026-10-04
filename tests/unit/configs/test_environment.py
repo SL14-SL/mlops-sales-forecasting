@@ -42,9 +42,7 @@ def test_resolve_env_placeholders_uses_environment_value(
 ) -> None:
     monkeypatch.setenv("EXAMPLE_HOST", "production-host")
 
-    result = resolve_env_placeholders(
-        "https://${EXAMPLE_HOST}/api"
-    )
+    result = resolve_env_placeholders("https://${EXAMPLE_HOST}/api")
 
     assert result == "https://production-host/api"
 
@@ -228,12 +226,36 @@ def test_inject_runtime_env_does_not_override_existing_values(
 
     inject_runtime_env(config)
 
+    assert os.environ["PREFECT_API_URL"] == "http://existing-prefect:4200/api"
+    assert os.environ["MLFLOW_TRACKING_URI"] == "http://existing-mlflow:5000"
 
-    assert (
-        os.environ["PREFECT_API_URL"]
-        == "http://existing-prefect:4200/api"
+
+def test_override_gcs_bucket_paths_maps_local_runtime_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "GCS_BUCKET_NAME",
+        "forecasting-dev-artifacts",
     )
-    assert (
-        os.environ["MLFLOW_TRACKING_URI"]
-        == "http://existing-mlflow:5000"
-    )
+
+    config = {
+        "paths": {
+            "data_root": "data",
+            "raw_data": "data/raw",
+            "artifacts": "artifacts",
+            "models": "artifacts/models",
+            "monitoring": "data/monitoring",
+            "predictions": "data/predictions",
+        }
+    }
+
+    result = override_gcs_bucket_paths(config)
+
+    assert result["paths"] == {
+        "data_root": ("gs://forecasting-dev-artifacts/data"),
+        "raw_data": ("gs://forecasting-dev-artifacts/data/raw"),
+        "artifacts": ("gs://forecasting-dev-artifacts/artifacts"),
+        "models": ("gs://forecasting-dev-artifacts/models"),
+        "monitoring": ("gs://forecasting-dev-artifacts/data/monitoring"),
+        "predictions": ("gs://forecasting-dev-artifacts/data/predictions"),
+    }

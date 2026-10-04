@@ -1,191 +1,295 @@
-# Sales Forecasting MLOps
+# Production-Oriented MLOps for Sales Forecasting
 
-Production-oriented sales forecasting system
+An end-to-end sales forecasting system demonstrating how models can be
+trained, evaluated, promoted, served, monitored and retrained through a
+controlled operational lifecycle.
 
-## Project type
+The Rossmann Store Sales dataset provides the forecasting use case. The main
+focus is the engineering required to move from a model artifact to a
+reproducible and observable serving system.
 
-This project implements a production-oriented **forecasting**
-machine-learning system.
+![Python](https://img.shields.io/badge/Python-3.12-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-Inference_API-009688)
+![MLflow](https://img.shields.io/badge/MLflow-Tracking_%26_Registry-0194E2)
+![Prefect](https://img.shields.io/badge/Prefect-Orchestration-654FF0)
+![Terraform](https://img.shields.io/badge/Terraform-Infrastructure_as_Code-7B42BC)
+![GCP](https://img.shields.io/badge/GCP-Cloud_Run_%26_GCS-4285F4)
+![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-## Included foundation
+## Project Case Study
 
-The generated project provides a reusable MLOps foundation with:
+Retail sales forecasting is not only a regression problem. Reliable serving
+also requires synchronized store metadata, historical forecasting state,
+calendar coverage, delayed-label evaluation and safe model replacement.
 
-- environment-specific YAML configuration
-- local and Google Cloud Storage support
-- immutable serving-release manifests
-- active-release pointers and rollback support
-- MLflow model loading
-- thread-safe model management and reloads
-- task-specific serving bundles
-- FastAPI inference endpoints
-- API-key authentication
-- request IDs and safe error responses
-- Prometheus metrics
-- structured model-lifecycle logging and optional webhook notifications
-- privacy-safe prediction event logging
-- Docker and Docker Compose support
-- automated unit and integration tests
-- Rossmann-specific ingestion and schema validation
-- stateful time-series feature engineering
-- chronological forecasting splits
-- XGBoost training with transformed targets
-- forecasting evaluation and promotion policy
-- immutable serving releases with forecasting artifacts
-- partitioned inference monitoring records
-- delayed-label rolling performance monitoring
-- numeric and categorical feature-drift detection
-- policy-controlled automated retraining
-- scheduled Prefect auto-retraining deployment
-- persisted operational monitoring summary
+This project implements that complete lifecycle:
 
-## Technology stack
+- validate and version Rossmann data;
+- build leakage-safe temporal and store-level features;
+- train and evaluate an XGBoost candidate;
+- track runs and register model versions with MLflow;
+- compare challengers against the active champion;
+- publish immutable releases containing model and inference state;
+- serve authenticated forecasts through FastAPI;
+- monitor reliability, drift and delayed-label performance;
+- evaluate policy-controlled retraining through Prefect;
+- reproduce lifecycle behavior through an isolated simulation;
+- deploy the API using Terraform and keyless GitHub Actions authentication.
 
-- Python 3.12.9
-- uv for dependency management
-- FastAPI and Uvicorn for model serving
-- MLflow for model loading and registry integration
-- pandas and PyArrow for tabular data
-- fsspec and gcsfs for storage abstraction
-- Prometheus for service metrics
-- Docker and Docker Compose
-- Ruff and pytest for code quality
+## Key Result
 
-## Requirements
+The checked-in lifecycle simulation introduces a gradual reduction in
+promotional effectiveness and compares two matched scenarios:
 
-For local Python development:
+- a static champion without retraining;
+- a managed lifecycle with policy-triggered candidate training and gated
+  promotion.
 
-- Python 3.12.9
-- uv
-- GNU Make
+This is controlled concept drift rather than feature drift: beginning on
+simulation day 20, promotional ground truth is reduced linearly over 14 days
+until it reaches 75% of its original value, while non-promotional sales remain
+unchanged. Predictions are generated before the corresponding delayed ground
+truth is modified and persisted, preventing target leakage.
 
-For containerized execution:
+| Result | Static champion | Managed lifecycle |
+|---|---:|---:|
+| Final RMSE | `1099.00` | `1016.51` |
+| Relative final RMSE improvement | — | `7.5%` |
+| Final-window promo RMSE | `1157.08` | `1062.69` |
+| Final-window non-promo RMSE | `755.58` | `752.74` |
+| Candidate retraining events | `0` | `3` |
+| Champion promotions | `0` | `1` |
 
-- Docker
-- Docker Compose
+The important result is not simply that retraining occurred. Three candidate
+runs were triggered on simulation days 30, 39 and 69. The first candidate was
+worse overall. The second improved overall RMSE but was rejected because its
+non-promotional segment regression exceeded the configured guardrail. Only the
+final challenger improved overall and segment-level performance, passed the
+paired promotion checks and changed the active serving release.
 
-## Local setup
+Versioned reference results are available in
+[`examples/lifecycle_simulation/`](examples/lifecycle_simulation/).
 
-Synchronize the project environment:
+<p align="center">
+  <img
+    src="docs/images/lifecycle-simulation.png"
+    alt="Rossmann lifecycle simulation comparing a static model with the promotion-aware retraining lifecycle"
+    width="900"
+  >
+</p>
 
-```bash
-make sync
+<p align="center">
+  <em>
+    The static and managed scenarios use the same champion through day 69.
+    After the final challenger passes the promotion guardrails, the managed
+    lifecycle finishes with a 7.5% lower RMSE and improves all evaluated
+    store segments.
+  </em>
+</p>
+
+## What This Project Demonstrates
+
+| Capability | Implementation |
+|---|---|
+| Forecasting model | XGBoost regression with `log1p` target transformation |
+| Time-aware validation | Chronological training and validation splits |
+| Feature engineering | Temporal, lag, rolling, promotion, competition and holiday features |
+| Experiment tracking | MLflow parameters, metrics, signatures and artifacts |
+| Model lifecycle | Registered challenger and champion aliases |
+| Promotion safety | Overall, segment and bias quality gates |
+| Serving state | Immutable manifests with checksummed forecasting artifacts |
+| Online inference | FastAPI with API-key authentication |
+| Release activation | Validated active pointer and atomic in-process reload |
+| Recovery | Independent serving-release and Cloud Run rollback |
+| Orchestration | Prefect training and scheduled retraining deployments |
+| Operational monitoring | Prometheus, Grafana and Alertmanager |
+| ML monitoring | Delayed-label RMSE, MAE, bias and feature drift |
+| Operations view | Streamlit monitoring and simulation dashboards |
+| Cloud deployment | Terraform, Cloud Run, GCS and Artifact Registry |
+| CI and security | GitHub Actions, Ruff, pytest, pip-audit and Trivy |
+
+## Architecture
+
+```mermaid
+flowchart TD
+    A[Raw Rossmann data] --> B[Validation and feature engineering]
+    B --> C[Chronological split]
+    C --> D[XGBoost candidate]
+    D --> E[MLflow tracking and registry]
+    E --> F{Promotion policy}
+    F -->|accepted| G[Immutable serving release]
+    F -->|rejected| H[Retain champion]
+    G --> I[Active release pointer]
+    I --> J[FastAPI prediction service]
+    J --> K[Inference history]
+    L[Delayed ground truth] --> M[Performance and drift]
+    K --> M
+    M --> N{Retraining policy}
+    N -->|train candidate| D
 ```
 
-`make sync` runs `uv sync`. During the initial setup, it creates the
-reproducible uv.lock dependency lock file. Commit this file to version
-control before running CI or building the container image.
+The system deliberately separates:
 
+- model registration from model promotion;
+- promotion from serving-release activation;
+- application deployment from model rollback;
+- service reliability from model-quality monitoring;
+- retraining authorization from champion replacement.
 
-Run all required quality checks:
+See [System architecture](docs/architecture.md) for component boundaries and
+runtime responsibilities.
+
+## End-to-End Lifecycle
+
+A normal training lifecycle:
+
+1. ingests and validates source data;
+2. builds known-calendar and forecasting features;
+3. persists the latest store-level forecasting state;
+4. creates chronological train and validation splits;
+5. trains an XGBoost candidate;
+6. evaluates predictions on the original sales scale;
+7. logs the run and model signature to MLflow;
+8. registers the candidate;
+9. compares it with the current champion;
+10. publishes a release only after successful promotion;
+11. activates the release pointer;
+12. makes the complete bundle available to the API.
+
+A model version cannot serve forecasts by itself. The active release also
+contains:
+
+- store metadata;
+- latest forecasting state;
+- known calendar;
+- target transformation;
+- model and dataset lineage;
+- artifact checksums.
+
+See [Serving releases](docs/serving-releases.md) for publication, activation
+and rollback guarantees.
+
+## Local Quick Start
+
+### Prerequisites
+
+- Python 3.12.9
+- `uv`
+- Docker with Docker Compose
+- GNU Make
+
+### Install and configure
+
+```bash
+git clone \
+  git@github.com:SL14-SL/mlops-sales-forecasting-next.git
+
+cd mlops-sales-forecasting-next
+
+cp .env.example .env
+uv sync --locked
+```
+
+Change the development API key in `.env` before exposing the application
+outside your local machine.
+
+### Add the Rossmann data
+
+Place the source files under:
+
+```text
+data/raw/train.csv
+data/raw/store.csv
+data/raw/test.csv
+```
+
+Raw data is excluded from Git. Users are responsible for obtaining the
+Rossmann Store Sales dataset and complying with its original license and usage
+conditions.
+
+### Run quality checks
 
 ```bash
 make check
+docker compose config --quiet
 ```
 
-The command executes:
+### Start local services
+
+Start MLflow:
 
 ```bash
-uv run ruff check .
-uv run pytest
+make mlflow-up
 ```
 
-The primary Python package is:
-
-```text
-mlops_sales_forecasting
-```
-
-## Environment configuration
-
-Create a local environment file:
+Start the API:
 
 ```bash
-cp .env.example .env
+make api-rebuild
 ```
 
-Change the example API key before using the application outside local
-development:
-
-```dotenv
-APP_ENV=dev
-LOG_LEVEL=INFO
-API_PORT=8000
-API_KEY=replace-with-a-local-development-key
-IMAGE_TAG=local
-```
-
-The `.env` file is ignored by Git and must not contain committed secrets.
-
-## Run the API locally
-
-Start the API directly in the uv environment:
+Start the full monitoring stack:
 
 ```bash
-uv run uvicorn mlops_sales_forecasting.api.main:app \
-  --host 0.0.0.0 \
-  --port 8000
+make monitoring-up
 ```
 
-The interactive API documentation is available at:
-
-```text
-http://localhost:8000/docs
-```
-
-## Run with Docker Compose
-
-Validate the Compose configuration:
+Start Prefect when orchestration is required:
 
 ```bash
-make api-config
+make prefect-up
+
+export PREFECT_API_URL=http://127.0.0.1:4200/api
+
+make prefect-pool
+make prefect-deploy
+make prefect-worker
 ```
 
-Build and start the API:
+`make prefect-worker` runs in the foreground and should normally use a separate
+terminal.
+
+### Local endpoints
+
+| Service | URL |
+|---|---|
+| Forecasting API | `http://localhost:8000` |
+| Swagger UI | `http://localhost:8000/docs` |
+| Streamlit dashboard | `http://localhost:8501` |
+| MLflow | `http://localhost:5000` |
+| Prefect | `http://localhost:4200` |
+| Prometheus | `http://localhost:9090` |
+| Alertmanager | `http://localhost:9093` |
+| Grafana | `http://localhost:3000` |
+
+See [Local development](docs/local-development.md) for the complete setup and
+service workflow.
+
+## API Contract
+
+### Health
+
+Process liveness:
 
 ```bash
-make api-up
+curl \
+  --fail \
+  http://localhost:8000/livez
 ```
 
-Show the container status:
+Serving readiness:
 
 ```bash
-make api-ps
+curl \
+  --include \
+  http://localhost:8000/readyz
 ```
 
-Follow the API logs:
+Readiness returns HTTP `503` until a complete active serving release has been
+loaded.
 
-```bash
-make api-logs
-```
-
-Stop the local stack:
-
-```bash
-make api-down
-```
-
-## Health endpoints
-
-The liveness endpoint confirms that the API process is running:
-
-```bash
-curl http://localhost:8000/livez
-```
-
-A successful response returns HTTP 200.
-
-The readiness endpoint confirms that a valid serving bundle is loaded:
-
-```bash
-curl http://localhost:8000/readyz
-```
-
-The readiness endpoint returns HTTP 503 when the API is running but no model
-bundle is available. This is expected before the first serving release has
-been configured.
-
-## Prediction endpoint
+### Prediction
 
 Predictions require the configured API key:
 
@@ -209,160 +313,88 @@ curl \
   http://localhost:8000/predict
 ```
 
-Each input row represents one store and forecast date. The serving layer
-validates the request, joins the active store metadata and known calendar,
-injects the latest forecasting state, aligns the generated features with the
-MLflow model signature and applies the configured inverse target
-transformation.
+Each input row represents one store and forecast date. The serving layer:
 
-Unknown stores, invalid dates, missing required fields and incomplete
-calendar coverage are rejected with HTTP `422`.
+1. validates the request;
+2. joins release-specific store metadata;
+3. joins the known calendar;
+4. injects lag and rolling state;
+5. aligns features with the model contract;
+6. applies the inverse target transformation.
 
-Structured application logs contain privacy-safe operational metadata such
-as request ID, release ID, model version, batch size and execution time. They
-do not contain raw request records or prediction values.
+Unknown stores, malformed fields and dates outside the known calendar are
+rejected with HTTP `422`.
 
-A separate monitoring store persists only explicitly allowlisted forecasting
-features, the store/date matching keys, prediction value, release ID and
-request ID. Each request is written as an immutable daily partition under
-`data/predictions/history/`. This data supports delayed-label performance and
-feature-drift monitoring.
+<p align="center">
+  <img
+    src="docs/images/api-openapi-contract.png"
+    alt="FastAPI OpenAPI contract with health, reload and prediction endpoints"
+    width="900"
+  >
+</p>
 
-## Metrics
+<p align="center">
+  <em>
+    The generated OpenAPI contract exposes separate liveness, readiness,
+    controlled reload and authenticated prediction endpoints.
+  </em>
+</p>
 
-Prometheus-compatible metrics are exposed at:
+## Monitoring and Dashboards
+
+Prometheus metrics are exposed at:
 
 ```text
 http://localhost:8000/metrics
 ```
 
-The metrics include request counts, response status codes and request
-latencies.
-
-## Operational monitoring
-
-The API exposes an aggregate monitoring view at:
+The aggregate model-operational state is exposed at:
 
 ```text
 http://localhost:8000/monitoring/summary
 ```
 
-The response includes:
+The Streamlit dashboard combines:
 
-- serving readiness and the active release ID;
-- the latest rolling RMSE, MAE and forecast bias;
-- the most recent feature-drift evaluation;
-- the latest persisted automated-retraining state.
+- active release and readiness;
+- rolling RMSE, MAE and bias;
+- feature-drift results;
+- automated-retraining state;
+- estimated training costs;
+- lifecycle-simulation results.
 
-Prometheus metrics remain available at `/metrics`. Grafana and Alertmanager
-provide service-level visualization and alerting, while the summary endpoint
-presents persisted model-operational state.
+Grafana provides service-oriented views for traffic, latency, errors,
+readiness and model-observability metrics.
 
-### Operations dashboard
+The monitoring store writes only explicitly allowlisted inference fields.
+Technical application logs do not contain raw request records or prediction
+values.
 
-A Streamlit operations dashboard combines the current serving state with
-persisted forecast performance, feature drift, automated-retraining state
-and estimated training costs.
+See [Monitoring, SLOs and alerting](docs/monitoring-and-slos.md) for metric
+definitions, thresholds and alert rules.
 
-Start the complete local monitoring stack:
+<p align="center">
+  <img
+    src="docs/images/grafana-prediction-overview.png"
+    alt="Grafana dashboard showing prediction traffic, error rate and latency percentiles"
+    width="900"
+  >
+</p>
 
-```bash
-make monitoring-up
-```
+<p align="center">
+  <em>
+    Prometheus and Grafana expose prediction throughput, request status,
+    error rate and p50/p95 model-serving latency from real API requests.
+  </em>
+</p>
 
-Or start only the API and dashboard:
+## Lifecycle Simulation
 
-```bash
-make dashboard-up
-```
+The project includes a reproducible simulation of delayed Ground Truth,
+promotional drift, monitoring decisions, candidate training and controlled
+promotion.
 
-Open the dashboard at:
-
-```text
-http://localhost:8501
-```
-
-The dashboard and Grafana serve different purposes:
-
-- Streamlit provides a compact model-operations and business-facing overview;
-- Grafana visualizes Prometheus time series, service-level objectives and
-  alerts;
-- MLflow remains the source of experiment and model-run metadata;
-- Prefect provides flow-run and deployment visibility.
-
-Training costs are explicitly estimates. They are calculated from completed
-MLflow run durations and the configured hourly rate:
-
-```yaml
-costs:
-  training:
-    enabled: true
-    currency: EUR
-    estimated_hourly_rate: 0.40
-    window_days: 30
-  scenarios:
-    drift_triggered_runs_per_month: 8
-```
-
-The resulting report shows observed-window cost estimates and projected
-monthly costs for daily, weekly and drift-triggered retraining. It does not
-replace provider billing data.
-
-Successful predictions create immutable Parquet files under:
-
-```text
-data/predictions/history/date=YYYY-MM-DD/
-```
-
-Delayed Ground Truth is supplied through CSV files matching:
-
-```text
-data/raw/new_batches/ground_truth_*.csv
-```
-
-Each Ground-Truth row must contain at least `Store`, `Date` and `Sales`.
-Repeated monitoring refreshes rebuild cumulative Ground Truth from all
-available batches and retain the latest value for duplicate `Store` and
-`Date` keys.
-
-The refresh produces:
-
-```text
-data/monitoring/cumulative_ground_truth.csv
-data/monitoring/performance_rolling.parquet
-data/monitoring/feature_drift_history.parquet
-```
-
-Missing labels or insufficient sample counts are normal bootstrap states and
-do not fail the API.
-
-## Lifecycle simulation
-
-The project includes a reproducible Rossmann lifecycle simulation for
-demonstrating gradual promotional drift, monitoring decisions, candidate
-training and controlled model promotion.
-
-The simulation compares two otherwise matching scenarios:
-
-- a static champion that remains active while promotional behavior changes;
-- a managed lifecycle that trains challenger models after monitoring signals
-  trigger retraining and promotes only candidates that pass evaluation.
-
-A retraining event does not automatically replace the active model. The
-serving release changes only when the challenger satisfies the configured
-promotion policy.
-
-### Prerequisites
-
-The simulation requires:
-
-- `data/raw/train.csv` and `data/raw/store.csv`;
-- `data/simulation/simulation_ground_truth.csv`;
-- a running MLflow tracking server;
-- an initial registered champion and active serving-release pointer;
-- a running Prefect server when retraining is enabled.
-
-Start the required local services:
+Start MLflow and Prefect:
 
 ```bash
 make mlflow-up
@@ -371,23 +403,7 @@ make prefect-up
 export PREFECT_API_URL=http://127.0.0.1:4200/api
 ```
 
-If no initial serving release exists, run the regular training bootstrap
-before starting the simulation.
-
-### Run the simulation
-
-Run a one-day smoke test without retraining:
-
-```bash
-uv run python \
-  scripts/run_lifecycle_simulation.py \
-  --config dev.yaml \
-  --retraining disabled \
-  --maximum-days 1 \
-  --output examples/lifecycle_simulation/generated/smoke-test.csv
-```
-
-Run the complete static-model baseline:
+Run the static baseline:
 
 ```bash
 uv run python \
@@ -396,7 +412,7 @@ uv run python \
   --retraining disabled
 ```
 
-Run the complete managed lifecycle:
+Run the managed lifecycle:
 
 ```bash
 uv run python \
@@ -405,215 +421,239 @@ uv run python \
   --retraining enabled
 ```
 
-By default, every invocation recreates the isolated simulation workspace
-under `data/simulation/runtime/`. Pass `--keep-runtime` only when deliberately
-continuing an interrupted or partially completed run.
-
-The simulation never changes the normal development paths or active serving
-pointer. Candidate models, monitoring files, batches, feature state and
-serving releases are written into the isolated runtime workspace.
-
-### Reference results
-
-Versioned reference results are stored under:
+Simulation state is isolated under:
 
 ```text
-examples/lifecycle_simulation/
+data/simulation/runtime/
 ```
 
-Generated runs are written below:
+Generated results are written below:
 
 ```text
 examples/lifecycle_simulation/generated/
 ```
 
-Generated results are ignored by Git, while the reference results remain
-stable and reviewable.
+The simulation does not modify the normal development release pointer or
+serving artifacts.
 
-In the checked-in reference scenario, the managed lifecycle reduces final
-RMSE from approximately `2487.88` to `1065.79`, a relative improvement of
-about `57.2%`. Three retraining events occur, but only the final challenger is
-promoted to champion.
+Open `http://localhost:8501` and select **Lifecycle Simulation** to compare
+static and managed runs interactively.
 
-### Simulation dashboard
+## Automated Retraining
 
-Start the dashboard:
+The Prefect deployment evaluates monitoring evidence daily at 03:00 in the
+`Europe/Berlin` timezone.
 
-```bash
-make dashboard-up
-```
+The policy considers:
 
-Open:
+- validated and previously unprocessed Ground Truth;
+- minimum and maximum row limits;
+- persistent forecast degradation;
+- persistent drift for the same feature;
+- cooldown state;
+- scheduled-refresh interval;
+- duplicate decision IDs.
 
-```text
-http://localhost:8501
-```
+Possible actions are:
 
-Select **Lifecycle Simulation** in the Streamlit navigation.
+- `block`;
+- `skip`;
+- `train_candidate`.
 
-The page shows:
+A candidate changes serving only after passing the independent promotion
+policy. See [Retraining policy](docs/retraining-policy.md).
 
-- final RMSE with and without retraining;
-- relative RMSE improvement;
-- retraining and promotion counts;
-- RMSE, MAE and bias over the simulated lifecycle;
-- retraining events as purple diamonds;
-- successful champion promotion as an orange star;
-- final performance for promotional and non-promotional stores.
+## Cloud Deployment
 
-## Automated retraining
+The Google Cloud reference deployment uses:
 
-The scheduled Prefect deployment evaluates monitoring evidence every day at
-03:00 in the `Europe/Berlin` timezone.
+- Cloud Storage for Terraform state and application artifacts;
+- Workload Identity Federation for keyless GitHub Actions authentication;
+- Artifact Registry for immutable container images;
+- Secret Manager for the API key;
+- Cloud Run for the serving API;
+- Terraform for reproducible infrastructure.
 
-Start the local orchestration components:
+The included stack does not provision managed MLflow, Prefect or a cloud
+training worker. Those services must be supplied separately for a complete
+cloud-hosted training lifecycle.
 
-```bash
-make prefect-up
-
-export PREFECT_API_URL=http://127.0.0.1:4200/api
-
-make prefect-pool
-make prefect-deploy
-```
-
-Start the worker in a separate terminal:
+Deployment follows a reviewed plan-before-apply workflow:
 
 ```bash
-export PREFECT_API_URL=http://127.0.0.1:4200/api
-
-make prefect-worker
+gh workflow run \
+  deploy.yml \
+  --field environment=dev \
+  --field apply_changes=false
 ```
 
-The automated cycle performs the following operations:
+After reviewing the uploaded Terraform plan:
 
-1. rebuild cumulative Ground Truth;
-2. refresh rolling forecast performance;
-3. evaluate feature drift;
-4. validate new Ground-Truth batches;
-5. evaluate minimum rows, cooldown and budget limits;
-6. evaluate scheduled, performance and drift triggers;
-7. train at most one Candidate for a unique decision;
-8. run the normal MLflow registration, promotion and serving-release
-   lifecycle;
-9. persist the completed decision to prevent duplicate retraining.
-
-New data alone does not automatically replace the Champion. Training requires
-enough new validated rows and at least one configured trigger. Candidate
-promotion remains subject to the normal evaluation and promotion policy.
-
-Do not manually run the `auto-retraining` deployment against production-like
-data merely as a connectivity test because it may start a real training
-lifecycle.
-
-## Serving releases
-
-A serving release groups the model and all required inference artifacts into
-one immutable, validated unit.
-
-The active-release pointer determines which release is loaded by the API.
-Replacing the pointer enables controlled promotion and rollback without
-mixing artifacts from different model versions.
-
-## Model lifecycle notifications
-
-Training lifecycle events are written to the application logs and can
-optionally be delivered to an HTTP webhook.
-
-The following events are available:
-
-- pipeline failure
-- candidate rejection by the quality gate
-- Challenger registration without promotion
-- successful Champion promotion
-- successful serving-release publication
-
-Webhook delivery is disabled by default. To enable it, update the appropriate
-environment configuration:
-
-```yaml
-notifications:
-  enabled: true
-  log_events: true
-  fail_on_error: false
-  webhook:
-    enabled: true
-    url: "${LIFECYCLE_WEBHOOK_URL:-}"
-    timeout_seconds: 5.0
+```bash
+gh workflow run \
+  deploy.yml \
+  --field environment=dev \
+  --field apply_changes=true
 ```
 
-Provide the URL only through the runtime environment:
+### Verified cloud deployment and rollback
 
-```dotenv
-LIFECYCLE_WEBHOOK_URL=https://example.com/your-secret-webhook
+The development API was deployed to a real private Google Cloud Run service
+through Terraform and keyless GitHub Actions authentication. The deployed
+service loaded its portable model release from GCS and returned successful
+readiness and authenticated prediction responses.
+
+A second Cloud Run revision was then created and the repository's rollback
+workflow restored 100 percent of traffic to the previous revision. Readiness
+and model inference remained successful after the rollback.
+
+See:
+
+- [Cloud deployment](docs/cloud-deployment.md)
+- [Google Cloud production demo](docs/production-demo.md)
+- [Cloud deployment and rollback verification](docs/cloud-deployment-and-rollback.md)
+
+## Testing and Security
+
+The repository includes:
+
+- unit tests for domain and infrastructure components;
+- integration tests for API and real MLflow lifecycle behavior;
+- Ruff linting;
+- locked dependency resolution with `uv`;
+- API container smoke testing;
+- dependency auditing with `pip-audit`;
+- repository and container scanning with Trivy;
+- non-root container execution;
+- API-key protected prediction and admin endpoints;
+- environment-specific secret injection;
+- checksummed immutable serving artifacts;
+- keyless GitHub-to-Google-Cloud authentication.
+
+Run the local quality gate:
+
+```bash
+make check
+docker compose config --quiet
+git diff --check
 ```
 
-Do not commit webhook URLs because they commonly contain credentials or secret
-tokens.
+GitHub Actions workflows cover CI, security scanning, Terraform validation,
+deployment and Cloud Run rollback.
 
-With `fail_on_error: false`, a temporary notification outage is logged but
-does not invalidate an otherwise successful training or promotion lifecycle.
-Set it to `true` only when notification delivery is a mandatory operational
-requirement.
+<p align="center">
+  <img
+    src="docs/images/github-actions-checks.png"
+    alt="Successful GitHub Actions checks for tests, dependency audit, repository scan and container scan"
+    width="900"
+  >
+</p>
 
-## Project structure
+<p align="center">
+  <em>
+    Pull requests are gated by automated tests, dependency auditing,
+    repository scanning and container-image scanning.
+  </em>
+</p>
+
+## Technology Stack
+
+| Area | Technology |
+|---|---|
+| Language | Python 3.12 |
+| Forecasting | XGBoost, pandas, NumPy |
+| Data artifacts | Parquet and JSON |
+| API | FastAPI and Uvicorn |
+| Tracking and registry | MLflow |
+| Orchestration | Prefect |
+| Storage abstraction | fsspec and gcsfs |
+| Monitoring | Prometheus and Grafana |
+| Alerting | Alertmanager |
+| Dashboard | Streamlit and Plotly |
+| Containers | Docker and Docker Compose |
+| Infrastructure | Terraform |
+| Cloud | Google Cloud Run, GCS and Artifact Registry |
+| CI/CD | GitHub Actions |
+| Quality and security | pytest, Ruff, pip-audit and Trivy |
+
+## Project Structure
 
 ```text
 .
-├── configs
-├── data
-│   ├── predictions
-│   └── monitoring
-├── docs
-├── infrastructure
-├── monitoring
-├── src
-│   └── mlops_sales_forecasting
-│       ├── api
-│       ├── configs
-│       ├── data
-│       ├── inference
-│       ├── monitoring
-│       ├── notifications
-│       ├── orchestration
-│       ├── pipeline
-│       ├── storage
-│       ├── tracking
-│       └── training
-├── tests
-│   ├── integration
-│   └── unit
-├── compose.yaml
-├── Dockerfile
-├── Makefile
-├── prefect.yaml
-└── pyproject.toml
+├── configs/                         # Environment and lifecycle configuration
+├── docs/                            # Architecture and operations documentation
+├── examples/lifecycle_simulation/  # Versioned reference experiment results
+├── infrastructure/                 # Terraform bootstrap and application stack
+├── monitoring/                     # Prometheus, Grafana and Alertmanager
+├── scripts/                        # Lifecycle simulation entry point
+├── src/mlops_sales_forecasting/
+│   ├── api/                        # FastAPI application and routers
+│   ├── configs/                    # Configuration and environment handling
+│   ├── data/                       # Ingestion, validation and features
+│   ├── inference/                  # Prediction and serving releases
+│   ├── monitoring/                 # Performance, drift and dashboards
+│   ├── notifications/              # Lifecycle event delivery
+│   ├── orchestration/              # Prefect lifecycle flows
+│   ├── pipeline/                   # Reusable training pipeline contracts
+│   ├── simulation/                 # Isolated lifecycle simulation
+│   ├── storage/                    # Local and GCS filesystem abstraction
+│   ├── tracking/                   # MLflow and promotion services
+│   └── training/                   # XGBoost training and evaluation
+└── tests/                           # Unit and integration tests
 ```
 
-## Project status
+## Design Decisions and Limitations
 
-This project was generated from the reusable MLOps project template.
+This is a production-oriented portfolio implementation, not a fully managed
+enterprise forecasting platform.
 
-Project-specific data ingestion, feature engineering, training, evaluation
-and business monitoring must be implemented for the selected use case.
+Important limitations:
 
+- raw Rossmann data is excluded from version control;
+- forecasts are point estimates rather than prediction intervals;
+- the lifecycle experiment uses controlled synthetic drift;
+- the reference cloud stack deploys serving infrastructure, not managed
+  training infrastructure;
+- production thresholds require calibration against real business costs;
+- organization-specific networking, retention and IAM policies require
+  additional hardening;
+- cost monitoring is an engineering estimate rather than provider billing
+  data.
 
-## Cloud deployment
+Potential extensions include probabilistic forecasts, hierarchical
+aggregation, shadow evaluation, managed cloud orchestration and billing-data
+integration.
 
-Google Cloud infrastructure and keyless GitHub Actions deployment are
-documented in
-[docs/cloud-deployment.md](docs/cloud-deployment.md).
+## Documentation
 
+- [System architecture](docs/architecture.md)
+- [Local development](docs/local-development.md)
+- [Monitoring, SLOs and alerting](docs/monitoring-and-slos.md)
+- [Retraining policy](docs/retraining-policy.md)
+- [Serving releases](docs/serving-releases.md)
+- [Cloud deployment](docs/cloud-deployment.md)
+- [Cloud teardown](docs/cloud-teardown.md)
+- [Google Cloud production demo](docs/production-demo.md)
+- [Operations runbook](docs/operations-runbook.md)
+- [Template update workflow](docs/template-updates.md)
 
-## Operations
+## Dataset
 
-Operational triage, incident recovery and rollback procedures are
-documented in
-[docs/operations-runbook.md](docs/operations-runbook.md).
+The project uses the Rossmann Store Sales dataset, containing daily sales,
+promotions, store availability, holidays and store metadata.
 
+Raw files are intentionally excluded from Git.
 
-## Template updates
+## License
 
-Instructions for applying newer template releases to an existing project are
-documented in
-[docs/template-updates.md](docs/template-updates.md).
+This project is licensed under the MIT License.
+
+## Author
+
+**Steffen Lauterbach**
+MLOps Engineer
+
+Focused on production-oriented ML systems, safe model deployment, monitoring,
+retraining workflows and cloud infrastructure.
+
+[LinkedIn](https://www.linkedin.com/in/92-steffen-lauterbach)

@@ -225,3 +225,44 @@ def test_run_feature_drift_check_without_data_is_safe(
     )
 
     assert result.empty
+
+
+def test_categorical_drift_handles_missing_categorical_values() -> None:
+    reference = pd.Series(
+        pd.Categorical(
+            [
+                "a",
+                "a",
+                "b",
+                None,
+            ]
+        )
+    )
+    current = pd.Series(
+        pd.Categorical(
+            [
+                "a",
+                "b",
+                "b",
+                None,
+            ]
+        )
+    )
+
+    result = detect_categorical_drift(
+        reference,
+        current,
+        feature_name="category",
+        minimum_samples=1,
+        p_value_threshold=0.05,
+    )
+
+    assert result["feature"] == "category"
+    assert result["feature_type"] == "categorical"
+    assert result["metric_type"] == "chisquare"
+    assert result["reference_n"] == 4
+    assert result["current_n"] == 4
+    assert isinstance(
+        result["drift_detected"],
+        bool,
+    )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,9 @@ from mlops_sales_forecasting.monitoring.monitoring_refresh import (
 from mlops_sales_forecasting.monitoring.retraining_policy import (
     RetrainingAction,
     decide_retraining,
+)
+from mlops_sales_forecasting.monitoring.retraining_state import (
+    build_retraining_state_path,
 )
 from mlops_sales_forecasting.monitoring.signal_collector import (
     collect_retraining_signals,
@@ -166,6 +170,62 @@ def _performance_values(
     return dict(performance)
 
 
+def _simulation_timestamp(
+    value: pd.Timestamp,
+) -> pd.Timestamp:
+    """Normalize a simulation date to nanosecond UTC."""
+    timestamp = pd.Timestamp(value)
+
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("UTC")
+    else:
+        timestamp = timestamp.tz_convert("UTC")
+
+    return timestamp.as_unit("ns")
+
+
+def _initialize_simulation_retraining_clock(
+    *,
+    workspace: SimulationWorkspace,
+    first_evaluated_at: pd.Timestamp,
+) -> None:
+    """Persist the logical time of the initial simulation training."""
+    paths = workspace.config.get("paths")
+
+    if not isinstance(paths, Mapping):
+        raise ValueError("Simulation config must contain a valid 'paths' section.")
+
+    monitoring_path = paths.get("monitoring")
+
+    if not isinstance(monitoring_path, str) or not monitoring_path.strip():
+        raise ValueError("Simulation config must define 'paths.monitoring'.")
+
+    state_path = Path(build_retraining_state_path(monitoring_path))
+
+    if state_path.is_file():
+        return
+
+    initial_training_at = _simulation_timestamp(first_evaluated_at).to_pydatetime() - timedelta(
+        days=1
+    )
+
+    state_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "last_retrained_at_utc": (initial_training_at.isoformat()),
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
 def run_simulation_day(
     *,
     batch: SimulatedDailyBatch,
@@ -181,6 +241,12 @@ def run_simulation_day(
     The enforced order is prediction, Ground Truth persistence,
     state update, monitoring refresh and optional retraining.
     """
+    evaluated_at = _simulation_timestamp(batch.date)
+
+    _initialize_simulation_retraining_clock(
+        workspace=workspace,
+        first_evaluated_at=evaluated_at,
+    )
     _initialize_state(
         model_manager=model_manager,
         state_path=workspace.state_path,
@@ -224,6 +290,7 @@ def run_simulation_day(
     if retraining_enabled:
         retraining_result = run_auto_retraining(
             config=workspace.config,
+            evaluated_at=evaluated_at,
         )
         candidate_run_id = retraining_result.candidate_run_id
         champion_promoted = retraining_result.champion_promoted
@@ -241,9 +308,11 @@ def run_simulation_day(
     else:
         refresh_monitoring_signals(
             config=workspace.config,
+            observed_at=(evaluated_at.to_pydatetime()),
         )
         signals = collect_retraining_signals(
             config=workspace.config,
+            evaluated_at=evaluated_at,
         )
         decision = decide_retraining(signals)
 

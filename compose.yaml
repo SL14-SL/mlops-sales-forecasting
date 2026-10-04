@@ -10,8 +10,11 @@ services:
       APP_ENV: ${APP_ENV:-dev}
       API_KEY: ${API_KEY:-local-development-key}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     ports:
       - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./artifacts:/app/artifacts:ro
     healthcheck:
       test:
         - CMD

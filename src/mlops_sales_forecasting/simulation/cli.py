@@ -10,19 +10,30 @@ import pandas as pd
 from mlops_sales_forecasting.configs.loader import (
     load_config,
 )
-from mlops_sales_forecasting.configs.paths import (
-    join_uri,
-)
 from mlops_sales_forecasting.inference.model_manager import (
     ModelManager,
 )
 from mlops_sales_forecasting.inference.serving import (
     load_active_bundle,
 )
-from mlops_sales_forecasting.storage.filesystem import (
-    file_exists,
+from mlops_sales_forecasting.orchestration.lifecycle_adapter import (
+    PrefectTrainingLifecycleResult,
+    run_prefect_model_lifecycle,
+)
+from mlops_sales_forecasting.pipeline.project_factory import (
+    build_project_training_pipeline,
 )
 
+from .baseline import (
+    restore_simulation_baseline,
+    restore_simulation_champion_alias,
+    simulation_baseline_exists,
+    simulation_baseline_root,
+    snapshot_simulation_baseline,
+)
+from .evaluation import (
+    export_runtime_evaluation,
+)
 from .ground_truth import DriftScenario
 from .reporting import (
     summarize_simulation_comparison,
@@ -131,29 +142,69 @@ def scenario_from_config(
 
 def build_simulation_model_manager(
     *,
-    base_config: dict[str, Any],
     workspace: SimulationWorkspace,
 ) -> ModelManager:
-    """
-    Load the original release first and simulation releases later.
-
-    The isolated release pointer only exists after the simulation
-    lifecycle has successfully promoted a candidate.
-    """
+    """Load serving bundles only from the simulation workspace."""
 
     def bundle_loader():
-        models_path = workspace.config["paths"]["models"]
-        pointer_path = join_uri(
-            models_path,
-            _ACTIVE_POINTER_FILENAME,
-        )
-
-        if file_exists(pointer_path):
-            return load_active_bundle(workspace.config)
-
-        return load_active_bundle(base_config)
+        return load_active_bundle(workspace.config)
 
     return ModelManager(bundle_loader)
+
+
+def bootstrap_simulation_release(
+    workspace: SimulationWorkspace,
+) -> PrefectTrainingLifecycleResult:
+    """Train and publish the initial isolated simulation champion."""
+    pipeline = build_project_training_pipeline(workspace.config)
+
+    result = run_prefect_model_lifecycle(
+        pipeline=pipeline,
+        mlflow_run_name="simulation-initial-champion",
+        mlflow_tags={
+            "lifecycle": "simulation",
+            "simulation_role": "initial_champion",
+        },
+    )
+
+    if result.serving_release is None:
+        raise RuntimeError("Initial simulation training did not publish a serving release.")
+
+    return result
+
+
+def prepare_simulation_baseline(
+    *,
+    config: Mapping[str, Any],
+    workspace: SimulationWorkspace,
+    rebuild: bool = False,
+) -> str:
+    """
+    Restore an existing baseline or create one from a fresh bootstrap.
+
+    Returns:
+        Either ``"restored"`` or ``"created"`` for operational logging.
+    """
+    baseline_root = simulation_baseline_root(config)
+
+    if not rebuild and simulation_baseline_exists(baseline_root):
+        restore_simulation_baseline(
+            workspace,
+            baseline_root=baseline_root,
+        )
+        restore_simulation_champion_alias(
+            workspace,
+            baseline_root=baseline_root,
+        )
+        return "restored"
+
+    bootstrap_simulation_release(workspace)
+    snapshot_simulation_baseline(
+        workspace,
+        baseline_root=baseline_root,
+    )
+
+    return "created"
 
 
 def _default_output_path(
@@ -174,6 +225,15 @@ def _default_output_path(
     filename = "with_retraining.csv" if retraining_enabled else "without_retraining.csv"
 
     return output_root / filename
+
+
+def _default_evaluation_output_path(
+    output_path: str | Path,
+) -> Path:
+    """Return the companion evaluation path."""
+    lifecycle_path = Path(output_path)
+
+    return lifecycle_path.with_name(f"{lifecycle_path.stem}_evaluation.parquet")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -203,9 +263,19 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
     )
     parser.add_argument(
+        "--evaluation-output",
+        default=None,
+        help=("Optional Parquet destination for the final open-store evaluation window."),
+    )
+    parser.add_argument(
         "--keep-runtime",
         action="store_true",
         help=("Reuse the existing simulation runtime instead of resetting it."),
+    )
+    parser.add_argument(
+        "--rebuild-baseline",
+        action="store_true",
+        help=("Retrain and replace the saved initial simulation baseline."),
     )
 
     return parser
@@ -244,15 +314,41 @@ def main(
             retraining_enabled=(retraining_enabled),
         )
     )
+    evaluation_output_path = (
+        Path(args.evaluation_output)
+        if args.evaluation_output is not None
+        else _default_evaluation_output_path(output_path)
+    )
 
     pool = load_simulation_pool(source_path)
+    if pool.empty:
+        raise ValueError("Simulation source must contain at least one row.")
+
     scenario = scenario_from_config(config)
     workspace = prepare_simulation_workspace(
         config,
         reset=not args.keep_runtime,
     )
+    if args.keep_runtime and args.rebuild_baseline:
+        raise ValueError("--keep-runtime and --rebuild-baseline cannot be used together.")
+
+    if args.keep_runtime:
+        pointer_path = Path(workspace.config["paths"]["models"]) / "active_serving_release.json"
+
+        if not pointer_path.is_file():
+            raise FileNotFoundError(
+                "--keep-runtime requires an existing simulation serving release."
+            )
+
+        baseline_action = "kept"
+    else:
+        baseline_action = prepare_simulation_baseline(
+            config=config,
+            workspace=workspace,
+            rebuild=args.rebuild_baseline,
+        )
+
     model_manager = build_simulation_model_manager(
-        base_config=config,
         workspace=workspace,
     )
     initial_bundle = model_manager.load_initial()
@@ -260,6 +356,7 @@ def main(
     print(
         "Simulation started | "
         f"initial_release={initial_bundle.release_id} | "
+        f"baseline={baseline_action} | "
         f"scenario={scenario.name} | "
         f"retraining={args.retraining} | "
         f"maximum_days={maximum_days}"
@@ -274,6 +371,10 @@ def main(
         output_path=output_path,
         maximum_days=maximum_days,
     )
+    evaluation = export_runtime_evaluation(
+        runtime_root=workspace.runtime_root,
+        output_path=evaluation_output_path,
+    )
 
     final_row = result.iloc[-1]
 
@@ -282,7 +383,9 @@ def main(
         f"days={len(result)} | "
         f"final_rmse={final_row['rmse']} | "
         f"final_event={final_row['event']} | "
-        f"output={output_path}"
+        f"evaluation_rows={len(evaluation)} | "
+        f"output={output_path} | "
+        f"evaluation_output={evaluation_output_path}"
     )
 
     return 0
@@ -294,4 +397,5 @@ __all__ = [
     "main",
     "scenario_from_config",
     "summarize_simulation_comparison",
+    "prepare_simulation_baseline",
 ]
