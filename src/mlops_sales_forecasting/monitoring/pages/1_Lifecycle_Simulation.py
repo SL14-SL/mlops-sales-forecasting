@@ -177,13 +177,95 @@ def main() -> None:
         }.get,
     )
 
+    presentation_mode = st.checkbox(
+        "Presentation mode (light theme, larger labels)",
+        value=False,
+    )
+
     segment_figure = build_segment_chart(
         segment_metrics,
         metric=segment_metric,
     )
+
+    if presentation_mode:
+        segment_figure.update_layout(
+            template="plotly_white",
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            height=520,
+            font={
+                "size": 22,
+                "color": "#24342D",
+            },
+            legend={
+                "orientation": "h",
+                "y": 1.12,
+                "x": 0,
+                "font": {"size": 22},
+                "entrywidth": 300,
+                "entrywidthmode": "pixels",
+            },
+            margin={"l": 80, "r": 30, "t": 90, "b": 85},
+            uniformtext_minsize=22,
+            uniformtext_mode="show",
+        )
+
+        segment_figure.update_xaxes(
+            title_text=None,
+            tickfont={"size": 22},
+            tickvals=[
+                "All open stores",
+                "Promo stores",
+                "Non-promo stores",
+            ],
+            ticktext=[
+                "All stores",
+                "Promo",
+                "Non-promo",
+            ],
+        )
+
+        segment_figure.update_yaxes(
+            title_font={"size": 22},
+            tickfont={"size": 20},
+            gridcolor="#E1E7E3",
+            zerolinecolor="#CDD5CF",
+        )
+
+        segment_figure.update_traces(
+            texttemplate=(
+                "%{y:.1f}"
+                if segment_metric == "wmape_percent"
+                else "%{y:.0f}"
+            ),
+            textposition="outside",
+            textfont={"size": 24},
+            cliponaxis=False,
+            selector={"type": "bar"},
+        )
+
+        for trace in segment_figure.data:
+            if trace.name == "Without retraining":
+                trace.name = "Static model"
+            elif trace.name in {
+                "Managed lifecycle",
+                "With retraining",
+            }:
+                trace.name = "Managed lifecycle"
+
     st.plotly_chart(
         segment_figure,
         use_container_width=True,
+        theme=None if presentation_mode else "streamlit",
+        config={
+            "toImageButtonOptions": {
+                "format": "png",
+                "filename": "lifecycle-segment-performance",
+                "width": 1200,
+                "height": 520,
+                "scale": 2,
+            },
+        },
     )
 
     with st.expander(
