@@ -9,7 +9,7 @@ requires-python = ">=3.12.9,<3.13"
 dependencies = [
     "fastapi==0.161.1",
     "fsspec==2026.9.0",
-    "gcsfs==2026.10.0",
+    "gcsfs==2026.10.1",
     "httpx2>=2.12.0",
     "mlflow==3.17.2",
     "numpy==2.5.4",
