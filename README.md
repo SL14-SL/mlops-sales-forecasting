@@ -37,6 +37,8 @@ This project implements that complete lifecycle:
 - reproduce lifecycle behavior through an isolated simulation;
 - deploy the API using Terraform and keyless GitHub Actions authentication.
 
+[Download the one-page sales forecasting case study (PDF)](docs/sales_forecasting_case_study_en.pdf)
+
 ## Key Result
 
 The checked-in lifecycle simulation introduces a gradual reduction in
