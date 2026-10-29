@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+from mlops_sales_forecasting.inference.model_manager import ModelManager
 from mlops_sales_forecasting.inference.releases.contracts import (
     ArtifactReference,
     ModelReference,
@@ -179,3 +180,94 @@ def test_bundle_requires_known_calendar() -> None:
         match="has no known calendar",
     ):
         validate_serving_bundle(bundle)
+
+
+def build_valid_dated_bundle() -> ServingBundle:
+    bundle = build_valid_bundle()
+
+    manifest = replace(
+        bundle.manifest,
+        metadata={
+            **(bundle.manifest.metadata or {}),
+            "forecasting_state_schema_version": 1,
+        },
+    )
+
+    return replace(
+        bundle,
+        manifest=manifest,
+        store_state={
+            "schema_version": 1,
+            "stores": {
+                "1": [
+                    {"date": "2026-01-01", "value": 100.0},
+                    {"date": "2026-01-02", "value": 120.0},
+                ],
+            },
+        },
+    )
+
+
+def test_bundle_accepts_valid_dated_state() -> None:
+    validate_serving_bundle(build_valid_dated_bundle())
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"1": [100.0, 120.0]},
+        {"schema_version": 1, "stores": {}},
+        {"schema_version": 2, "stores": {}},
+        {
+            "schema_version": 1,
+            "stores": {
+                "1": [{"date": "2026-01-01", "value": float("inf")}],
+            },
+        },
+        {
+            "schema_version": 1,
+            "stores": {
+                "1": [
+                    {"date": "2026-01-01", "value": 100.0},
+                    {"date": "2026-01-01", "value": 120.0},
+                ],
+            },
+        },
+        {
+            "schema_version": 1,
+            "stores": {
+                "1": [
+                    {"date": "2026-01-02", "value": 120.0},
+                    {"date": "2026-01-01", "value": 100.0},
+                ],
+            },
+        },
+    ],
+)
+def test_bundle_rejects_invalid_dated_state(state: dict) -> None:
+    bundle = replace(build_valid_dated_bundle(), store_state=state)
+
+    with pytest.raises(ValueError):
+        validate_serving_bundle(bundle)
+
+
+def test_dated_reload_failure_preserves_active_bundle() -> None:
+    initial = build_valid_dated_bundle()
+
+    invalid = replace(
+        initial,
+        release_id="release-invalid",
+        manifest=replace(initial.manifest, release_id="release-invalid"),
+        store_state={"schema_version": 1, "stores": {}},
+    )
+
+    manager = ModelManager(MagicMock(side_effect=[initial, invalid]))
+    manager.load_initial()
+
+    result = manager.reload()
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.active_release_id == initial.release_id
+    assert manager.get_bundle() is initial
+    assert manager.ready is True

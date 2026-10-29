@@ -3,6 +3,10 @@ from typing import Any
 
 import pandas as pd
 
+from mlops_sales_forecasting.data.features.dated_state import (
+    validate_dated_feature_state,
+)
+
 from .releases.contracts import (
     ServingReleaseManifest,
     TaskType,
@@ -119,6 +123,18 @@ def validate_serving_bundle(bundle: ServingBundle) -> None:
         raise ValueError(
             "Serving bundle has invalid forecasting state."
         )
+
+    metadata = bundle.manifest.metadata or {}
+    declared_state_version = "forecasting_state_schema_version" in metadata
+
+    if declared_state_version:
+        version = metadata["forecasting_state_schema_version"]
+
+        if type(version) is not int or version != 1:
+            raise ValueError("Unsupported forecasting state schema in manifest.")
+
+    if declared_state_version or "schema_version" in bundle.store_state:
+        validate_dated_feature_state(bundle.store_state)
 
     if (
         not isinstance(bundle.known_calendar, pd.DataFrame)

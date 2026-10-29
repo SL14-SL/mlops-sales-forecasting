@@ -317,3 +317,22 @@ def build_dated_lag_features(
         records.append(record)
 
     return pd.DataFrame(records, index=inputs.index)
+
+
+def validate_dated_feature_state(state: dict) -> None:
+    """Validate a non-empty dated state without modifying it."""
+    frame = _dated_state_to_frame(state)
+
+    if frame.empty:
+        raise ValueError("Forecasting state has no observations.")
+
+    # Checks values and duplicate store/date observations.
+    build_dated_feature_state(frame, history_length=len(frame))
+
+    for store_id, observations in frame.groupby("Store", sort=False):
+        dates = pd.to_datetime(observations["Date"])
+
+        if not dates.is_monotonic_increasing:
+            raise ValueError(
+                f"Forecasting history must be chronological for Store={store_id}."
+            )
