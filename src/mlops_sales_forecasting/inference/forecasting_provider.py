@@ -27,6 +27,14 @@ def build_forecasting_inference_features(
         config,
     )
 
+    row_order_column = "__request_row_order"
+
+    if row_order_column in normalized_frame.columns:
+        raise ValueError("Reserved request-order column is present.")
+
+    normalized_frame = normalized_frame.copy()
+    normalized_frame[row_order_column] = range(len(normalized_frame))
+
     features_frame = merge_request_with_metadata(
         normalized_frame,
         store_metadata,
@@ -52,6 +60,25 @@ def build_forecasting_inference_features(
             store_state,
             config,
         )
+    )
+
+    if row_order_column not in processed_frame.columns:
+        raise ValueError("Feature pipeline lost request row identifiers.")
+
+    processed_frame = processed_frame.sort_values(
+        row_order_column,
+        kind="stable",
+    )
+
+    expected_row_order = list(range(len(validated_frame)))
+
+    if processed_frame[row_order_column].tolist() != expected_row_order:
+        raise ValueError("Feature pipeline changed request row identifiers.")
+
+    processed_frame = (
+        processed_frame
+        .drop(columns=row_order_column)
+        .reset_index(drop=True)
     )
 
     return finalize_forecasting_feature_frame(
