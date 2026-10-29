@@ -197,3 +197,117 @@ def merge_dated_feature_state(
         combined,
         history_length=history_length,
     )
+
+
+def build_dated_lag_features(
+    inputs: pd.DataFrame,
+    state: dict,
+    *,
+    lags: list[int],
+    rolling_windows: list[int],
+    entity_column: str = "Store",
+    date_column: str = "Date",
+    target_column: str = "Sales",
+) -> pd.DataFrame:
+    """Build calendar-based lag features for next-day forecasts."""
+    settings = [*lags, *rolling_windows]
+
+    if not settings or any(
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 1
+        for value in settings
+    ):
+        raise ValueError("Lag offsets and windows must be positive integers.")
+
+    required_columns = {entity_column, date_column}
+
+    if not required_columns.issubset(inputs.columns):
+        raise ValueError("Forecast inputs require entity and date columns.")
+
+    if inputs.empty:
+        raise ValueError("Forecast inputs must not be empty.")
+
+    history = _dated_state_to_frame(state)
+
+    if history.empty:
+        raise ValueError("Forecasting state has no observations.")
+
+    # Validate values and duplicate store/date keys before using the state.
+    build_dated_feature_state(history, history_length=len(history))
+    history["Date"] = pd.to_datetime(history["Date"])
+
+    histories = {
+        int(store): dict(zip(group["Date"], group["Sales"], strict=True))
+        for store, group in history.groupby("Store")
+    }
+
+    entities = pd.to_numeric(inputs[entity_column], errors="raise")
+
+    if (
+        entities.isna().any()
+        or not entities.map(math.isfinite).all()
+        or (entities <= 0).any()
+        or (entities % 1 != 0).any()
+    ):
+        raise ValueError("Store identifiers must be positive integers.")
+
+    dates = pd.to_datetime(inputs[date_column], errors="raise")
+
+    if (
+        dates.isna().any()
+        or dates.dt.tz is not None
+        or not dates.eq(dates.dt.normalize()).all()
+    ):
+        raise ValueError("Forecast dates must be timezone-naive calendar dates.")
+
+    required_offsets = set(lags)
+
+    for window in rolling_windows:
+        required_offsets.update(range(1, window + 1))
+
+    prefix = target_column.strip().lower().replace(" ", "_")
+    records = []
+
+    for store, forecast_date in zip(entities, dates, strict=True):
+        store_id = int(store)
+        observations = histories.get(store_id)
+
+        if not observations:
+            raise ValueError(f"No dated history for Store={store_id}.")
+
+        next_date = max(observations) + pd.Timedelta(days=1)
+
+        if forecast_date != next_date:
+            raise ValueError(
+                f"Store={store_id} supports only next-day forecasts: "
+                f"expected {next_date.date()}, received {forecast_date.date()}."
+            )
+
+        missing_dates = [
+            (forecast_date - pd.Timedelta(days=offset)).date().isoformat()
+            for offset in sorted(required_offsets)
+            if forecast_date - pd.Timedelta(days=offset) not in observations
+        ]
+
+        if missing_dates:
+            raise ValueError(
+                f"Missing dated history for Store={store_id}: {missing_dates}."
+            )
+
+        record = {
+            f"{prefix}_lag_{lag}": float(
+                observations[forecast_date - pd.Timedelta(days=lag)]
+            )
+            for lag in lags
+        }
+
+        for window in rolling_windows:
+            record[f"{prefix}_rolling_mean_{window}"] = sum(
+                observations[forecast_date - pd.Timedelta(days=offset)]
+                for offset in range(1, window + 1)
+            ) / window
+
+        records.append(record)
+
+    return pd.DataFrame(records, index=inputs.index)
