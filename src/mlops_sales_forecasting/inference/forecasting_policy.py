@@ -12,6 +12,9 @@ from mlops_sales_forecasting.data.features.calendar import (
 from mlops_sales_forecasting.data.features.core import (
     get_lag_feature_names,
 )
+from mlops_sales_forecasting.data.features.dated_state import (
+    build_dated_lag_features,
+)
 
 
 def _core_columns(
@@ -207,10 +210,27 @@ def inject_forecasting_state_features(
     config: Mapping[str, Any],
 ) -> pd.DataFrame:
     """Replace lag placeholders with persisted target history."""
-    entity_column, target_column, _ = _core_columns(
-        config
-    )
+    entity_column, target_column, date_column = _core_columns(config)
     lags, rolling_windows = _lag_settings(config)
+
+    if "schema_version" in store_state:
+        dated_features = build_dated_lag_features(
+            processed_frame,
+            dict(store_state),
+            lags=lags,
+            rolling_windows=rolling_windows,
+            entity_column=entity_column,
+            date_column=date_column,
+            target_column=target_column,
+        )
+
+        result = processed_frame.copy()
+
+        for column in dated_features.columns:
+            # Assign positionally, including when dataframe indexes repeat.
+            result[column] = dated_features[column].to_numpy()
+
+        return result
 
     if entity_column not in processed_frame.columns:
         raise ValueError(
