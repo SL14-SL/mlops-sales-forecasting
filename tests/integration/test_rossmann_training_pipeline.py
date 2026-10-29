@@ -1,6 +1,7 @@
 import json
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from datetime import date as calendar_date
 
 import pandas as pd
 from mlflow import MlflowClient
@@ -256,10 +257,8 @@ def test_real_rossmann_training_pipeline(
     assert state_path.is_file()
 
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert set(state) == {
-        "1",
-        "2",
-    }
+    assert state["schema_version"] == 1
+    assert set(state["stores"]) == {"1", "2"}
 
     pipeline_state_path = tmp_path / "artifacts" / "pipeline-runs" / f"{mlflow_run_id}.json"
     assert pipeline_state_path.is_file()
@@ -340,23 +339,6 @@ def test_real_rossmann_model_serves_predictions(
         / "features"
         / "known_calendar.parquet"
     )
-    store_1_date = (
-        known_calendar.loc[
-            known_calendar["Store"].eq(1),
-            "Date",
-        ]
-        .max()
-    )
-    store_2_date = (
-        known_calendar.loc[
-            known_calendar["Store"].eq(2),
-            "Date",
-        ]
-        .max()
-    )
-
-    assert pd.notna(store_1_date)
-    assert pd.notna(store_2_date)
 
     store_state = json.loads(
         (
@@ -367,6 +349,15 @@ def test_real_rossmann_model_serves_predictions(
         ).read_text(
             encoding="utf-8"
         )
+    )
+
+    store_1_date = (
+        calendar_date.fromisoformat(store_state["stores"]["1"][-1]["date"])
+        + timedelta(days=1)
+    )
+    store_2_date = (
+        calendar_date.fromisoformat(store_state["stores"]["2"][-1]["date"])
+        + timedelta(days=1)
     )
 
     manifest = ServingReleaseManifest(

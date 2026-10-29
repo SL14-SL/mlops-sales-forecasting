@@ -1,5 +1,5 @@
 import math
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -185,7 +185,10 @@ def merge_dated_feature_state(
     )
     incoming = _dated_state_to_frame(incoming_state)
 
-    combined = pd.concat([existing, incoming], ignore_index=True)
+    if existing.empty:
+        combined = incoming.copy()
+    else:
+        combined = pd.concat([existing, incoming], ignore_index=True)
 
     # Incoming values win when correcting an already observed store/date.
     combined = combined.drop_duplicates(
@@ -238,7 +241,9 @@ def build_dated_lag_features(
     history["Date"] = pd.to_datetime(history["Date"])
 
     histories = {
-        int(store): dict(zip(group["Date"], group["Sales"], strict=True))
+        int(store): dict(
+            zip(group["Date"].dt.date, group["Sales"], strict=True)
+        )
         for store, group in history.groupby("Store")
     }
 
@@ -269,25 +274,26 @@ def build_dated_lag_features(
     prefix = target_column.strip().lower().replace(" ", "_")
     records = []
 
-    for store, forecast_date in zip(entities, dates, strict=True):
+    for store, forecast_date in zip(entities, dates.dt.date, strict=True):
         store_id = int(store)
         observations = histories.get(store_id)
 
         if not observations:
             raise ValueError(f"No dated history for Store={store_id}.")
 
-        next_date = max(observations) + pd.Timedelta(days=1)
+        next_date = max(observations) + timedelta(days=1)
 
         if forecast_date != next_date:
             raise ValueError(
                 f"Store={store_id} supports only next-day forecasts: "
-                f"expected {next_date.date()}, received {forecast_date.date()}."
+                f"expected {next_date.isoformat()}, "
+                f"received {forecast_date.isoformat()}."
             )
 
         missing_dates = [
-            (forecast_date - pd.Timedelta(days=offset)).date().isoformat()
+            (forecast_date - timedelta(days=offset)).isoformat()
             for offset in sorted(required_offsets)
-            if forecast_date - pd.Timedelta(days=offset) not in observations
+            if forecast_date - timedelta(days=offset) not in observations
         ]
 
         if missing_dates:
@@ -297,14 +303,14 @@ def build_dated_lag_features(
 
         record = {
             f"{prefix}_lag_{lag}": float(
-                observations[forecast_date - pd.Timedelta(days=lag)]
+                observations[forecast_date - timedelta(days=lag)]
             )
             for lag in lags
         }
 
         for window in rolling_windows:
             record[f"{prefix}_rolling_mean_{window}"] = sum(
-                observations[forecast_date - pd.Timedelta(days=offset)]
+                observations[forecast_date - timedelta(days=offset)]
                 for offset in range(1, window + 1)
             ) / window
 

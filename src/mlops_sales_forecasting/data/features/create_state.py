@@ -5,6 +5,9 @@ from typing import Any
 import fsspec
 import pandas as pd
 
+from mlops_sales_forecasting.data.features.dated_state import (
+    build_dated_feature_state,
+)
 from mlops_sales_forecasting.storage.filesystem import (
     file_exists,
 )
@@ -58,75 +61,24 @@ def _resolve_history_length(
 def build_feature_state(
     features: pd.DataFrame,
     config: Mapping[str, Any],
-) -> dict[str, list[float]]:
-    """Build recent target history for every forecasting entity."""
+) -> dict[str, Any]:
+    """Build versioned, dated target history for every store."""
     columns = _resolve_core_columns(config)
-    entity_column = columns["entity_column"]
-    time_column = columns["time_column"]
-    target_column = columns["target_column"]
-    history_length = _resolve_history_length(config)
 
-    required_columns = [
-        entity_column,
-        time_column,
-        target_column,
-    ]
-    missing_columns = [column for column in required_columns if column not in features.columns]
-
-    if missing_columns:
-        raise ValueError(f"Missing required columns in features data: {missing_columns}")
-
-    state_frame = features[required_columns].copy()
-    state_frame[time_column] = pd.to_datetime(
-        state_frame[time_column],
-        errors="coerce",
+    return build_dated_feature_state(
+        features,
+        history_length=_resolve_history_length(config),
+        entity_column=columns["entity_column"],
+        date_column=columns["time_column"],
+        target_column=columns["target_column"],
     )
-    state_frame[target_column] = pd.to_numeric(
-        state_frame[target_column],
-        errors="coerce",
-    )
-    state_frame = state_frame.dropna(
-        subset=[
-            entity_column,
-            time_column,
-            target_column,
-        ]
-    )
-
-    state_frame = (
-        state_frame.sort_values(
-            [
-                entity_column,
-                time_column,
-            ]
-        )
-        .groupby(
-            entity_column,
-            dropna=False,
-        )
-        .tail(history_length)
-    )
-
-    grouped_state = (
-        state_frame.groupby(
-            entity_column,
-            dropna=False,
-        )[target_column]
-        .apply(list)
-        .to_dict()
-    )
-
-    return {
-        str(entity): [float(value) for value in values] for entity, values in grouped_state.items()
-    }
-
 
 def create_feature_state(
     *,
     config: Mapping[str, Any],
     features_path: str,
     state_path: str,
-) -> dict[str, list[float]]:
+) -> dict[str, Any]:
     """Create and persist the forecasting feature state."""
     if not file_exists(features_path):
         raise FileNotFoundError(f"Features not found: {features_path}")
@@ -145,6 +97,7 @@ def create_feature_state(
     with fsspec.open(
         state_path,
         "w",
+        auto_mkdir=True,
     ) as file:
         json.dump(
             state,
@@ -154,7 +107,7 @@ def create_feature_state(
     logger.info(
         "Forecasting state saved | path=%s | entities=%s",
         state_path,
-        len(state),
+        len(state["stores"]),
     )
 
     return state

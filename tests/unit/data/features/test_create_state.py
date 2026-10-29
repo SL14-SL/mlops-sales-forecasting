@@ -13,35 +13,21 @@ def forecasting_config() -> dict:
         "data": {
             "target_column": "Sales",
             "time_column": "Date",
-            "id_columns": [
-                "Store",
-            ],
+            "id_columns": ["Store"],
         },
         "features": {
             "lag_features": {
-                "lags": [
-                    1,
-                    3,
-                ],
-                "rolling_windows": [
-                    2,
-                ],
+                "lags": [1, 3],
+                "rolling_windows": [2],
             },
         },
     }
 
 
-def test_build_feature_state_keeps_required_history() -> None:
+def test_build_feature_state_keeps_required_dated_history() -> None:
     features = pd.DataFrame(
         {
-            "Store": [
-                1,
-                1,
-                1,
-                1,
-                2,
-                2,
-            ],
+            "Store": [1, 1, 1, 1, 2, 2],
             "Date": pd.to_datetime(
                 [
                     "2026-01-01",
@@ -52,63 +38,40 @@ def test_build_feature_state_keeps_required_history() -> None:
                     "2026-01-02",
                 ]
             ),
-            "Sales": [
-                10,
-                20,
-                30,
-                40,
-                50,
-                60,
-            ],
+            "Sales": [10, 20, 30, 40, 50, 60],
         }
     )
 
-    result = build_feature_state(
-        features,
-        forecasting_config(),
-    )
+    result = build_feature_state(features, forecasting_config())
 
     assert result == {
-        "1": [
-            20.0,
-            30.0,
-            40.0,
-        ],
-        "2": [
-            50.0,
-            60.0,
-        ],
+        "schema_version": 1,
+        "stores": {
+            "1": [
+                {"date": "2026-01-02", "value": 20.0},
+                {"date": "2026-01-03", "value": 30.0},
+                {"date": "2026-01-04", "value": 40.0},
+            ],
+            "2": [
+                {"date": "2026-01-01", "value": 50.0},
+                {"date": "2026-01-02", "value": 60.0},
+            ],
+        },
     }
 
 
-def test_create_feature_state_persists_json(
-    tmp_path,
-) -> None:
+def test_create_feature_state_persists_dated_json(tmp_path) -> None:
     features_path = tmp_path / "features.parquet"
     state_path = tmp_path / "models" / "latest_state.json"
-    state_path.parent.mkdir(parents=True)
 
-    pd.DataFrame(
+    features = pd.DataFrame(
         {
-            "Store": [
-                1,
-                1,
-            ],
-            "Date": pd.to_datetime(
-                [
-                    "2026-01-01",
-                    "2026-01-02",
-                ]
-            ),
-            "Sales": [
-                100,
-                120,
-            ],
+            "Store": [1, 1],
+            "Date": pd.to_datetime(["2026-01-01", "2026-01-02"]),
+            "Sales": [100, 120],
         }
-    ).to_parquet(
-        features_path,
-        index=False,
     )
+    features.to_parquet(features_path, index=False)
 
     result = create_feature_state(
         config=forecasting_config(),
@@ -118,10 +81,6 @@ def test_create_feature_state_persists_json(
 
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
 
-    assert result == {
-        "1": [
-            100.0,
-            120.0,
-        ],
-    }
+    assert result == build_feature_state(features, forecasting_config())
     assert persisted == result
+    assert persisted["schema_version"] == 1
