@@ -1,4 +1,5 @@
 import math
+from datetime import date
 
 import pandas as pd
 
@@ -92,3 +93,107 @@ def build_dated_feature_state(
         "schema_version": 1,
         "stores": stores,
     }
+
+
+def _dated_state_to_frame(state: dict) -> pd.DataFrame:
+    """Validate the state structure and extract dated observations."""
+    if (
+        not isinstance(state, dict)
+        or set(state) != {"schema_version", "stores"}
+        or type(state["schema_version"]) is not int
+        or state["schema_version"] != 1
+        or not isinstance(state["stores"], dict)
+    ):
+        raise ValueError("Expected dated forecasting state with schema_version=1.")
+
+    records = []
+
+    for store_id, observations in state["stores"].items():
+        if (
+            not isinstance(store_id, str)
+            or not store_id.isascii()
+            or not store_id.isdecimal()
+            or int(store_id) <= 0
+            or str(int(store_id)) != store_id
+        ):
+            raise ValueError("State store keys must be canonical positive integers.")
+
+        if not isinstance(observations, list) or not observations:
+            raise ValueError("Each store must contain dated observations.")
+
+        for observation in observations:
+            if (
+                not isinstance(observation, dict)
+                or set(observation) != {"date", "value"}
+            ):
+                raise ValueError("Each observation requires date and value.")
+
+            observed_date = observation["date"]
+
+            if not isinstance(observed_date, str):
+                raise ValueError("Observation dates must use YYYY-MM-DD.")
+
+            try:
+                parsed_date = date.fromisoformat(observed_date)
+            except ValueError as exc:
+                raise ValueError("Observation dates must use YYYY-MM-DD.") from exc
+
+            if parsed_date.isoformat() != observed_date:
+                raise ValueError("Observation dates must use YYYY-MM-DD.")
+
+            value = observation["value"]
+
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError("Observation values must be numeric.")
+
+            records.append(
+                {
+                    "Store": int(store_id),
+                    "Date": observed_date,
+                    "Sales": value,
+                }
+            )
+
+    return pd.DataFrame(records, columns=["Store", "Date", "Sales"])
+
+
+def merge_dated_feature_state(
+    state: dict,
+    batch: pd.DataFrame,
+    *,
+    history_length: int,
+    entity_column: str = "Store",
+    date_column: str = "Date",
+    target_column: str = "Sales",
+) -> dict:
+    """Merge ground truth by store/date; incoming observations replace old values."""
+    existing = _dated_state_to_frame(state)
+
+    if not existing.empty:
+        # Validate the entire existing history before combining observations.
+        build_dated_feature_state(
+            existing,
+            history_length=len(existing),
+        )
+
+    incoming_state = build_dated_feature_state(
+        batch,
+        history_length=max(len(batch), 1),
+        entity_column=entity_column,
+        date_column=date_column,
+        target_column=target_column,
+    )
+    incoming = _dated_state_to_frame(incoming_state)
+
+    combined = pd.concat([existing, incoming], ignore_index=True)
+
+    # Incoming values win when correcting an already observed store/date.
+    combined = combined.drop_duplicates(
+        subset=["Store", "Date"],
+        keep="last",
+    )
+
+    return build_dated_feature_state(
+        combined,
+        history_length=history_length,
+    )
