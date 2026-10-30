@@ -688,78 +688,21 @@ Verify that the webhook endpoint:
 
 Notification retries are not performed automatically. The lifecycle event
 remains available in the structured application logs.
+
 ## Local lifecycle simulation
 
-The lifecycle simulation is a controlled demonstration environment and must
-not share mutable paths with normal development or production workloads.
+The lifecycle simulation must not share mutable paths with normal
+development or production workloads.
 
-### Preconditions
+Follow the [simulation reproduction instructions](../examples/lifecycle_simulation/README.md#prerequisites).
+Use `configs/lifecycle-reference.yaml` as the configuration source and generate
+a fresh local configuration for each independent comparison.
 
-Verify that MLflow is available:
+Run static and managed scenarios sequentially with that same configuration.
+The static run creates the baseline; the managed run restores it.
+Do not use `--rebuild-baseline` or `--keep-runtime` between the paired runs.
 
-```bash
-curl \
-  --fail \
-  --silent \
-  --show-error \
-  http://localhost:5000/health
-```
-
-Verify that the active serving pointer exists:
-
-```bash
-test \
-  -f artifacts/models/active_serving_release.json
-```
-
-Verify the simulation source:
-
-```bash
-test \
-  -f data/simulation/simulation_ground_truth.csv
-```
-
-For retraining-enabled runs, start Prefect and configure the local API:
-
-```bash
-make prefect-up
-
-export PREFECT_API_URL=http://127.0.0.1:4200/api
-```
-
-### Smoke test
-
-```bash
-uv run python \
-  scripts/run_lifecycle_simulation.py \
-  --config dev.yaml \
-  --retraining disabled \
-  --maximum-days 1 \
-  --output examples/lifecycle_simulation/generated/smoke-test.csv
-```
-
-### Full comparison
-
-Run the static baseline:
-
-```bash
-uv run python \
-  scripts/run_lifecycle_simulation.py \
-  --config dev.yaml \
-  --retraining disabled
-```
-
-Run the managed lifecycle:
-
-```bash
-uv run python \
-  scripts/run_lifecycle_simulation.py \
-  --config dev.yaml \
-  --retraining enabled
-```
-
-Do not pass `--keep-runtime` when producing a new comparison. The default
-reset ensures both runs start from a controlled workspace.
+An existing development serving pointer is not required.
 
 ### Validate the outputs
 

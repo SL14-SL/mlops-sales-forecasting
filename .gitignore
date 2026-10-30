@@ -69,3 +69,7 @@ terraform.tfvars
 
 # Generated lifecycle simulation runs
 /examples/lifecycle_simulation/generated/
+
+/configs/lifecycle-local.yaml
+/configs/promo-history-check.yaml
+/configs/time-contract-check.yaml
