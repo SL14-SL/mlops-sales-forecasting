@@ -22,10 +22,9 @@ Two otherwise matching lifecycles are compared:
    promotion.
 
 Retraining and promotion are separate events. Three challengers are trained
-on simulation days 30, 39 and 69. The first is worse overall. The second
-improves overall RMSE but violates the non-promotional segment guardrail.
-Only the final challenger passes the paired overall and segment-level
-promotion checks and replaces the active champion.
+on simulation days 30, 38 and 68. The first two are not promoted.
+The third passes the configured promotion checks and replaces the active
+champion on day 68.
 
 ## Reference files
 
@@ -35,10 +34,16 @@ promotion checks and replaces the active champion.
 - `segment_metrics.csv`: final comparison for all open stores, promotional
   stores and non-promotional stores.
 
-The checked-in results show a final-RMSE improvement from `1099.00` to
-`1016.51`, corresponding to about `7.5%`. Across the identical final
-seven-day evaluation window, promotional-store RMSE improves by `8.2%`,
-while non-promotional-store RMSE improves by `0.4%`.
+The checked-in results cover 95 simulation days. Both variants are evaluated
+on the same 6,710 open-store observations from July 25–31, 2015.
+
+In this final seven-day window, overall RMSE decreases from `930.79` to
+`850.07`, an improvement of `8.67%`. Promotional-store RMSE decreases from
+`965.08` to `873.67` (`9.47%`), while non-promotional-store RMSE decreases
+from `741.92` to `724.53` (`2.34%`).
+
+These improvements describe this controlled scenario and final evaluation
+window, rather than an average improvement over all 95 simulation days.
 
 ## Prerequisites
 
@@ -130,9 +135,9 @@ that passed evaluation and was promoted to champion.
 
 <p align="center">
   <em>
-    In the identical final seven-day evaluation window, the promoted champion
-    reduces RMSE by 7.5% across all open stores and by 8.2% for promotional
-    stores without degrading the non-promotional segment.
+    Across identical observations in the final seven-day evaluation window,
+    the managed lifecycle reduces RMSE by 8.67% across all open stores,
+    by 9.47% for promotional stores and by 2.34% for non-promotional stores.
   </em>
 </p>
 

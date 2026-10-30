@@ -56,19 +56,23 @@ truth is modified and persisted, preventing target leakage.
 
 | Result | Static champion | Managed lifecycle |
 |---|---:|---:|
-| Final RMSE | `1099.00` | `1016.51` |
-| Relative final RMSE improvement | — | `7.5%` |
-| Final-window promo RMSE | `1157.08` | `1062.69` |
-| Final-window non-promo RMSE | `755.58` | `752.74` |
+| Final-window RMSE | `930.79` | `850.07` |
+| Relative final-window RMSE improvement | — | `8.67%` |
+| Final-window promo RMSE | `965.08` | `873.67` |
+| Final-window non-promo RMSE | `741.92` | `724.53` |
 | Candidate retraining events | `0` | `3` |
 | Champion promotions | `0` | `1` |
 
 The important result is not simply that retraining occurred. Three candidate
-runs were triggered on simulation days 30, 39 and 69. The first candidate was
-worse overall. The second improved overall RMSE but was rejected because its
-non-promotional segment regression exceeded the configured guardrail. Only the
-final challenger improved overall and segment-level performance, passed the
-paired promotion checks and changed the active serving release.
+runs were triggered on simulation days 30, 38 and 68.
+The first two candidates were not promoted. The third candidate passed
+the configured promotion checks and became champion on day 68.
+
+Both variants were evaluated on the same 6,710 open-store observations
+from July 25–31, 2015. In this final seven-day window, the managed
+lifecycle reduced overall RMSE by 8.67%, promotional-store RMSE by 9.47%
+and non-promotional-store RMSE by 2.34%. These results describe this
+controlled scenario and evaluation window.
 
 Versioned reference results are available in
 [`examples/lifecycle_simulation/`](examples/lifecycle_simulation/).
@@ -83,10 +87,10 @@ Versioned reference results are available in
 
 <p align="center">
   <em>
-    The static and managed scenarios use the same champion through day 69.
-    After the final challenger passes the promotion guardrails, the managed
-    lifecycle finishes with a 7.5% lower RMSE and improves all evaluated
-    store segments.
+    The managed lifecycle promotes a new champion on simulation day 68.
+    In the final seven-day evaluation window, its RMSE is 8.67% lower
+    than the static baseline, with improvements in both promotional
+    and non-promotional store segments.
   </em>
 </p>
 
