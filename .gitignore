@@ -69,3 +69,5 @@ terraform.tfvars
 
 # Generated lifecycle simulation runs
 /examples/lifecycle_simulation/generated/
+
+/configs/lifecycle-local.yaml

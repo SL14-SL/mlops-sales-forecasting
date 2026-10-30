@@ -47,7 +47,7 @@ window, rather than an average improvement over all 95 simulation days.
 
 ## Prerequisites
 
-Local input data is expected at:
+Local input files are required:
 
 ```text
 data/raw/train.csv
@@ -55,62 +55,95 @@ data/raw/store.csv
 data/simulation/simulation_ground_truth.csv
 ```
 
-The simulation also requires:
-
-- a running MLflow tracking server;
-- an initial champion model;
-- an active serving-release pointer;
-- a running Prefect server for retraining-enabled runs.
-
-Start the local services:
+Start MLflow and Prefect:
 
 ```bash
 make mlflow-up
 make prefect-up
 
+export APP_ENV=dev
+export MLFLOW_TRACKING_URI=http://localhost:5000
 export PREFECT_API_URL=http://127.0.0.1:4200/api
 ```
 
-## Reproducing a run
+An existing development champion or serving release is not required.
+The simulation trains and publishes its own initial release.
 
-Run a short smoke test:
+## Reproducing the comparison
+
+`configs/lifecycle-reference.yaml` records the model parameters, monitoring
+thresholds and scenario settings used for the reference comparison.
+
+Generate a fresh configuration for each independent comparison. Unique
+MLflow names prevent an existing champion from affecting initial promotion:
 
 ```bash
-uv run python \
-  scripts/run_lifecycle_simulation.py \
-  --config dev.yaml \
+uv run python - <<'PY'
+from pathlib import Path
+from uuid import uuid4
+
+import yaml
+
+config = yaml.safe_load(
+    Path("configs/lifecycle-reference.yaml").read_text()
+)
+run_name = f"lifecycle-{uuid4().hex[:12]}"
+
+config["tracking"]["experiment_name"] = run_name
+config["tracking"]["model_name"] = f"{run_name}-model"
+config["simulation"]["runtime_path"] = f"data/simulation/{run_name}/runtime"
+config["simulation"]["baseline_path"] = f"data/simulation/{run_name}/baseline"
+
+Path("configs/lifecycle-local.yaml").write_text(
+    yaml.safe_dump(config, sort_keys=False),
+    encoding="utf-8",
+)
+print(f"Prepared comparison: {run_name}")
+PY
+```
+
+Run the static baseline:
+
+```bash
+uv run python scripts/run_lifecycle_simulation.py \
+  --config lifecycle-local.yaml \
   --retraining disabled \
-  --maximum-days 1 \
-  --output examples/lifecycle_simulation/generated/smoke-test.csv
+  --maximum-days 95 \
+  --output examples/lifecycle_simulation/generated/without_retraining.csv
 ```
 
-Run the complete baseline:
+After it completes, run the managed lifecycle with the same configuration:
 
 ```bash
-uv run python \
-  scripts/run_lifecycle_simulation.py \
-  --config dev.yaml \
-  --retraining disabled
+uv run python scripts/run_lifecycle_simulation.py \
+  --config lifecycle-local.yaml \
+  --retraining enabled \
+  --maximum-days 95 \
+  --output examples/lifecycle_simulation/generated/with_retraining.csv
 ```
 
-Run the lifecycle with automated retraining:
+Do not regenerate the configuration between these two runs.
+The first run creates the initial baseline; the second restores that same
+baseline. Do not use `--rebuild-baseline` or `--keep-runtime` for this paired
+comparison.
 
-```bash
-uv run python \
-  scripts/run_lifecycle_simulation.py \
-  --config dev.yaml \
-  --retraining enabled
-```
+Each invocation resets the configured runtime workspace. Mutable batches,
+monitoring history, feature state and serving pointers remain isolated from
+normal development artifacts.
 
-Each invocation resets `data/simulation/runtime/` unless `--keep-runtime` is
-specified. This workspace isolates mutable raw batches, monitoring files,
-feature state, model artifacts and serving-release pointers from the normal
-development environment.
+For a separate smoke test, prepare a fresh local configuration and run
+with `--maximum-days 7`. Prepare another fresh configuration before starting
+the complete comparison.
 
-Generated lifecycle CSV files and their companion final-window evaluation
-Parquet files are written below `generated/` and are intentionally ignored by
-Git. The versioned CSV files in this directory remain stable portfolio
-references and are not overwritten automatically.
+Generated lifecycle CSV files and companion final-window evaluation Parquet
+files are stored under `generated/` and are not committed.
+The versioned reference CSV files are updated explicitly after validation.
+
+The dashboard reads the versioned reference CSV files by default.
+Running a simulation does not automatically replace those references.
+
+Exact scores can vary with dependency versions and execution environment.
+The checked-in reference results document the observed run.
 
 ## Dashboard
 

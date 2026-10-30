@@ -1,0 +1,176 @@
+project:
+  name: Sales Forecasting MLOps
+  slug: mlops-sales-forecasting
+  task_type: forecasting
+notifications:
+  enabled: true
+  log_events: true
+  fail_on_error: false
+  webhook:
+    enabled: false
+    url: ${LIFECYCLE_WEBHOOK_URL:-}
+    timeout_seconds: 5.0
+model:
+  type: xgboost
+  params:
+    tree_method: hist
+    enable_categorical: true
+    n_estimators: 1200
+    max_depth: 7
+    learning_rate: 0.02951097123871115
+    min_child_weight: 7
+    subsample: 0.7591811958673289
+    colsample_bytree: 0.8220753234069667
+    reg_alpha: 0.026633895001357495
+    reg_lambda: 8.719936821452245
+    gamma: 0.22544860040323314
+    objective: reg:squarederror
+    early_stopping_rounds: 50
+metrics:
+  primary: rmse
+  evaluate_on_original_scale: true
+paths:
+  data_root: data
+  raw_data: data/raw
+  validated_data: data/validation
+  interim: data/interim
+  processed: data/processed
+  artifacts: artifacts
+  models: artifacts/models
+  features: data/features
+  splits: data/splits
+  versioning: data/versioning
+  monitoring: data/monitoring
+  predictions: data/predictions
+monitoring:
+  inference_logging:
+    enabled: true
+    fail_on_error: false
+  feature_drift:
+    lookback_days: 14
+    enabled: true
+    numeric_features:
+    - CompetitionDistance
+    categorical_features:
+    - Promo
+    - Store
+    - StoreType
+    - Assortment
+    - StateHoliday
+    minimum_samples: 50
+    p_value_threshold: 0.01
+    statistic_threshold: 0.1
+  retraining:
+    minimum_new_training_rows: 500
+    cooldown_hours: 168
+    scheduled_interval_hours: 168
+    maximum_new_training_rows: 1000000
+    drift:
+      lookback_days: 14
+      consecutive_windows: 2
+    performance:
+      rolling_window: 7D
+      minimum_samples: 500
+      open_store_only: true
+      consecutive_windows: 2
+      rmse_limit: 1375.0
+      mae_limit: 990.0
+      absolute_bias_limit: 900.0
+data:
+  target_column: Sales
+  known_targets:
+  - Sales
+  - Customers
+  time_column: Date
+  id_columns:
+  - Store
+  primary_keys:
+  - Store
+  - Date
+features:
+  enabled_steps:
+  - sort
+  - temporal
+  - lags
+  - competition
+  - promo
+  - cast_categoricals
+  - drop_technical
+  - drop_configured
+  lag_features:
+    lags:
+    - 1
+    - 7
+    - 14
+    - 28
+    rolling_windows:
+    - 7
+    - 14
+    - 28
+  technical_drop_columns:
+  - CompetitionOpenSinceMonth
+  - CompetitionOpenSinceYear
+  - Promo2SinceWeek
+  - Promo2SinceYear
+  - PromoInterval
+  drop_columns: []
+training:
+  validation_strategy: chronological
+  normal_validation_days: 14
+  drift_validation_days: 7
+  target_transformation: log1p
+  recency_weighting:
+    enabled_for_drift: true
+    promo_column: Promo
+    last_30_days_weight: 5.0
+    last_60_days_weight: 3.0
+    last_120_days_weight: 1.5
+    default_weight: 1.0
+promotion:
+  minimum_validation_rows: 1000
+  minimum_segment_rows: 100
+  minimum_relative_rmse_improvement: 0.005
+  maximum_segment_rmse_regression: 0.02
+  maximum_absolute_bias_regression: 100.0
+  required_segments:
+  - promo
+  - non_promo
+services:
+  prefect_api_url: ${PREFECT_API_URL:-http://localhost:4200/api}
+serving:
+  alias: champion
+api:
+  api_key: ${API_KEY:-dev-api-key-change-me}
+tracking:
+  mlflow_tracking_uri: ${MLFLOW_TRACKING_URI:-http://localhost:5000}
+  experiment_name: mlops-sales-forecasting-lifecycle-reference
+  model_name: mlops-sales-forecasting-model-lifecycle-reference
+  promotion:
+    metric_name: rmse
+    direction: minimize
+    minimum_improvement: 0.0
+    allow_initial_champion: true
+costs:
+  training:
+    enabled: true
+    currency: EUR
+    estimated_hourly_rate: 0.4
+    window_days: 30
+  scenarios:
+    drift_triggered_runs_per_month: 8
+simulation:
+  source_path: data/simulation/simulation_ground_truth.csv
+  runtime_path: data/simulation/lifecycle-reference/runtime
+  baseline_path: data/simulation/lifecycle-reference/baseline
+  output_path: examples/lifecycle_simulation/generated
+  scenario: gradual_promo_shift
+  drift_start_day: 20
+  drift_duration_days: 14
+  maximum_base_uplift: 0.0
+  maximum_promo_uplift: -0.25
+  maximum_days: 95
+  retraining_triggers:
+    scheduled_refresh: true
+    feature_drift: false
+    performance_degradation: true
+  scheduled_interval_hours: 720

@@ -396,44 +396,17 @@ definitions, thresholds and alert rules.
 
 ## Lifecycle Simulation
 
-The project includes a reproducible simulation of delayed Ground Truth,
-promotional drift, monitoring decisions, candidate training and controlled
-promotion.
+The project includes a controlled simulation of delayed Ground Truth,
+promotional concept drift, monitoring decisions, candidate training and
+gated promotion.
 
-Start MLflow and Prefect:
+The reference comparison covers 95 days. Static and managed runs start
+from the same initial baseline and use isolated simulation workspaces.
 
-```bash
-make mlflow-up
-make prefect-up
+See the [reference results and reproduction instructions](examples/lifecycle_simulation/README.md)
+for service setup, configuration and commands.
 
-export PREFECT_API_URL=http://127.0.0.1:4200/api
-```
-
-Run the static baseline:
-
-```bash
-uv run python \
-  scripts/run_lifecycle_simulation.py \
-  --config dev.yaml \
-  --retraining disabled
-```
-
-Run the managed lifecycle:
-
-```bash
-uv run python \
-  scripts/run_lifecycle_simulation.py \
-  --config dev.yaml \
-  --retraining enabled
-```
-
-Simulation state is isolated under:
-
-```text
-data/simulation/runtime/
-```
-
-Generated results are written below:
+Generated outputs are stored under:
 
 ```text
 examples/lifecycle_simulation/generated/
@@ -442,8 +415,8 @@ examples/lifecycle_simulation/generated/
 The simulation does not modify the normal development release pointer or
 serving artifacts.
 
-Open `http://localhost:8501` and select **Lifecycle Simulation** to compare
-static and managed runs interactively.
+Open the Streamlit dashboard and select **Lifecycle Simulation** to inspect
+the versioned reference results.
 
 ## Automated Retraining
 
