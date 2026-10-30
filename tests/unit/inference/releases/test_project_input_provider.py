@@ -60,3 +60,4 @@ def test_provider_builds_forecasting_release_input() -> None:
     assert result.sources["store_state"].source_uri == "artifacts/models/latest_state.json"
     assert result.sources["known_calendar"].source_uri == "data/features/known_calendar.parquet"
     assert result.metadata["target_transformation"] == "log1p"
+    assert result.metadata["forecasting_state_schema_version"] == 1

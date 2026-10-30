@@ -7,6 +7,9 @@ from typing import Any
 import fsspec
 import pandas as pd
 
+from mlops_sales_forecasting.data.features.dated_state import (
+    merge_dated_feature_state,
+)
 from mlops_sales_forecasting.storage.filesystem import (
     file_exists,
 )
@@ -79,7 +82,7 @@ def _load_state(state_path: str) -> dict[str, list[float]]:
 
 
 def _write_state_atomically(
-    state: dict[str, list[float]],
+    state: dict[str, Any],
     state_path: str,
 ) -> None:
     """Write state safely using a temporary file where supported."""
@@ -109,6 +112,58 @@ def _write_state_atomically(
     os.replace(temporary_path, local_path)
 
 
+def _update_dated_state(
+    *,
+    state: dict[str, Any],
+    batch: pd.DataFrame,
+    config: Mapping[str, Any],
+    state_path: str,
+) -> dict[str, int | str]:
+    """Merge dated ground truth and persist the updated history."""
+    entity_column, time_column, target_column = _resolve_state_columns(config)
+    history_length = _resolve_history_length(config)
+
+    updated = merge_dated_feature_state(
+        state,
+        batch,
+        history_length=history_length,
+        entity_column=entity_column,
+        date_column=time_column,
+        target_column=target_column,
+    )
+
+    old_stores = state["stores"]
+    new_stores = updated["stores"]
+
+    updated_entities = sum(
+        old_stores.get(store_id) != observations
+        for store_id, observations in new_stores.items()
+    )
+
+    appended_values = 0
+
+    for store_id, observations in new_stores.items():
+        previous_dates = {
+            observation["date"]
+            for observation in old_stores.get(store_id, [])
+        }
+
+        appended_values += sum(
+            observation["date"] not in previous_dates
+            for observation in observations
+        )
+
+    _write_state_atomically(updated, state_path)
+
+    return {
+        "state_path": state_path,
+        "history_length": history_length,
+        "updated_entities": updated_entities,
+        "appended_values": appended_values,
+        "state_entities": len(new_stores),
+    }
+
+
 def update_feature_state_from_ground_truth(
     batch_path: str,
     *,
@@ -127,6 +182,18 @@ def update_feature_state_from_ground_truth(
         raise FileNotFoundError(f"Ground-truth batch not found: {batch_path}")
 
     batch_df = pd.read_csv(batch_path)
+
+    if file_exists(state_path):
+        with fsspec.open(state_path, "r") as file:
+            persisted_state = json.load(file)
+
+        if isinstance(persisted_state, dict) and "schema_version" in persisted_state:
+            return _update_dated_state(
+                state=persisted_state,
+                batch=batch_df,
+                config=config,
+                state_path=state_path,
+            )
 
     required_columns = [
         entity_column,

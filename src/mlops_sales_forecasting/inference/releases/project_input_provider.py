@@ -122,7 +122,8 @@ class RossmannServingReleaseInputProvider:
                 ),
             },
             metadata={
-                "target_transformation": (target_transformation),
+                "target_transformation": target_transformation,
+                "forecasting_state_schema_version": 1,
                 "evaluation_metrics": dict(evaluation_result.metrics),
             },
         )
