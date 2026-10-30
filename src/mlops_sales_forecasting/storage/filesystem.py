@@ -1,4 +1,6 @@
 import glob
+import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -120,7 +122,7 @@ def read_text(path: str) -> str:
 
 
 def write_text(path: str, text: str) -> None:
-    """Write UTF-8 text to a local or GCS path."""
+    """Write UTF-8 text, replacing local files atomically."""
     normalized_path = str(path)
 
     if normalized_path.startswith("gs://"):
@@ -131,4 +133,23 @@ def write_text(path: str, text: str) -> None:
 
     local_path = Path(normalized_path)
     local_path.parent.mkdir(parents=True, exist_ok=True)
-    local_path.write_text(text, encoding="utf-8")
+    temporary_path: Path | None = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=local_path.parent,
+            prefix=f".{local_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as file:
+            temporary_path = Path(file.name)
+            file.write(text)
+            file.flush()
+            os.fsync(file.fileno())
+
+        os.replace(temporary_path, local_path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)

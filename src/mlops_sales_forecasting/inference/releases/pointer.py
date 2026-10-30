@@ -1,6 +1,10 @@
+import json
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 from ...configs.paths import join_uri
@@ -163,7 +167,25 @@ def load_active_release_id(
     ).release_id
 
 
-def activate_release_pointer(
+@contextmanager
+def _local_activation_lock(models_path: str) -> Generator[None, None, None]:
+    """Serialize local activations across threads and processes."""
+    import fcntl
+
+    pointer_path = Path(active_pointer_path(models_path))
+    pointer_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = pointer_path.with_name(f"{pointer_path.name}.lock")
+
+    with lock_path.open("a", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _activate_release_pointer_unlocked(
     *,
     models_path: str,
     release_id: str,
@@ -223,3 +245,126 @@ def activate_release_pointer(
         )
 
     return stored_pointer
+
+
+class ReleaseActivationConflict(RuntimeError):
+    """The active release changed during activation."""
+
+
+def _gcs_bucket(models_path: str) -> Any:
+    """Create a bucket client using application default credentials."""
+    from google.cloud import storage
+
+    bucket_name, separator, _ = models_path.removeprefix("gs://").partition("/")
+
+    if not bucket_name or not separator:
+        raise ValueError("GCS models path must include a bucket and prefix.")
+
+    return storage.Client().bucket(bucket_name)
+
+
+def _activate_gcs_release_pointer(
+    *,
+    models_path: str,
+    release_id: str,
+    operation: ReleaseOperation,
+    previous_release_id: str | None,
+    updated_at_utc: str | None,
+) -> ActiveReleasePointer:
+    """Activate a release using a generation-conditional upload."""
+    from google.api_core.exceptions import NotFound, PreconditionFailed
+
+    paths = build_release_paths(
+        models_path=models_path,
+        release_id=release_id,
+    )
+
+    if not file_exists(paths["manifest"]):
+        raise FileNotFoundError(
+            "Cannot activate release without manifest: "
+            f"{paths['manifest']}"
+        )
+
+    bucket = _gcs_bucket(models_path)
+    object_name = paths["active_pointer"].removeprefix("gs://").partition("/")[2]
+    current_blob = bucket.get_blob(object_name)
+    generation = 0
+
+    if current_blob is not None:
+        generation = int(current_blob.generation)
+
+        try:
+            current_payload = json.loads(
+                current_blob.download_as_text(
+                    encoding="utf-8",
+                    if_generation_match=generation,
+                )
+            )
+        except (NotFound, PreconditionFailed) as exc:
+            raise ReleaseActivationConflict(
+                "Active release changed while reading the pointer."
+            ) from exc
+
+        current_pointer = parse_active_release_pointer(current_payload)
+
+        if (
+            previous_release_id is None
+            and current_pointer.release_id != release_id
+        ):
+            previous_release_id = current_pointer.release_id
+
+    pointer = ActiveReleasePointer(
+        schema_version=POINTER_SCHEMA_VERSION,
+        release_id=release_id,
+        previous_release_id=previous_release_id,
+        operation=operation,
+        updated_at_utc=updated_at_utc or datetime.now(UTC).isoformat(),
+    )
+    validate_active_release_pointer(pointer)
+
+    serialized = json.dumps(
+        pointer.to_dict(),
+        indent=2,
+        sort_keys=True,
+    ) + "\n"
+
+    try:
+        bucket.blob(object_name).upload_from_string(
+            serialized,
+            content_type="application/json",
+            if_generation_match=generation,
+        )
+    except PreconditionFailed as exc:
+        raise ReleaseActivationConflict(
+            "Active release changed during activation; reload before retrying."
+        ) from exc
+
+    return pointer
+
+
+def activate_release_pointer(
+    *,
+    models_path: str,
+    release_id: str,
+    operation: ReleaseOperation = ReleaseOperation.ACTIVATION,
+    previous_release_id: str | None = None,
+    updated_at_utc: str | None = None,
+) -> ActiveReleasePointer:
+    """Activate a release, serializing local pointer updates."""
+    if str(models_path).startswith("gs://"):
+        return _activate_gcs_release_pointer(
+            models_path=models_path,
+            release_id=release_id,
+            operation=operation,
+            previous_release_id=previous_release_id,
+            updated_at_utc=updated_at_utc,
+        )
+
+    with _local_activation_lock(models_path):
+        return _activate_release_pointer_unlocked(
+            models_path=models_path,
+            release_id=release_id,
+            operation=operation,
+            previous_release_id=previous_release_id,
+            updated_at_utc=updated_at_utc,
+        )
