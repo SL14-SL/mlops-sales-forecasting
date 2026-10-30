@@ -10,6 +10,7 @@ dependencies = [
     "fastapi==0.154.0",
     "fsspec==2026.9.0",
     "gcsfs==2026.10.1",
+    "google-cloud-storage>=3,<4",
     "httpx2>=2.12.0",
     "mlflow==3.17.2",
     "numpy==2.5.4",
