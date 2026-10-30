@@ -19,6 +19,7 @@ def build_calendar_source() -> pd.DataFrame:
         {
             "Store": [1] * len(dates),
             "Date": dates,
+            "Promo": [0, 1, 1, 1, 0, 0, 0, 0],
             "StateHoliday": [
                 "0",
                 "0",

@@ -5,6 +5,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from mlops_sales_forecasting.data.features.promo_calendar import (
+    build_promo_calendar,
+)
 from mlops_sales_forecasting.storage.filesystem import (
     file_exists,
 )
@@ -25,6 +28,8 @@ CALENDAR_FEATURE_COLUMNS = [
     "days_since_school_holiday_end",
     "is_school_holiday_start",
     "is_school_holiday_end",
+    "planned_promo",
+    "days_since_promo_start",
 ]
 
 
@@ -216,7 +221,7 @@ def build_known_calendar(
     """
     Build known future calendar features without using target values.
 
-    Only Store, Date, StateHoliday, and SchoolHoliday are consumed.
+    Only Store, Date, Promo, StateHoliday, and SchoolHoliday are consumed.
     """
 
     required_columns = [
@@ -224,12 +229,19 @@ def build_known_calendar(
         date_column,
         "StateHoliday",
         "SchoolHoliday",
+        "Promo",
     ]
 
     missing_columns = [column for column in required_columns if column not in source_df.columns]
 
     if missing_columns:
         raise ValueError(f"Calendar source is missing columns: {missing_columns}")
+
+    promo_calendar = build_promo_calendar(
+        source_df,
+        entity_column=entity_column,
+        date_column=date_column,
+    )
 
     calendar_source = source_df[required_columns].copy()
 
@@ -279,7 +291,12 @@ def build_known_calendar(
         ]
     ).reset_index(drop=True)
 
-    return calendar_df
+    return calendar_df.merge(
+        promo_calendar,
+        on=[entity_column, date_column],
+        how="left",
+        validate="one_to_one",
+    )
 
 
 def create_known_calendar_artifact(
@@ -307,6 +324,7 @@ def create_known_calendar_artifact(
             "Date",
             "StateHoliday",
             "SchoolHoliday",
+            "Promo",
         ],
         dtype={
             "StateHoliday": str,
@@ -420,7 +438,18 @@ def merge_known_calendar_features(
             raise ValueError("Known calendar is missing or empty.")
         return df.copy()
 
-    result = df.copy()
+    missing_columns = set(CALENDAR_FEATURE_COLUMNS) - set(calendar_df.columns)
+
+    if missing_columns:
+        raise ValueError(
+            f"Known calendar is missing features: {sorted(missing_columns)}. "
+            "Rebuild the calendar and retrain before publishing a new release."
+        )
+
+    result = df.drop(
+        columns=CALENDAR_FEATURE_COLUMNS,
+        errors="ignore",
+    ).copy()
 
     result[entity_column] = pd.to_numeric(
         result[entity_column],
@@ -504,6 +533,11 @@ def merge_known_calendar_features(
             missing_calendar,
             binary_columns,
         ] = 0
+
+        result.loc[
+            missing_calendar,
+            ["planned_promo", "days_since_promo_start"],
+        ] = -1
 
     result[CALENDAR_FEATURE_COLUMNS] = result[CALENDAR_FEATURE_COLUMNS].astype(int)
 
