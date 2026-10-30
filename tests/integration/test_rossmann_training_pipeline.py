@@ -360,6 +360,21 @@ def test_real_rossmann_model_serves_predictions(
         + timedelta(days=1)
     )
 
+    store_1_promo = int(
+        known_calendar.loc[
+            known_calendar["Store"].eq(1)
+            & known_calendar["Date"].eq(pd.Timestamp(store_1_date)),
+            "planned_promo",
+        ].iloc[0]
+    )
+    store_2_promo = int(
+        known_calendar.loc[
+            known_calendar["Store"].eq(2)
+            & known_calendar["Date"].eq(pd.Timestamp(store_2_date)),
+            "planned_promo",
+        ].iloc[0]
+    )
+
     manifest = ServingReleaseManifest(
         schema_version=1,
         release_id="release-integration",
@@ -413,7 +428,7 @@ def test_real_rossmann_model_serves_predictions(
                     "%Y-%m-%d"
                 ),
                 "Open": 1,
-                "Promo": 0,
+                "Promo": store_1_promo,
                 "StateHoliday": "0",
                 "SchoolHoliday": 0,
             },
@@ -423,10 +438,11 @@ def test_real_rossmann_model_serves_predictions(
                     "%Y-%m-%d"
                 ),
                 "Open": 0,
-                "Promo": 0,
+                "Promo": store_2_promo,
                 "StateHoliday": "0",
                 "SchoolHoliday": 0,
             },
+
         ]
     )
 

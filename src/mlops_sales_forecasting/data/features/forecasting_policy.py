@@ -58,15 +58,45 @@ def add_promo_duration_features(
         if "PromoOpen" not in df.columns:
             df["PromoOpen"] = 0
 
-    sequence_required = [entity_column, date_column, promo_column]
-    if all(col in df.columns for col in sequence_required):
-        df = df.sort_values([entity_column, date_column])
+    if promo_column in df.columns:
+        calendar_columns = {"planned_promo", "days_since_promo_start"}
 
-        df["promo_change"] = df[promo_column].ne(df.groupby(entity_column)[promo_column].shift())
-        df["promo_group"] = df.groupby(entity_column)["promo_change"].cumsum()
-        df["days_since_promo_start"] = df.groupby([entity_column, "promo_group"]).cumcount()
-    else:
-        if "days_since_promo_start" not in df.columns:
-            df["days_since_promo_start"] = 0
+        if not calendar_columns.issubset(df.columns):
+            raise ValueError(
+                "Promo duration requires release-bound promo calendar features."
+            )
 
-    return df
+        promo = pd.to_numeric(df[promo_column], errors="raise")
+        planned = pd.to_numeric(df["planned_promo"], errors="raise")
+
+        if not promo.isin([0, 1]).all() or not planned.isin([0, 1]).all():
+            raise ValueError("Promo flags must be zero or one.")
+
+        if not promo.eq(planned).all():
+            raise ValueError(
+                "Promo does not match the known promotion calendar."
+            )
+
+        duration = pd.to_numeric(
+            df["days_since_promo_start"],
+            errors="raise",
+        )
+
+        if not duration.ge(-1).all() or not duration.mod(1).eq(0).all():
+            raise ValueError(
+                "Promo duration must be an integer greater than or equal to -1."
+            )
+
+        if not duration.loc[planned.eq(0)].eq(0).all():
+            raise ValueError(
+                "Non-promotional dates must have zero promo duration."
+            )
+
+        df["days_since_promo_start"] = duration.astype("int64")
+    elif "days_since_promo_start" not in df.columns:
+        df["days_since_promo_start"] = 0
+
+    return df.drop(
+        columns=["planned_promo", "promo_change", "promo_group"],
+        errors="ignore",
+    )

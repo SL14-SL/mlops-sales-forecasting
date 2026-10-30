@@ -24,6 +24,9 @@ from mlops_sales_forecasting.data.features.forecasting_policy import (
     add_competition_duration_features,
     add_promo_duration_features,
 )
+from mlops_sales_forecasting.data.features.promo_calendar import (
+    build_promo_calendar,
+)
 from mlops_sales_forecasting.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -309,6 +312,23 @@ class RossmannFeatureBuilder:
                 entity_column=entity_column,
                 date_column=date_column,
                 strict=True,
+            )
+
+        elif "Promo" in merged.columns:
+            promo_calendar = build_promo_calendar(
+                train,
+                entity_column=entity_column,
+                date_column=date_column,
+            )
+
+            merged = merged.drop(
+                columns=["planned_promo", "days_since_promo_start"],
+                errors="ignore",
+            ).merge(
+                promo_calendar,
+                on=[entity_column, date_column],
+                how="left",
+                validate="many_to_one",
             )
 
         return build_features(
