@@ -375,6 +375,7 @@ def test_real_rossmann_model_serves_predictions(
         ].iloc[0]
     )
 
+
     manifest = ServingReleaseManifest(
         schema_version=1,
         release_id="release-integration",
