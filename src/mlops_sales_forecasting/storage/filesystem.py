@@ -5,17 +5,38 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..configs.paths import is_object_storage_path
+
 
 def _gcs_fs() -> Any:
-    """Return a GCS filesystem instance when GCS support is installed."""
+    """Return a GCS filesystem instance."""
     try:
         import gcsfs
     except ImportError as exc:
-        raise RuntimeError(
-            "gcsfs is required for gs:// path operations."
-        ) from exc
+        raise RuntimeError("gcsfs is required for gs:// path operations.") from exc
 
     return gcsfs.GCSFileSystem()
+
+
+def _s3_fs() -> Any:
+    """Return an S3 filesystem using the default credential chain."""
+    try:
+        import s3fs
+    except ImportError as exc:
+        raise RuntimeError("S3 support is missing. Run: uv sync --extra aws") from exc
+
+    return s3fs.S3FileSystem()
+
+
+def _remote_fs(path: str) -> Any:
+    """Select the filesystem for a supported object-storage URI."""
+    if path.startswith("gs://"):
+        return _gcs_fs()
+
+    if path.startswith("s3://"):
+        return _s3_fs()
+
+    raise ValueError(f"Unsupported object-storage path: {path}")
 
 
 def _parse_modified_time(value: Any) -> float:
@@ -41,48 +62,50 @@ def _parse_modified_time(value: Any) -> float:
 
 
 def file_exists(path: str) -> bool:
-    """Check whether a local or GCS path exists."""
+    """Check whether a local or object-storage path exists."""
     normalized_path = str(path)
 
-    if normalized_path.startswith("gs://"):
-        return bool(_gcs_fs().exists(normalized_path))
+    if is_object_storage_path(normalized_path):
+        return bool(_remote_fs(normalized_path).exists(normalized_path))
 
     return Path(normalized_path).exists()
 
 
 def ensure_dir(path: str) -> None:
-    """Create a local directory if it does not already exist."""
+    """Create a local directory; object-storage prefixes need no creation."""
     normalized_path = str(path)
 
-    if normalized_path.startswith("gs://"):
+    if is_object_storage_path(normalized_path):
         return
 
     Path(normalized_path).mkdir(parents=True, exist_ok=True)
 
 
 def list_files(path_pattern: str) -> list[str]:
-    """List files matching a local or GCS glob pattern."""
+    """List files matching a local or object-storage glob pattern."""
     normalized_pattern = str(path_pattern)
 
-    if normalized_pattern.startswith("gs://"):
-        files = _gcs_fs().glob(normalized_pattern)
+    if is_object_storage_path(normalized_pattern):
+        files = _remote_fs(normalized_pattern).glob(normalized_pattern)
+        scheme = normalized_pattern.split("://", maxsplit=1)[0]
+        prefix = f"{scheme}://"
 
         return sorted(
-            str(path) if str(path).startswith("gs://") else f"gs://{path}"
-            for path in files
+            str(path) if str(path).startswith(prefix) else f"{prefix}{path}" for path in files
         )
 
     return sorted(glob.glob(normalized_pattern))
 
 
 def modified_time(path: str) -> float:
-    """Return a comparable modification time for a local or GCS path."""
+    """Return a comparable modification time for a local or remote file."""
     normalized_path = str(path)
 
-    if normalized_path.startswith("gs://"):
-        info = _gcs_fs().info(normalized_path)
+    if is_object_storage_path(normalized_path):
+        info = _remote_fs(normalized_path).info(normalized_path)
         value = (
-            info.get("updated")
+            info.get("LastModified")
+            or info.get("updated")
             or info.get("mtime")
             or info.get("created")
             or info.get("timeCreated")
@@ -93,11 +116,11 @@ def modified_time(path: str) -> float:
 
 
 def remove_file(path: str) -> None:
-    """Remove a local or GCS file if it exists."""
+    """Remove a local or object-storage file if it exists."""
     normalized_path = str(path)
 
-    if normalized_path.startswith("gs://"):
-        filesystem = _gcs_fs()
+    if is_object_storage_path(normalized_path):
+        filesystem = _remote_fs(normalized_path)
 
         if filesystem.exists(normalized_path):
             filesystem.rm(normalized_path)
@@ -111,11 +134,11 @@ def remove_file(path: str) -> None:
 
 
 def read_text(path: str) -> str:
-    """Read UTF-8 text from a local or GCS path."""
+    """Read UTF-8 text from a local or object-storage path."""
     normalized_path = str(path)
 
-    if normalized_path.startswith("gs://"):
-        with _gcs_fs().open(normalized_path, "r") as file:
+    if is_object_storage_path(normalized_path):
+        with _remote_fs(normalized_path).open(normalized_path, "r", encoding="utf-8") as file:
             return str(file.read())
 
     return Path(normalized_path).read_text(encoding="utf-8")
@@ -125,8 +148,8 @@ def write_text(path: str, text: str) -> None:
     """Write UTF-8 text, replacing local files atomically."""
     normalized_path = str(path)
 
-    if normalized_path.startswith("gs://"):
-        with _gcs_fs().open(normalized_path, "w") as file:
+    if is_object_storage_path(normalized_path):
+        with _remote_fs(normalized_path).open(normalized_path, "w", encoding="utf-8") as file:
             file.write(text)
 
         return

@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pandas as pd
 
-from ..configs.paths import join_uri
+from ..configs.paths import is_object_storage_path, join_uri
 from ..storage.filesystem import ensure_dir
 
 
@@ -155,7 +155,7 @@ def persist_inference_records(
         file_id=resolved_file_id,
     )
 
-    if not output_path.startswith("gs://"):
+    if not is_object_storage_path(output_path):
         ensure_dir(str(Path(output_path).parent))
 
     records.to_parquet(

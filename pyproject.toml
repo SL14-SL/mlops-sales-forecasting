@@ -31,6 +31,12 @@ dependencies = [
     "xgboost==3.4.1",
 ]
 
+[project.optional-dependencies]
+aws = [
+    "boto3>=1.43.117",
+    "s3fs>=2026.9.0",
+]
+
 [dependency-groups]
 dev = [
     "pip-audit==2.10.1",

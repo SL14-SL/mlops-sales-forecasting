@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..configs.paths import is_object_storage_path
+
 
 @dataclass(frozen=True)
 class SimulationWorkspace:
@@ -40,7 +42,7 @@ def _require_local_path(
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"Config value '{name}' must be a non-empty string.")
 
-    if value.startswith("gs://"):
+    if is_object_storage_path(value):
         raise ValueError("Lifecycle simulation currently requires local paths.")
 
     return Path(value)

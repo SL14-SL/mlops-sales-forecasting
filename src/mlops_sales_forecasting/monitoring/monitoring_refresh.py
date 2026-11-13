@@ -8,7 +8,7 @@ from typing import Any
 import fsspec
 import pandas as pd
 
-from ..configs.paths import join_uri
+from ..configs.paths import is_object_storage_path, join_uri
 from ..storage.filesystem import (
     ensure_dir,
     file_exists,
@@ -140,7 +140,7 @@ def rebuild_cumulative_ground_truth(
         .reset_index(drop=True)
     )
 
-    if not output_path.startswith("gs://"):
+    if not is_object_storage_path(output_path):
         ensure_dir(str(Path(output_path).parent))
 
     with fsspec.open(

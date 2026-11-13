@@ -10,7 +10,10 @@ from typing import Any
 import fsspec
 import mlflow
 
-from mlops_sales_forecasting.configs.paths import join_uri
+from mlops_sales_forecasting.configs.paths import (
+    is_object_storage_path,
+    join_uri,
+)
 from mlops_sales_forecasting.storage.filesystem import (
     ensure_dir,
     file_exists,
@@ -64,7 +67,7 @@ def _copy_file(
         logger.warning(f"Versioning skipped: Source not found -> {src}")
         return
 
-    if not dst.startswith("gs://"):
+    if not is_object_storage_path(dst):
         ensure_dir(os.path.dirname(dst))
 
     with fsspec.open(src, "rb") as fsrc, fsspec.open(dst, "wb") as fdst:
@@ -228,7 +231,7 @@ def snapshot_current_datasets(
         },
     }
 
-    if not paths["manifest"].startswith("gs://"):
+    if not is_object_storage_path(paths["manifest"]):
         ensure_dir(os.path.dirname(paths["manifest"]))
 
     with fsspec.open(paths["manifest"], "w") as f:
