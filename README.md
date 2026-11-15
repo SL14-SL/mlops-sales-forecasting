@@ -492,6 +492,20 @@ See:
 - [Google Cloud production demo](docs/production-demo.md)
 - [Cloud deployment and rollback verification](docs/cloud-deployment-and-rollback.md)
 
+
+### AWS training support
+
+The project also includes AWS infrastructure and a training container
+prepared for Amazon SageMaker AI. The container has been tested locally
+with read-only inputs, and the S3 bucket, ECR repository, and training
+execution role have been provisioned with Terraform.
+
+The first SageMaker training run is pending quota approval. AWS API
+deployment and integration with a shared MLflow registry are not yet
+implemented.
+
+See [AWS training](docs/aws-training.md) for setup and validation status.
+
 ## Testing and Security
 
 The repository includes:
@@ -611,6 +625,7 @@ integration.
 - [Retraining policy](docs/retraining-policy.md)
 - [Serving releases](docs/serving-releases.md)
 - [Cloud deployment](docs/cloud-deployment.md)
+- [AWS training: local container, infrastructure, and cloud job preparation](docs/aws-training.md)
 - [Cloud teardown](docs/cloud-teardown.md)
 - [Google Cloud production demo](docs/production-demo.md)
 - [Operations runbook](docs/operations-runbook.md)
