@@ -32,6 +32,7 @@ RUN uv sync \
 FROM python:3.12.16-slim AS runtime
 
 RUN apt-get update \
+    && apt-get upgrade --yes \
     && apt-get install --yes --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
