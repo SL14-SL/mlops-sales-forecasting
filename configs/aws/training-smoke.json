@@ -1,0 +1,56 @@
+{
+  "TrainingJobName": "forecasting-smoke-001",
+  "RoleArn": "arn:aws:iam::713877988523:role/mlops-sales-forecasting-dev-training",
+  "AlgorithmSpecification": {
+    "TrainingImage": "713877988523.dkr.ecr.eu-north-1.amazonaws.com/mlops-sales-forecasting-dev-training@sha256:056e7fb0d7f27eaf43e8c4b4497ffb403190a812e98d03b6aa173ba65e4e6f5f",
+    "TrainingInputMode": "File",
+    "ContainerEntrypoint": [
+      "python",
+      "-m",
+      "mlops_sales_forecasting.aws.train"
+    ],
+    "ContainerArguments": [
+      "train",
+      "--config",
+      "/app/configs/dev.yaml",
+      "--estimators",
+      "20"
+    ]
+  },
+  "InputDataConfig": [
+    {
+      "ChannelName": "training",
+      "DataSource": {
+        "S3DataSource": {
+          "S3DataType": "S3Prefix",
+          "S3Uri": "s3://mlops-sales-forecasting-dev-713877988523-eu-north-1/training/input/rossmann-v1/",
+          "S3DataDistributionType": "FullyReplicated"
+        }
+      },
+      "ContentType": "text/csv",
+      "CompressionType": "None"
+    }
+  ],
+  "OutputDataConfig": {
+    "S3OutputPath": "s3://mlops-sales-forecasting-dev-713877988523-eu-north-1/training/output"
+  },
+  "ResourceConfig": {
+    "InstanceType": "ml.m5.xlarge",
+    "InstanceCount": 1,
+    "VolumeSizeInGB": 20
+  },
+  "StoppingCondition": {
+    "MaxRuntimeInSeconds": 900
+  },
+  "EnableNetworkIsolation": true,
+  "Tags": [
+    {
+      "Key": "Project",
+      "Value": "mlops-sales-forecasting"
+    },
+    {
+      "Key": "Environment",
+      "Value": "dev"
+    }
+  ]
+}
