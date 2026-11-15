@@ -2,7 +2,7 @@
   "TrainingJobName": "forecasting-smoke-001",
   "RoleArn": "arn:aws:iam::713877988523:role/mlops-sales-forecasting-dev-training",
   "AlgorithmSpecification": {
-    "TrainingImage": "713877988523.dkr.ecr.eu-north-1.amazonaws.com/mlops-sales-forecasting-dev-training@sha256:056e7fb0d7f27eaf43e8c4b4497ffb403190a812e98d03b6aa173ba65e4e6f5f",
+    "TrainingImage": "713877988523.dkr.ecr.eu-north-1.amazonaws.com/mlops-sales-forecasting-dev-training@sha256:bc9b0847e91b44ca8fd3ff6c58bc76f993c74438be0cda902d58b69723ac5ecc",
     "TrainingInputMode": "File",
     "ContainerEntrypoint": [
       "python",
