@@ -110,6 +110,7 @@ resource "aws_ecs_task_definition" "api" {
 }
 
 resource "aws_ecs_service" "api" {
+  count           = var.api_serving_enabled ? 1 : 0
   name            = "${local.name_prefix}-api"
   cluster         = aws_ecs_cluster.training.id
   task_definition = aws_ecs_task_definition.api.arn
@@ -137,7 +138,7 @@ resource "aws_ecs_service" "api" {
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.api.arn
+    target_group_arn = aws_lb_target_group.api[0].arn
     container_name   = "api"
     container_port   = 8000
   }

@@ -140,3 +140,37 @@ but does not remove the load balancer or its ongoing charges.
 A complete demo teardown must also remove the serving ingress resources.
 Do not run a full Terraform destroy merely to stop serving: the same
 Terraform configuration also manages training infrastructure and storage.
+
+## Enable or disable serving
+
+Set these values in the local `infrastructure/terraform-aws/terraform.tfvars`
+file to deploy the API:
+
+```hcl
+api_serving_enabled = true
+api_desired_count   = 1
+```
+
+Set `api_serving_enabled = false` to remove the ECS service, load balancer,
+and API Gateway resources while retaining storage, images, secrets, logs,
+IAM roles, and networking. This is the default.
+
+Review a Terraform plan before applying either configuration. Re-enabling
+serving can create a different API Gateway URL.
+
+The included moved blocks preserve existing resource identities when
+migrating to the conditional configuration.
+
+## Demo cleanup status
+
+After capturing the screenshots, the serving resources and then all
+remaining resources managed by this Terraform configuration were destroyed
+on November 16, 2026. The Terraform state was verified empty.
+
+The screenshots document a previously verified deployment. The demo
+endpoint is no longer available.
+
+A full rebuild requires uploading the training data and container images,
+setting the API secret value, and publishing and activating a serving
+release again. Enabling the serving switch alone does not restore these
+deleted artifacts.
