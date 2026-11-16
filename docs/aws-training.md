@@ -425,6 +425,30 @@ Verified on 2026-11-16:
 | Downloaded model loads locally | Passed |
 | Model promotion | Not performed |
 
+### Execution evidence
+
+The Fargate task completed successfully with exit code zero.
+CPU `2048` corresponds to 2 vCPUs; memory was configured as 16 GiB.
+
+<img src="images/aws-fargate-task.png"
+     alt="Completed Fargate training task"
+     width="534">
+
+Model artifacts, evaluation output, and the completion marker were
+uploaded to S3.
+
+<img src="images/aws-training-artifacts.png"
+     alt="Training artifacts stored in S3"
+     width="582">
+
+The 20-tree smoke test confirms cloud execution and artifact handling.
+These metrics are not a production model-quality benchmark.
+No model promotion was performed.
+
+<img src="images/aws-training-result.png"
+     alt="Cloud training completion and evaluation"
+     width="342">
+
 This small training run verifies execution and artifact handling.
 It does not establish production model quality or improvement over a baseline.
 
