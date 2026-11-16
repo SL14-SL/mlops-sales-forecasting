@@ -503,8 +503,13 @@ downloaded from S3 and loaded locally.
 Amazon SageMaker AI remains an additional prepared execution option.
 Its first cloud training run is pending quota approval.
 
-Both execution paths use the same training entry point. Shared MLflow
-registry integration and AWS API deployment are not yet implemented.
+Both execution paths use the same training entry point. The FastAPI
+application has also been deployed on ECS/Fargate and verified through
+an API Gateway HTTPS endpoint with API-key authentication.
+
+See [AWS serving](docs/aws-serving.md) for architecture, validation,
+and operational limitations. Shared MLflow registry integration remains
+a future extension.
 
 See [AWS training](docs/aws-training.md) for setup and validation status.
 
@@ -628,6 +633,7 @@ integration.
 - [Serving releases](docs/serving-releases.md)
 - [Cloud deployment](docs/cloud-deployment.md)
 - [AWS training: local container, infrastructure, and cloud job preparation](docs/aws-training.md)
+- [AWS serving](docs/aws-serving.md)
 - [Cloud teardown](docs/cloud-teardown.md)
 - [Google Cloud production demo](docs/production-demo.md)
 - [Operations runbook](docs/operations-runbook.md)

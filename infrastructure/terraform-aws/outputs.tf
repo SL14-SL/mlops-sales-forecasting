@@ -57,3 +57,39 @@ output "fargate_training_task_definition_arn" {
 output "fargate_training_image_uri" {
   value = "${aws_ecr_repository.training.repository_url}@${var.fargate_training_image_digest}"
 }
+
+output "api_repository_url" {
+  value = aws_ecr_repository.api.repository_url
+}
+
+output "api_execution_role_arn" {
+  value = aws_iam_role.api_execution.arn
+}
+
+output "api_task_role_arn" {
+  value = aws_iam_role.api_task.arn
+}
+
+output "api_key_secret_arn" {
+  value = aws_secretsmanager_secret.api_key.arn
+}
+
+output "api_log_group" {
+  value = aws_cloudwatch_log_group.api.name
+}
+
+output "api_task_definition_arn" {
+  value = aws_ecs_task_definition.api.arn
+}
+
+output "api_endpoint" {
+  value = aws_apigatewayv2_api.api.api_endpoint
+}
+
+output "api_service_name" {
+  value = aws_ecs_service.api.name
+}
+
+output "api_gateway_log_group" {
+  value = aws_cloudwatch_log_group.api_gateway.name
+}

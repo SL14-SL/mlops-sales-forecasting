@@ -10,9 +10,11 @@ import yaml
 from mlflow import MlflowClient
 from sklearn.metrics import mean_squared_error
 
+from mlops_sales_forecasting.aws.serving_release import prepare_local_serving_release
 from mlops_sales_forecasting.aws.train import run_training_job
 from mlops_sales_forecasting.configs.paths import get_project_root
 from mlops_sales_forecasting.data.splits.split import RossmannDatasetSplitter
+from mlops_sales_forecasting.inference.releases.storage import resolve_artifact_uri
 from mlops_sales_forecasting.training.dataset import normalize_feature_dtypes
 from mlops_sales_forecasting.training.evaluate_metrics import align_features_for_evaluation
 from mlops_sales_forecasting.training.target_transform import inverse_transform_target
@@ -116,6 +118,14 @@ def test_training_job_exports_reloadable_candidate(
 
         assert (model_directory / "model/MLmodel").is_file()
         assert (model_directory / "model/model.ubj").is_file()
+        store_metadata = pd.read_parquet(model_directory / "store_metadata.parquet")
+        assert set(store_metadata["Store"]) == {1, 2}
+        assert {
+            "Store",
+            "StoreType",
+            "Assortment",
+            "CompetitionDistance",
+        }.issubset(store_metadata.columns)
 
         state = json.loads((model_directory / "latest_state.json").read_text(encoding="utf-8"))
         assert state["schema_version"] == 1
@@ -154,6 +164,36 @@ def test_training_job_exports_reloadable_candidate(
 
         after = {path.name: path.read_bytes() for path in input_directory.iterdir()}
         assert after == before
+
+        serving_directory = tmp_path.parent / f"{tmp_path.name}-serving"
+
+        bundle = prepare_local_serving_release(
+            candidate_directory=tmp_path,
+            models_directory=serving_directory,
+            model_name="integration-candidate",
+        )
+
+        assert bundle.model_name == "integration-candidate"
+        assert bundle.model_run_id == report["run_id"]
+        assert bundle.target_transformation == "log1p"
+        assert set(bundle.store_metadata["Store"]) == {1, 2}
+        assert bundle.manifest.metadata["registry_registered"] is False
+        assert bundle.manifest.metadata["purpose"] == "serving_smoke_test"
+        assert not (serving_directory / "active_serving_release.json").exists()
+
+        release_root = serving_directory / "serving_releases" / bundle.release_id
+
+        for reference in bundle.manifest.artifacts.values():
+            resolve_artifact_uri(
+                release_root=str(release_root),
+                reference=reference,
+            )
+
+        reloaded_predictions = bundle.model.predict(model_input)
+        np.testing.assert_allclose(
+            reloaded_predictions,
+            model.predict(model_input),
+        )
     finally:
         mlflow.set_tracking_uri(original_tracking_uri)
 

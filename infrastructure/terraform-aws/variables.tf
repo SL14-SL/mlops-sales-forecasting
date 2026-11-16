@@ -38,3 +38,25 @@ variable "fargate_training_image_digest" {
     error_message = "Provide a SHA-256 image digest."
   }
 }
+
+variable "api_image_digest" {
+  description = "Digest of the tested API image with AWS dependencies."
+  type        = string
+  default     = "sha256:0c72b2d14caef22f9e1230871dcde1bf89c3fe0a84dcd605ed1f6f711755747f"
+
+  validation {
+    condition     = can(regex("^sha256:[a-f0-9]{64}$", var.api_image_digest))
+    error_message = "Provide a SHA-256 image digest."
+  }
+}
+
+variable "api_desired_count" {
+  description = "Number of running API tasks; zero stops the API containers."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = contains([0, 1], var.api_desired_count)
+    error_message = "Use 0 to stop the demo API or 1 to run it."
+  }
+}

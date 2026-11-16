@@ -18,3 +18,16 @@ misconfigurations:
       artifacts. SSE-S3 encryption is enabled and public access is blocked.
       Customer-managed KMS keys are not required for this development setup.
       Reassess before storing confidential data or using this setup for clients.
+
+  - id: AVD-AWS-0054
+    paths:
+      - infrastructure/terraform-aws/api_load_balancer.tf
+    expired_at: 2026-12-15
+    statement: >-
+      Temporary exception for the development serving demo.
+      Public HTTPS terminates at API Gateway. The internal ALB accepts
+      HTTP only from the VPC link security group, and API tasks accept
+      traffic only from the ALB security group.
+      Internal traffic, including the application API key, is not encrypted.
+      Configure TLS for the private integration before handling confidential
+      data or adopting this deployment for production.

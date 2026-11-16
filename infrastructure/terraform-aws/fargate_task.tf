@@ -29,6 +29,11 @@ resource "aws_ecs_task_definition" "training" {
       user             = "10001:10001"
       workingDirectory = "/tmp"
 
+      mountPoints    = []
+      portMappings   = []
+      systemControls = []
+      volumesFrom    = []
+
       entryPoint = [
         "python",
         "-m",
@@ -63,6 +68,7 @@ resource "aws_ecs_task_definition" "training" {
 
       linuxParameters = {
         capabilities = {
+          add  = []
           drop = ["ALL"]
         }
       }
