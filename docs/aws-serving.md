@@ -140,3 +140,29 @@ but does not remove the load balancer or its ongoing charges.
 A complete demo teardown must also remove the serving ingress resources.
 Do not run a full Terraform destroy merely to stop serving: the same
 Terraform configuration also manages training infrastructure and storage.
+
+## Verified deployment screenshots
+
+The ECS service ran one task with a healthy load-balancer target.
+
+![ECS service with one running task and a healthy target](images/aws-api-service.png)
+
+API Gateway forwards the prediction route to the backend. API-key
+authentication is enforced by FastAPI inside the container.
+
+![API Gateway prediction route and backend integration](images/aws-api-routes.png)
+
+The deployed HTTPS endpoint returned successful liveness and readiness
+responses, including the active serving release ID.
+
+<img src="images/aws-api-health.png" alt="HTTPS liveness and readiness checks returning HTTP 200" width="722">
+
+Prediction requests without an API key returned HTTP 401. Authenticated
+requests returned HTTP 200 and reproduced the verified predictions,
+including zero sales for the closed store.
+
+<img src="images/aws-api-predictions.png" alt="Rejected unauthenticated request and successful authenticated predictions" width="606">
+
+These screenshots document the development smoke test performed on
+November 16, 2026. The model uses 20 trees for deployment verification;
+these results are not a production model-quality benchmark.
