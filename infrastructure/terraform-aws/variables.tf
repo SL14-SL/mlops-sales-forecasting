@@ -60,3 +60,9 @@ variable "api_desired_count" {
     error_message = "Use 0 to stop the demo API or 1 to run it."
   }
 }
+
+variable "api_serving_enabled" {
+  description = "Whether the API service, load balancer and gateway are deployed."
+  type        = bool
+  default     = false
+}

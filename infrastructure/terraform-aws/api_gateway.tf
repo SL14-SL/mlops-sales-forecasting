@@ -1,4 +1,6 @@
 resource "aws_apigatewayv2_vpc_link" "api" {
+  count = var.api_serving_enabled ? 1 : 0
+
   name               = "${local.name_prefix}-api"
   security_group_ids = [aws_security_group.api_link.id]
 
@@ -9,19 +11,23 @@ resource "aws_apigatewayv2_vpc_link" "api" {
 }
 
 resource "aws_apigatewayv2_api" "api" {
+  count = var.api_serving_enabled ? 1 : 0
+
   name          = "${local.name_prefix}-api"
   protocol_type = "HTTP"
 }
 
 resource "aws_apigatewayv2_integration" "api" {
-  api_id = aws_apigatewayv2_api.api.id
+  count = var.api_serving_enabled ? 1 : 0
+
+  api_id = aws_apigatewayv2_api.api[0].id
 
   integration_type   = "HTTP_PROXY"
   integration_method = "ANY"
-  integration_uri    = aws_lb_listener.api.arn
+  integration_uri    = aws_lb_listener.api[0].arn
 
   connection_type = "VPC_LINK"
-  connection_id   = aws_apigatewayv2_vpc_link.api.id
+  connection_id   = aws_apigatewayv2_vpc_link.api[0].id
 
   payload_format_version = "1.0"
   timeout_milliseconds   = 30000
@@ -32,17 +38,17 @@ resource "aws_apigatewayv2_integration" "api" {
 }
 
 resource "aws_apigatewayv2_route" "api" {
-  for_each = toset([
+  for_each = var.api_serving_enabled ? toset([
     "GET /livez",
     "GET /readyz",
     "POST /predict",
     "GET /docs",
     "GET /openapi.json"
-  ])
+  ]) : toset([])
 
-  api_id    = aws_apigatewayv2_api.api.id
+  api_id    = aws_apigatewayv2_api.api[0].id
   route_key = each.value
-  target    = "integrations/${aws_apigatewayv2_integration.api.id}"
+  target    = "integrations/${aws_apigatewayv2_integration.api[0].id}"
 }
 
 resource "aws_cloudwatch_log_group" "api_gateway" {
@@ -51,7 +57,9 @@ resource "aws_cloudwatch_log_group" "api_gateway" {
 }
 
 resource "aws_apigatewayv2_stage" "api" {
-  api_id      = aws_apigatewayv2_api.api.id
+  count = var.api_serving_enabled ? 1 : 0
+
+  api_id      = aws_apigatewayv2_api.api[0].id
   name        = "$default"
   auto_deploy = true
 

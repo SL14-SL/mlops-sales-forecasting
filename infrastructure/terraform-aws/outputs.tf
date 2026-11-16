@@ -83,11 +83,11 @@ output "api_task_definition_arn" {
 }
 
 output "api_endpoint" {
-  value = aws_apigatewayv2_api.api.api_endpoint
+  value = var.api_serving_enabled ? aws_apigatewayv2_api.api[0].api_endpoint : null
 }
 
 output "api_service_name" {
-  value = aws_ecs_service.api.name
+  value = var.api_serving_enabled ? aws_ecs_service.api[0].name : null
 }
 
 output "api_gateway_log_group" {
