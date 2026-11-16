@@ -75,7 +75,11 @@ jobs:
           exit-code: "1"
 
   container-image:
-    name: Scan container image
+    name: Scan API image (aws=${{ matrix.install_aws }})
+    strategy:
+      fail-fast: false
+      matrix:
+        install_aws: ["false", "true"]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
@@ -86,6 +90,7 @@ jobs:
       - name: Build API image
         run: >-
           docker build
+          --build-arg INSTALL_AWS=${{ matrix.install_aws }}
           --tag "mlops-api-security-scan:${{ github.sha }}"
           .
 

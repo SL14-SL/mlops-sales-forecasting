@@ -109,6 +109,7 @@ def run_fargate_training(
             model_directory / "known_calendar.parquet",
             output_directory / "evaluation.json",
             output_directory / "resolved_config.json",
+            model_directory / "store_metadata.parquet",
         ]
 
         for path in required_files:

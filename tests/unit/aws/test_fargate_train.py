@@ -41,6 +41,7 @@ def create_exports(command: list[str], **kwargs: object) -> None:
         "model/model.ubj",
         "latest_state.json",
         "known_calendar.parquet",
+        "store_metadata.parquet",
     ):
         path = model_directory / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,7 +67,7 @@ def test_uploads_exports_before_completion_marker(
     )
 
     assert client.download_file.call_count == 2
-    assert client.upload_file.call_count == 6
+    assert client.upload_file.call_count == 7
     assert result_uri.startswith("s3://output-bucket/training/output/fargate-")
 
     uploaded_keys = {call.args[2] for call in client.upload_file.call_args_list}

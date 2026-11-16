@@ -118,6 +118,11 @@ def run_training_job(
         },
     )
 
+    result.datasets.require("store").to_parquet(
+        model_directory / "store_metadata.parquet",
+        index=False,
+    )
+
     shutil.copy2(
         Path(config["paths"]["models"]) / "latest_state.json",
         model_directory / "latest_state.json",
