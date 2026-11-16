@@ -60,6 +60,10 @@ resource "aws_security_group" "training" {
   }
 }
 
+# Development training tasks access S3, ECR and CloudWatch via public endpoints.
+# Destination IPs are unrestricted, but only outbound TCP/443 is allowed.
+# No inbound rules exist. Reassess for confidential workloads or production.
+# trivy:ignore:AVD-AWS-0104
 resource "aws_vpc_security_group_egress_rule" "training_https" {
   security_group_id = aws_security_group.training.id
   description       = "HTTPS access to AWS APIs, container registry and storage."

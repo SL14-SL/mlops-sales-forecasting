@@ -402,6 +402,12 @@ created. The container filesystem remains writable for temporary files.
 The training subprocess has a 900-second timeout. This does not impose a
 timeout on the entire task, including data transfers.
 
+Outbound TCP/443 is allowed to any IPv4 destination so the task can access
+public AWS endpoints. This does not restrict destinations to AWS services.
+The rule has a resource-scoped Trivy exception for the development setup.
+Consider private VPC endpoints and tighter egress controls for production
+or confidential workloads.
+
 ### Cloud smoke-test result
 
 Verified on 2026-11-16:
