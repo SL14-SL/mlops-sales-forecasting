@@ -24,3 +24,17 @@ variable "project_name" {
     error_message = "Use 3 to 30 lowercase letters, digits or hyphens, starting with a letter."
   }
 }
+
+variable "fargate_training_image_digest" {
+  description = "Digest of the training image containing the Fargate adapter."
+  type        = string
+  default     = "sha256:8d851e70ca5dc7774dc176f0f829f4fb8094a491d61c4c7f0b26314156553c37"
+
+  validation {
+    condition = can(regex(
+      "^sha256:[a-f0-9]{64}$",
+      var.fargate_training_image_digest
+    ))
+    error_message = "Provide a SHA-256 image digest."
+  }
+}

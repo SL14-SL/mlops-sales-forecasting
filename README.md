@@ -495,14 +495,16 @@ See:
 
 ### AWS training support
 
-The project also includes AWS infrastructure and a training container
-prepared for Amazon SageMaker AI. The container has been tested locally
-with read-only inputs, and the S3 bucket, ECR repository, and training
-execution role have been provisioned with Terraform.
+The project supports isolated training on Amazon ECS with AWS Fargate.
+A cloud smoke test has verified S3 input download, training, evaluation,
+artifact upload, and successful task termination. The exported model was
+downloaded from S3 and loaded locally.
 
-The first SageMaker training run is pending quota approval. AWS API
-deployment and integration with a shared MLflow registry are not yet
-implemented.
+Amazon SageMaker AI remains an additional prepared execution option.
+Its first cloud training run is pending quota approval.
+
+Both execution paths use the same training entry point. Shared MLflow
+registry integration and AWS API deployment are not yet implemented.
 
 See [AWS training](docs/aws-training.md) for setup and validation status.
 

@@ -15,6 +15,10 @@ Verified:
 - Docker training with read-only input data.
 - Terraform deployment of the AWS foundation.
 - Training data upload to S3 and image upload to ECR.
+- ECS/Fargate training using the S3 adapter and a non-root container user.
+- Successful task termination with exit code zero.
+- Candidate artifacts and completion marker uploaded to S3.
+- Downloaded cloud model loaded successfully in the local environment.
 
 Pending:
 
@@ -369,6 +373,57 @@ digest, S3 paths, and applied quota.
 Training-job names must be unique. Choose a new name for subsequent jobs.
 
 Cloud execution and output retrieval remain pending validation.
+
+## Verified ECS/Fargate execution
+
+The Fargate adapter is implemented in
+`src/mlops_sales_forecasting/aws/fargate_train.py`.
+
+It downloads `train.csv` and `store.csv`, invokes the shared training entry
+point in a separate process, and uploads model and evaluation artifacts.
+
+Each execution writes to a unique S3 prefix. A `completion.json` marker is
+uploaded only after all artifact uploads succeed. Partial uploads without
+this marker must not be treated as completed runs.
+
+Terraform provisions a standalone task with:
+
+- 2 vCPUs and 16 GB memory.
+- A Linux/amd64 training image pinned by digest.
+- Container user `10001:10001`.
+- Separate execution and application task roles.
+- No inbound security-group rules and outbound HTTPS access.
+- A public subnet and a public IP assigned at task launch.
+- CloudWatch container logs with 14-day retention.
+
+The task is started explicitly; no continuously running ECS service is
+created. The container filesystem remains writable for temporary files.
+
+The training subprocess has a 900-second timeout. This does not impose a
+timeout on the entire task, including data transfers.
+
+### Cloud smoke-test result
+
+Verified on 2026-11-16:
+
+| Check | Result |
+| --- | --- |
+| ECS task exit code | 0 |
+| Training rows | 895,674 |
+| Validation rows | 15,610 |
+| Estimators | 20 |
+| Validation RMSE | 4165.687028 |
+| Exported model features | 37 |
+| Stores in exported state | 1,115 |
+| Completion marker in S3 | Present |
+| Downloaded model loads locally | Passed |
+| Model promotion | Not performed |
+
+This small training run verifies execution and artifact handling.
+It does not establish production model quality or improvement over a baseline.
+
+SageMaker uses the shared training entry point directly and remains
+available as a separately configured execution option.
 
 ## Costs and cleanup
 
