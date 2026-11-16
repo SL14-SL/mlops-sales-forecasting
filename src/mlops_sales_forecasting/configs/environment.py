@@ -3,7 +3,7 @@ import re
 from typing import Any
 
 _ENV_VAR_PATTERN = re.compile(r"\$\{([^}:]+)(?::-([^}]*))?\}")
-_GCS_PATH_SUFFIXES = {
+_OBJECT_STORAGE_PATH_SUFFIXES = {
     "data_root": "data",
     "raw_data": "data/raw",
     "validated_data": "data/validation",
@@ -84,7 +84,7 @@ def override_gcs_bucket_paths(
         if not isinstance(path, str):
             continue
 
-        configured_suffix = _GCS_PATH_SUFFIXES.get(key)
+        configured_suffix = _OBJECT_STORAGE_PATH_SUFFIXES.get(key)
 
         if configured_suffix is not None:
             paths[key] = f"{new_base_path}/{configured_suffix}"
@@ -103,6 +103,56 @@ def override_gcs_bucket_paths(
             paths[key] = f"{new_base_path}/{path_parts[1]}"
         else:
             paths[key] = new_base_path
+
+    return config
+
+
+def override_storage_paths(
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply cloud-specific paths while preserving legacy GCS behavior."""
+    provider = os.getenv("CLOUD_PROVIDER", "").strip().lower()
+
+    if provider not in {"", "gcp", "aws"}:
+        raise ValueError("CLOUD_PROVIDER must be 'gcp' or 'aws'.")
+
+    if provider != "aws":
+        return override_gcs_bucket_paths(config)
+
+    configured_bucket = os.getenv("S3_BUCKET_NAME", "").strip()
+
+    if not configured_bucket:
+        raise ValueError("Set S3_BUCKET_NAME when CLOUD_PROVIDER=aws.")
+
+    bucket_name = configured_bucket.removeprefix("s3://").rstrip("/")
+
+    if (
+        not bucket_name
+        or "/" in bucket_name
+        or any(character.isspace() for character in bucket_name)
+        or "${" in bucket_name
+        or "replace-me" in bucket_name
+    ):
+        raise ValueError("S3_BUCKET_NAME must contain a bucket name without a prefix.")
+
+    paths = config.get("paths")
+
+    if not isinstance(paths, dict) or not paths:
+        raise ValueError("AWS config must contain a non-empty 'paths' section.")
+
+    base_path = f"s3://{bucket_name}"
+
+    for name, path in paths.items():
+        if not isinstance(path, str):
+            raise ValueError(f"Invalid storage path: {name}")
+
+        suffix = _OBJECT_STORAGE_PATH_SUFFIXES.get(name)
+
+        if suffix is not None:
+            paths[name] = f"{base_path}/{suffix}"
+            continue
+
+        raise ValueError(f"No AWS path mapping defined for paths.{name}.")
 
     return config
 

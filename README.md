@@ -492,6 +492,22 @@ See:
 - [Google Cloud production demo](docs/production-demo.md)
 - [Cloud deployment and rollback verification](docs/cloud-deployment-and-rollback.md)
 
+
+### AWS training support
+
+The project supports isolated training on Amazon ECS with AWS Fargate.
+A cloud smoke test has verified S3 input download, training, evaluation,
+artifact upload, and successful task termination. The exported model was
+downloaded from S3 and loaded locally.
+
+Amazon SageMaker AI remains an additional prepared execution option.
+Its first cloud training run is pending quota approval.
+
+Both execution paths use the same training entry point. Shared MLflow
+registry integration and AWS API deployment are not yet implemented.
+
+See [AWS training](docs/aws-training.md) for setup and validation status.
+
 ## Testing and Security
 
 The repository includes:
@@ -611,6 +627,7 @@ integration.
 - [Retraining policy](docs/retraining-policy.md)
 - [Serving releases](docs/serving-releases.md)
 - [Cloud deployment](docs/cloud-deployment.md)
+- [AWS training: local container, infrastructure, and cloud job preparation](docs/aws-training.md)
 - [Cloud teardown](docs/cloud-teardown.md)
 - [Google Cloud production demo](docs/production-demo.md)
 - [Operations runbook](docs/operations-runbook.md)

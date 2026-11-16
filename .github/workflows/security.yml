@@ -34,13 +34,13 @@ jobs:
           cache-dependency-glob: uv.lock
 
       - name: Synchronize dependencies
-        run: uv sync --locked
+        run: uv sync --locked --extra aws
       
       # Remove PYSEC-2026-3865 when a patched MLflow release is available.
       - name: Audit Python dependencies
         run: |
           for attempt in 1 2 3; do
-            if uv run pip-audit \
+            if uv run --locked --extra aws pip-audit \
               --ignore-vuln PYSEC-2026-3865; then
               exit 0
             fi
@@ -70,7 +70,7 @@ jobs:
           scanners: vuln,secret,misconfig
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          trivyignores: .trivyignore
+          trivyignores: .trivyignore.yaml
           format: table
           exit-code: "1"
 
@@ -94,6 +94,34 @@ jobs:
         with:
           scan-type: image
           image-ref: "mlops-api-security-scan:${{ github.sha }}"
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          format: table
+          exit-code: "1"
+
+  training-image:
+    name: Scan training image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Build training image
+        run: >-
+          docker build
+          --file Dockerfile.training
+          --tag "mlops-training-security-scan:${{ github.sha }}"
+          .
+
+      - name: Scan training image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: "mlops-training-security-scan:${{ github.sha }}"
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true

@@ -61,9 +61,7 @@ def _require_non_empty_string(
 ) -> None:
     """Raise ValueError when a required string is empty or invalid."""
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(
-            f"Serving manifest has an invalid {field_name}."
-        )
+        raise ValueError(f"Serving manifest has an invalid {field_name}.")
 
 
 def validate_artifact_reference(
@@ -73,9 +71,7 @@ def validate_artifact_reference(
 ) -> None:
     """Validate one immutable serving artifact reference."""
     if not isinstance(reference, ArtifactReference):
-        raise ValueError(
-            f"Serving manifest has an invalid {name} reference."
-        )
+        raise ValueError(f"Serving manifest has an invalid {name} reference.")
 
     _require_non_empty_string(
         reference.path,
@@ -84,25 +80,19 @@ def validate_artifact_reference(
 
     if (
         reference.path.startswith("/")
-        or reference.path.startswith("gs://")
+        or "://" in reference.path
         or ".." in reference.path.split("/")
     ):
-        raise ValueError(
-            f"Serving manifest {name} path must be relative."
-        )
+        raise ValueError(f"Serving manifest {name} path must be relative.")
 
     if not _SHA256_PATTERN.fullmatch(reference.sha256):
-        raise ValueError(
-            f"Serving manifest {name} has an invalid SHA-256 checksum."
-        )
+        raise ValueError(f"Serving manifest {name} has an invalid SHA-256 checksum.")
 
 
 def validate_model_reference(model: ModelReference) -> None:
     """Validate a registered-model reference."""
     if not isinstance(model, ModelReference):
-        raise ValueError(
-            "Serving manifest has an invalid model reference."
-        )
+        raise ValueError("Serving manifest has an invalid model reference.")
 
     required_fields = {
         "model name": model.name,
@@ -124,15 +114,10 @@ def validate_serving_manifest(
 ) -> None:
     """Raise ValueError when a serving manifest is incomplete."""
     if not isinstance(manifest, ServingReleaseManifest):
-        raise ValueError(
-            "Invalid serving manifest."
-        )
+        raise ValueError("Invalid serving manifest.")
 
     if manifest.schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
-        raise ValueError(
-            "Unsupported serving manifest schema version: "
-            f"{manifest.schema_version}."
-        )
+        raise ValueError(f"Unsupported serving manifest schema version: {manifest.schema_version}.")
 
     _require_non_empty_string(
         manifest.release_id,
@@ -144,35 +129,23 @@ def validate_serving_manifest(
     )
 
     try:
-        timestamp = datetime.fromisoformat(
-            manifest.created_at_utc.replace("Z", "+00:00")
-        )
+        timestamp = datetime.fromisoformat(manifest.created_at_utc.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise ValueError(
-            "Serving manifest has an invalid creation timestamp."
-        ) from exc
+        raise ValueError("Serving manifest has an invalid creation timestamp.") from exc
 
     if timestamp.tzinfo is None:
-        raise ValueError(
-            "Serving manifest creation timestamp must include a timezone."
-        )
+        raise ValueError("Serving manifest creation timestamp must include a timezone.")
 
     if not isinstance(manifest.task_type, TaskType):
-        raise ValueError(
-            "Serving manifest has an invalid task type."
-        )
+        raise ValueError("Serving manifest has an invalid task type.")
 
     validate_model_reference(manifest.model)
 
     if not isinstance(manifest.artifacts, dict):
-        raise ValueError(
-            "Serving manifest has invalid artifacts."
-        )
+        raise ValueError("Serving manifest has invalid artifacts.")
 
     if not manifest.artifacts:
-        raise ValueError(
-            "Serving manifest contains no artifacts."
-        )
+        raise ValueError("Serving manifest contains no artifacts.")
 
     for name, reference in manifest.artifacts.items():
         _require_non_empty_string(
@@ -184,10 +157,5 @@ def validate_serving_manifest(
             name=name,
         )
 
-    if (
-        manifest.metadata is not None
-        and not isinstance(manifest.metadata, dict)
-    ):
-        raise ValueError(
-            "Serving manifest metadata must be a mapping."
-        )
+    if manifest.metadata is not None and not isinstance(manifest.metadata, dict):
+        raise ValueError("Serving manifest metadata must be a mapping.")

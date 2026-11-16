@@ -12,13 +12,12 @@ def normalize_feature_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_training_data(train_file: str, val_file: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load training and validation data from local filesystem or GCS."""
-    if train_file.startswith("gs://"):
-        df_train = pd.read_parquet(train_file)
-        df_val = pd.read_parquet(val_file)
-    else:
-        df_train = pd.read_parquet(train_file)
-        df_val = pd.read_parquet(val_file)
+def load_training_data(
+    train_file: str,
+    val_file: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load training and validation data from local or object storage."""
+    df_train = pd.read_parquet(train_file)
+    df_val = pd.read_parquet(val_file)
 
     return df_train, df_val

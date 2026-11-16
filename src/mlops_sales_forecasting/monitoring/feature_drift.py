@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 from scipy.stats import chisquare, ks_2samp
 
+from ..configs.paths import is_object_storage_path
 from ..storage.filesystem import (
     ensure_dir,
     file_exists,
@@ -249,7 +250,7 @@ def append_feature_drift_history(
             ignore_index=True,
         )
     else:
-        if not history_path.startswith("gs://"):
+        if not is_object_storage_path(history_path):
             ensure_dir(str(Path(history_path).parent))
 
         combined = batch

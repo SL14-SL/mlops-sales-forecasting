@@ -1,7 +1,5 @@
 import json
-import os
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
 import fsspec
@@ -12,6 +10,7 @@ from mlops_sales_forecasting.data.features.dated_state import (
 )
 from mlops_sales_forecasting.storage.filesystem import (
     file_exists,
+    write_text,
 )
 from mlops_sales_forecasting.utils.logger import get_logger
 
@@ -85,31 +84,12 @@ def _write_state_atomically(
     state: dict[str, Any],
     state_path: str,
 ) -> None:
-    """Write state safely using a temporary file where supported."""
-    if state_path.startswith("gs://"):
-        temporary_path = f"{state_path}.tmp"
+    """Replace one state file without deleting the previous file first.
 
-        with fsspec.open(temporary_path, "w") as file:
-            json.dump(state, file)
-
-        filesystem, resolved_path = fsspec.core.url_to_fs(state_path)
-        _, temporary_resolved_path = fsspec.core.url_to_fs(temporary_path)
-
-        if filesystem.exists(resolved_path):
-            filesystem.rm(resolved_path)
-
-        filesystem.mv(temporary_resolved_path, resolved_path)
-        return
-
-    local_path = Path(state_path)
-    local_path.parent.mkdir(parents=True, exist_ok=True)
-
-    temporary_path = local_path.with_suffix(f"{local_path.suffix}.tmp")
-
-    with temporary_path.open("w", encoding="utf-8") as file:
-        json.dump(state, file)
-
-    os.replace(temporary_path, local_path)
+    This does not serialize concurrent read-modify-write operations.
+    """
+    serialized_state = json.dumps(state, ensure_ascii=False) + "\n"
+    write_text(state_path, serialized_state)
 
 
 def _update_dated_state(
@@ -136,21 +116,16 @@ def _update_dated_state(
     new_stores = updated["stores"]
 
     updated_entities = sum(
-        old_stores.get(store_id) != observations
-        for store_id, observations in new_stores.items()
+        old_stores.get(store_id) != observations for store_id, observations in new_stores.items()
     )
 
     appended_values = 0
 
     for store_id, observations in new_stores.items():
-        previous_dates = {
-            observation["date"]
-            for observation in old_stores.get(store_id, [])
-        }
+        previous_dates = {observation["date"] for observation in old_stores.get(store_id, [])}
 
         appended_values += sum(
-            observation["date"] not in previous_dates
-            for observation in observations
+            observation["date"] not in previous_dates for observation in observations
         )
 
     _write_state_atomically(updated, state_path)

@@ -8,6 +8,7 @@ from typing import Any
 
 from mlflow import MlflowClient
 
+from ..configs.paths import is_object_storage_path
 from .workspace import SimulationWorkspace
 
 _ACTIVE_POINTER_PATH = Path(
@@ -33,7 +34,7 @@ def _require_baseline_root(
     if not isinstance(configured_path, str) or not configured_path.strip():
         raise ValueError("Config must define a non-empty simulation.baseline_path.")
 
-    if configured_path.startswith("gs://"):
+    if is_object_storage_path(configured_path):
         raise ValueError("Lifecycle simulation baselines currently require local paths.")
 
     resolved = Path(configured_path).resolve()

@@ -5,7 +5,10 @@ from typing import Any
 
 import pandas as pd
 
-from mlops_sales_forecasting.configs.paths import join_uri
+from mlops_sales_forecasting.configs.paths import (
+    is_object_storage_path,
+    join_uri,
+)
 from mlops_sales_forecasting.data.contracts import (
     DatasetCollection,
 )
@@ -50,8 +53,7 @@ def load_base_datasets(
     )
 
     logger.info(
-        "Loading base datasets | "
-        "train_path=%s | store_path=%s",
+        "Loading base datasets | train_path=%s | store_path=%s",
         train_path,
         store_path,
     )
@@ -67,16 +69,11 @@ def load_base_datasets(
         store_path,
     )
 
-    train = validate_train(
-        train
-    )
-    store = validate_store(
-        store
-    )
+    train = validate_train(train)
+    store = validate_store(store)
 
     logger.info(
-        "Base datasets loaded and validated | "
-        "train_rows=%s | store_rows=%s",
+        "Base datasets loaded and validated | train_rows=%s | store_rows=%s",
         len(train),
         len(store),
     )
@@ -87,9 +84,7 @@ def load_base_datasets(
 def create_simulation_split(
     train: pd.DataFrame,
     *,
-    training_fraction: float = (
-        SIMULATION_TRAINING_FRACTION
-    ),
+    training_fraction: float = (SIMULATION_TRAINING_FRACTION),
 ) -> tuple[
     pd.DataFrame,
     pd.DataFrame,
@@ -112,10 +107,7 @@ def create_simulation_split(
             either resulting partition would be empty.
     """
     if not 0 < training_fraction < 1:
-        raise ValueError(
-            "training_fraction must be "
-            "between 0 and 1."
-        )
+        raise ValueError("training_fraction must be between 0 and 1.")
 
     result = train.copy()
     result["Date"] = pd.to_datetime(
@@ -124,60 +116,38 @@ def create_simulation_split(
     )
 
     if result["Date"].isna().any():
-        raise ValueError(
-            "Found invalid dates while creating "
-            "the simulation split."
-        )
+        raise ValueError("Found invalid dates while creating the simulation split.")
 
     result = result.sort_values(
         "Date",
         ascending=True,
     )
 
-    unique_dates = (
-        result["Date"]
-        .drop_duplicates()
-        .sort_values()
-        .tolist()
-    )
+    unique_dates = result["Date"].drop_duplicates().sort_values().tolist()
 
     if len(unique_dates) < 2:
         raise ValueError(
-            "At least two unique dates are required "
-            "to create training and simulation partitions."
+            "At least two unique dates are required to create training and simulation partitions."
         )
 
-    split_index = int(
-        len(unique_dates)
-        * training_fraction
-    )
+    split_index = int(len(unique_dates) * training_fraction)
 
     split_index = min(
         max(split_index, 1),
         len(unique_dates) - 1,
     )
 
-    split_date = pd.Timestamp(
-        unique_dates[split_index]
-    )
+    split_date = pd.Timestamp(unique_dates[split_index])
 
-    train_base = result.loc[
-        result["Date"] < split_date
-    ].copy()
+    train_base = result.loc[result["Date"] < split_date].copy()
 
-    simulation_truth = result.loc[
-        result["Date"] >= split_date
-    ].copy()
+    simulation_truth = result.loc[result["Date"] >= split_date].copy()
 
     if train_base.empty:
-        raise ValueError(
-            "Chronological training partition is empty."
-        )
+        raise ValueError("Chronological training partition is empty.")
 
     if simulation_truth.empty:
-        raise ValueError(
-            "Chronological simulation partition is empty."
-        )
+        raise ValueError("Chronological simulation partition is empty.")
 
     logger.info(
         "Chronological simulation split completed | "
@@ -215,8 +185,7 @@ def persist_simulation_source_if_missing(
 
     if file_exists(simulation_path):
         logger.info(
-            "Existing simulation source preserved | "
-            "path=%s",
+            "Existing simulation source preserved | path=%s",
             simulation_path,
         )
         return
@@ -253,9 +222,7 @@ def load_and_validate_batch(
         },
     )
 
-    return validate_train(
-        batch
-    )
+    return validate_train(batch)
 
 
 def collect_remote_batches(
@@ -279,21 +246,16 @@ def collect_remote_batches(
 
     for batch_path in batch_paths:
         try:
-            batch = load_and_validate_batch(
-                batch_path
-            )
+            batch = load_and_validate_batch(batch_path)
         except Exception as error:
             logger.warning(
-                "Remote batch rejected | "
-                "path=%s | error=%s",
+                "Remote batch rejected | path=%s | error=%s",
                 batch_path,
                 error,
             )
             continue
 
-        batches.append(
-            batch
-        )
+        batches.append(batch)
 
         logger.info(
             "Remote batch validated | path=%s | rows=%s",
@@ -312,9 +274,7 @@ def collect_local_batches(
     """
     Load valid local batches and move rejected files into quarantine.
     """
-    if not os.path.isdir(
-        batch_directory
-    ):
+    if not os.path.isdir(batch_directory):
         logger.info(
             "No local batch directory found | path=%s",
             batch_directory,
@@ -328,12 +288,8 @@ def collect_local_batches(
 
     batches: list[pd.DataFrame] = []
 
-    for file_name in sorted(
-        os.listdir(batch_directory)
-    ):
-        if not file_name.endswith(
-            ".csv"
-        ):
+    for file_name in sorted(os.listdir(batch_directory)):
+        if not file_name.endswith(".csv"):
             continue
 
         batch_path = join_uri(
@@ -342,14 +298,11 @@ def collect_local_batches(
         )
 
         try:
-            batch = load_and_validate_batch(
-                batch_path
-            )
+            batch = load_and_validate_batch(batch_path)
 
         except Exception as error:
             logger.warning(
-                "Local batch rejected | "
-                "path=%s | error=%s",
+                "Local batch rejected | path=%s | error=%s",
                 batch_path,
                 error,
             )
@@ -365,16 +318,13 @@ def collect_local_batches(
             )
 
             logger.info(
-                "Rejected batch moved to quarantine | "
-                "source=%s | destination=%s",
+                "Rejected batch moved to quarantine | source=%s | destination=%s",
                 batch_path,
                 quarantine_path,
             )
             continue
 
-        batches.append(
-            batch
-        )
+        batches.append(batch)
 
         logger.info(
             "Local batch validated | path=%s | rows=%s",
@@ -405,19 +355,14 @@ def collect_incremental_batches(
         "quarantine",
     )
 
-    if (
-        environment == "prod"
-        or raw_path.startswith("gs://")
-    ):
+    if environment == "prod" or is_object_storage_path(raw_path):
         return collect_remote_batches(
             batch_directory=batch_directory,
         )
 
     return collect_local_batches(
         batch_directory=batch_directory,
-        quarantine_directory=(
-            quarantine_directory
-        ),
+        quarantine_directory=(quarantine_directory),
     )
 
 
@@ -432,9 +377,7 @@ def merge_training_batches(
         A chronologically sorted and validated training dataframe.
     """
     if not batches:
-        logger.info(
-            "No new training batches found."
-        )
+        logger.info("No new training batches found.")
         return train_base.copy()
 
     merged = pd.concat(
@@ -450,13 +393,10 @@ def merge_training_batches(
         ascending=True,
     )
 
-    merged = validate_train(
-        merged
-    )
+    merged = validate_train(merged)
 
     logger.info(
-        "Incremental batches integrated | "
-        "batches=%s | total_rows=%s",
+        "Incremental batches integrated | batches=%s | total_rows=%s",
         len(batches),
         len(merged),
     )
@@ -473,9 +413,7 @@ def persist_validated_datasets(
     """
     Persist validated training observations and store metadata as Parquet.
     """
-    if not validated_path.startswith(
-        "gs://"
-    ):
+    if not is_object_storage_path(validated_path):
         os.makedirs(
             validated_path,
             exist_ok=True,
@@ -520,17 +458,12 @@ class RossmannDataIngestor:
         paths = config.get("paths")
 
         if not isinstance(paths, Mapping):
-            raise ValueError(
-                "Config must contain a valid 'paths' section."
-            )
+            raise ValueError("Config must contain a valid 'paths' section.")
 
         raw_path = paths.get("raw_data")
 
         if not isinstance(raw_path, str) or not raw_path:
-            raise ValueError(
-                "Config must contain a non-empty "
-                "'paths.raw_data' value."
-            )
+            raise ValueError("Config must contain a non-empty 'paths.raw_data' value.")
 
         environment = str(
             config.get(
@@ -540,21 +473,14 @@ class RossmannDataIngestor:
         )
 
         logger.info(
-            "Starting Rossmann ingestion | "
-            "source=%s | environment=%s",
+            "Starting Rossmann ingestion | source=%s | environment=%s",
             raw_path,
             environment,
         )
 
-        train_full, store = load_base_datasets(
-            raw_path
-        )
+        train_full, store = load_base_datasets(raw_path)
 
-        train_base, simulation_truth = (
-            create_simulation_split(
-                train_full
-            )
-        )
+        train_base, simulation_truth = create_simulation_split(train_full)
 
         batches = collect_incremental_batches(
             raw_path=raw_path,
@@ -567,9 +493,7 @@ class RossmannDataIngestor:
         )
 
         logger.info(
-            "Rossmann ingestion completed | "
-            "train_rows=%s | store_rows=%s | "
-            "simulation_rows=%s",
+            "Rossmann ingestion completed | train_rows=%s | store_rows=%s | simulation_rows=%s",
             len(final_train),
             len(store),
             len(simulation_truth),
@@ -584,8 +508,6 @@ class RossmannDataIngestor:
             metadata={
                 "environment": environment,
                 "raw_path": raw_path,
-                "incremental_batch_count": len(
-                    batches
-                ),
+                "incremental_batch_count": len(batches),
             },
         )

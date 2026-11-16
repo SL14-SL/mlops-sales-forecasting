@@ -1,0 +1,20 @@
+misconfigurations:
+  - id: AVD-DS-0002
+    paths:
+      - Dockerfile.training
+    expired_at: 2026-12-15
+    statement: >-
+      Temporary exception for the isolated SageMaker training image pending
+      validation of non-root access to SageMaker-mounted directories.
+      Local smoke tests explicitly use a non-root UID. The prepared cloud job
+      enables network isolation and does not serve incoming requests.
+      Revisit after the first successful cloud training run.
+
+  - id: AVD-AWS-0132
+    paths:
+      - infrastructure/terraform-aws/main.tf
+    statement: >-
+      This development bucket stores public Rossmann data and portfolio
+      artifacts. SSE-S3 encryption is enabled and public access is blocked.
+      Customer-managed KMS keys are not required for this development setup.
+      Reassess before storing confidential data or using this setup for clients.

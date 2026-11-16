@@ -32,3 +32,8 @@ def path_name(path: str) -> str:
 def path_suffix(path: str) -> str:
     """Return the lowercase suffix of a local path or object-storage URI."""
     return PurePosixPath(str(path)).suffix.lower()
+
+
+def is_object_storage_path(path: str | Path) -> bool:
+    """Return whether a path points to supported cloud object storage."""
+    return str(path).startswith(("gs://", "s3://"))

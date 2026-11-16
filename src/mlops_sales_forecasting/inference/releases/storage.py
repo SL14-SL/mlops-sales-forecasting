@@ -27,23 +27,15 @@ _RELEASE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 def _validate_relative_path(path: str) -> None:
     """Validate a relative path contained within a release directory."""
-    if (
-        not path
-        or path.startswith("/")
-        or path.startswith("gs://")
-        or "\\" in path
-        or ".." in path.split("/")
-    ):
-        raise ValueError(
-            f"Release artifact path must be relative: {path}"
-        )
+    if not path or path.startswith("/") or "://" in path or "\\" in path or ".." in path.split("/"):
+        raise ValueError(f"Release artifact path must be relative: {path}")
+
 
 def validate_release_id(release_id: str) -> None:
     """Validate a serving-release identifier."""
     if not _RELEASE_ID_PATTERN.fullmatch(release_id):
-        raise ValueError(
-            f"Invalid serving release ID: {release_id}"
-        )
+        raise ValueError(f"Invalid serving release ID: {release_id}")
+
 
 def _copy_stream(
     source: BinaryIO,
@@ -60,9 +52,7 @@ def copy_uri(
 ) -> None:
     """Copy a file between fsspec-supported locations."""
     if not file_exists(source_path):
-        raise FileNotFoundError(
-            f"Serving release source not found: {source_path}"
-        )
+        raise FileNotFoundError(f"Serving release source not found: {source_path}")
 
     with (
         fsspec.open(source_path, "rb") as source,
@@ -107,14 +97,10 @@ def load_json(path: str) -> dict[str, Any]:
     try:
         payload = json.loads(read_text(path))
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Invalid JSON document at: {path}"
-        ) from exc
+        raise ValueError(f"Invalid JSON document at: {path}") from exc
 
     if not isinstance(payload, dict):
-        raise ValueError(
-            f"Expected JSON object at: {path}"
-        )
+        raise ValueError(f"Expected JSON object at: {path}")
 
     return payload
 
@@ -126,7 +112,7 @@ def build_release_paths(
     artifact_filenames: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """Build storage paths belonging to one immutable release."""
-    
+
     validate_release_id(release_id)
 
     release_root = join_uri(
@@ -149,14 +135,10 @@ def build_release_paths(
 
     for name, filename in (artifact_filenames or {}).items():
         if not name:
-            raise ValueError(
-                "Release artifact name must not be empty."
-            )
+            raise ValueError("Release artifact name must not be empty.")
 
         if name in paths:
-            raise ValueError(
-                f"Duplicate release path name: {name}"
-            )
+            raise ValueError(f"Duplicate release path name: {name}")
 
         _validate_relative_path(filename)
         paths[name] = join_uri(
@@ -176,9 +158,7 @@ def build_artifact_reference(
     _validate_relative_path(relative_path)
 
     if not file_exists(artifact_uri):
-        raise FileNotFoundError(
-            f"Serving artifact not found: {artifact_uri}"
-        )
+        raise FileNotFoundError(f"Serving artifact not found: {artifact_uri}")
 
     reference = ArtifactReference(
         path=relative_path,
@@ -208,16 +188,11 @@ def resolve_artifact_uri(
     )
 
     if not file_exists(artifact_uri):
-        raise FileNotFoundError(
-            f"Serving artifact not found: {artifact_uri}"
-        )
+        raise FileNotFoundError(f"Serving artifact not found: {artifact_uri}")
 
     actual_checksum = sha256_uri(artifact_uri)
 
     if actual_checksum != reference.sha256:
-        raise ValueError(
-            "Serving artifact checksum mismatch: "
-            f"{reference.path}"
-        )
+        raise ValueError(f"Serving artifact checksum mismatch: {reference.path}")
 
     return artifact_uri

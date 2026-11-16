@@ -73,3 +73,11 @@ terraform.tfvars
 /configs/lifecycle-local.yaml
 /configs/promo-history-check.yaml
 /configs/time-contract-check.yaml
+
+
+# AWS Terraform local state and plans
+/infrastructure/terraform-aws/.terraform/
+/infrastructure/terraform-aws/terraform.tfstate*
+/infrastructure/terraform-aws/*.tfplan
+/infrastructure/terraform-aws/terraform.tfvars
+/infrastructure/terraform-aws/crash.log
