@@ -42,8 +42,15 @@ smoke test, this file was reconstructed from the corresponding S3 input
 `store.csv` using the project's validation function. Future training exports
 include it directly.
 
-No shared MLflow registry registration or automatic champion promotion
-is implemented in this AWS candidate-to-serving path.
+The current [AWS lifecycle](aws-lifecycle.md) registers approved candidates in
+shared MLflow, applies the existing champion comparison and promotion gates,
+and publishes complete portable releases to S3. The local smoke helper above
+remains a separate legacy path. New releases retain their registered model
+version and can be rolled back together with the shared champion alias.
+
+The lifecycle refreshes running ECS tasks after promotion and verifies the
+loaded release through `/readyz`. Deployment and API image rollback workflows
+are provided. Their full cloud execution still requires verification.
 
 ## API image
 

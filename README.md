@@ -493,25 +493,24 @@ See:
 - [Cloud deployment and rollback verification](docs/cloud-deployment-and-rollback.md)
 
 
-### AWS training support
+### AWS lifecycle support
 
-The project supports isolated training on Amazon ECS with AWS Fargate.
-A cloud smoke test has verified S3 input download, training, evaluation,
-artifact upload, and successful task termination. The exported model was
-downloaded from S3 and loaded locally.
+AWS uses the same training, MLflow registry, champion comparison, promotion
+checks and monitoring-driven retraining services as the existing lifecycle.
+ECS/Fargate publishes registered champions as complete portable S3 releases,
+refreshes running API tasks, and supports model and application-image rollback.
+GitHub workflows provide OIDC authentication, deployment, lifecycle execution,
+optional scheduled retraining and image rollback.
 
-Amazon SageMaker AI remains an additional prepared execution option.
-Its first cloud training run is pending quota approval.
+See [AWS lifecycle and GCP parity](docs/aws-lifecycle.md) for the capability
+mapping, shared-service prerequisites, deployment steps and validation boundary.
+The new lifecycle has been tested locally with real training and MLflow; its
+complete cloud deployment remains to be verified. The prior isolated-training
+and API-serving smoke tests remain historical evidence, not validation of the
+new lifecycle.
 
-Both execution paths use the same training entry point. The FastAPI
-application has also been deployed on ECS/Fargate and verified through
-an API Gateway HTTPS endpoint with API-key authentication.
-
-See [AWS serving](docs/aws-serving.md) for architecture, validation,
-and operational limitations. Shared MLflow registry integration remains
-a future extension.
-
-See [AWS training](docs/aws-training.md) for setup and validation status.
+- [AWS training](docs/aws-training.md)
+- [AWS serving](docs/aws-serving.md)
 
 ## Testing and Security
 

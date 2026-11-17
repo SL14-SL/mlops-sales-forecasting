@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
@@ -143,6 +143,7 @@ def run_auto_retraining(
     *,
     config: Mapping[str, Any],
     evaluated_at: datetime | pd.Timestamp | None = None,
+    after_lifecycle: Callable[[PrefectTrainingLifecycleResult], None] | None = None,
 ) -> AutoRetrainingResult:
     """Evaluate signals and run at most one training lifecycle."""
     normalized_evaluation_time = _utc_isoformat(evaluated_at)
@@ -218,6 +219,8 @@ def run_auto_retraining(
             "retraining.trigger_types": ",".join(decision.trigger_types),
         },
     )
+    if after_lifecycle is not None:
+        after_lifecycle(lifecycle)
     lifecycle_state = _lifecycle_state_payload(lifecycle)
 
     persisted_state = record_successful_retraining(

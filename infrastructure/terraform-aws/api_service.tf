@@ -44,7 +44,7 @@ resource "aws_ecs_task_definition" "api" {
       environment = [
         {
           name  = "APP_ENV"
-          value = "prod"
+          value = var.environment
         },
         {
           name  = "CLOUD_PROVIDER"
@@ -64,11 +64,11 @@ resource "aws_ecs_task_definition" "api" {
         },
         {
           name  = "MLFLOW_TRACKING_URI"
-          value = "sqlite:////app/runtime/mlflow/tracking.db"
+          value = var.mlflow_tracking_uri
         },
         {
           name  = "PREFECT_API_URL"
-          value = ""
+          value = var.prefect_api_url
         }
       ]
 

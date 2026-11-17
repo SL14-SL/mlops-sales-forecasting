@@ -221,3 +221,128 @@ def test_training_job_preserves_existing_results(
 
     assert marker.read_text(encoding="utf-8") == "keep this result"
     assert not (tmp_path / "output/evaluation.json").exists()
+
+
+def test_shared_lifecycle_portable_release_and_registry_rollback(
+    tmp_path: Path,
+    job_inputs: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise real training, MLflow registration, portability and rollback offline."""
+    from mlops_sales_forecasting.aws.operations import rollback_model
+    from mlops_sales_forecasting.aws.training_config import build_training_job_config
+    from mlops_sales_forecasting.inference.bundle_loader import load_active_serving_bundle
+    from mlops_sales_forecasting.inference.model_loader import load_xgboost_model
+    from mlops_sales_forecasting.inference.releases.pointer import load_active_release_pointer
+    from mlops_sales_forecasting.inference.releases.portable_publisher import (
+        publish_portable_serving_release,
+    )
+    from mlops_sales_forecasting.orchestration import lifecycle_adapter
+    from mlops_sales_forecasting.pipeline.project_factory import build_project_training_pipeline
+
+    source, inputs = job_inputs
+    config = build_training_job_config(
+        source, input_directory=inputs, work_directory=tmp_path / "work"
+    )
+    config["tracking"] = {
+        "mlflow_tracking_uri": f"sqlite:///{tmp_path / 'shared.db'}",
+        "experiment_name": "portable-lifecycle",
+        "model_name": "portable-model",
+        "promotion": {
+            "metric_name": "rmse",
+            "direction": "minimize",
+            "minimum_improvement": 0,
+            "allow_initial_champion": True,
+        },
+    }
+    config["promotion"]["minimum_relative_rmse_improvement"] = 0
+    client = MlflowClient(tracking_uri=config["tracking"]["mlflow_tracking_uri"])
+    client.create_experiment("portable-lifecycle", artifact_location=(tmp_path / "mlflow").as_uri())
+    old_uri = mlflow.get_tracking_uri()
+    monkeypatch.chdir(tmp_path)
+    # Keep Prefect orchestration outside this test, while exercising the real pipeline/lifecycle.
+    monkeypatch.setattr(
+        lifecycle_adapter,
+        "run_prefect_training_pipeline",
+        lambda *, pipeline, run_id: pipeline.run(run_id=run_id),
+    )
+    monkeypatch.setattr(
+        lifecycle_adapter, "publish_serving_release", publish_portable_serving_release
+    )
+
+    def run():
+        return lifecycle_adapter.run_prefect_model_lifecycle.fn(
+            pipeline=build_project_training_pipeline(config),
+        )
+
+    try:
+        first = run()
+        assert first.candidate.registration.registered
+        release1 = first.serving_release.manifest.release_id
+        assert str(client.get_model_version_by_alias("portable-model", "champion").version) == "1"
+        assert first.serving_release.manifest.model.uri.startswith(config["paths"]["models"])
+        assert first.serving_release.manifest.model.version == "1"
+        assert first.serving_release.manifest.metadata["registry_registered"] is True
+
+        config["tracking"]["promotion"]["minimum_improvement"] = 1e9
+        rejected = run()
+        assert rejected.candidate.registration.model_version == "2"
+        assert rejected.serving_release is None
+        assert str(client.get_model_version_by_alias("portable-model", "challenger").version) == "2"
+        assert (
+            load_active_release_pointer(models_path=config["paths"]["models"]).release_id
+            == release1
+        )
+        assert str(client.get_model_version_by_alias("portable-model", "champion").version) == "1"
+
+        config["tracking"]["promotion"]["minimum_improvement"] = 0
+        with monkeypatch.context() as failed:
+
+            def fail_publication(**kwargs):
+                raise OSError("simulated S3 publication failure")
+
+            failed.setattr(lifecycle_adapter, "publish_serving_release", fail_publication)
+            with pytest.raises(OSError, match="publication failure"):
+                run()
+        assert str(client.get_model_version_by_alias("portable-model", "champion").version) == "1"
+        assert (
+            load_active_release_pointer(models_path=config["paths"]["models"]).release_id
+            == release1
+        )
+
+        next_result = run()
+        release4 = next_result.serving_release.manifest.release_id
+        assert str(client.get_model_version_by_alias("portable-model", "champion").version) == "4"
+        # Remove the registry artifact store: serving and rollback use the portable release files.
+        import shutil
+
+        shutil.rmtree(tmp_path / "mlflow")
+        bundle = load_active_serving_bundle(
+            models_path=config["paths"]["models"],
+            serving_alias="champion",
+            model_loader=load_xgboost_model,
+        )
+        assert bundle.release_id == release4
+        assert bundle.model.input_columns
+        example = next_result.pipeline.pipeline.training.input_example
+        np.testing.assert_allclose(
+            bundle.model.predict(example),
+            next_result.pipeline.pipeline.training.model.predict(example),
+        )
+        assert rollback_model(config=config, refresh=False) == release1
+        assert str(client.get_model_version_by_alias("portable-model", "champion").version) == "1"
+        assert (
+            load_active_release_pointer(models_path=config["paths"]["models"]).release_id
+            == release1
+        )
+        # Every portable model file is verified before deserialization.
+        model_file = Path(first.serving_release.release_root) / "model/model.ubj"
+        model_file.write_bytes(b"corrupted")
+        with pytest.raises(ValueError, match="checksum"):
+            load_active_serving_bundle(
+                models_path=config["paths"]["models"],
+                serving_alias="champion",
+                model_loader=load_xgboost_model,
+            )
+    finally:
+        mlflow.set_tracking_uri(old_uri)

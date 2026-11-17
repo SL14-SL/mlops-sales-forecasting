@@ -8,6 +8,7 @@ from prefect import flow
 from ..inference.releases.input_provider import (
     build_serving_release_input,
 )
+from ..inference.releases.portable_publisher import publish_portable_serving_release
 from ..inference.releases.publisher import (
     PublishedServingRelease,
     publish_serving_release,
@@ -102,8 +103,14 @@ def _publish_promoted_release(
             config=pipeline.config,
         )
 
-        return publish_serving_release(
-            models_path=_models_path(pipeline.config),
+        models_path = _models_path(pipeline.config)
+        publisher = (
+            publish_portable_serving_release
+            if models_path.startswith("s3://")
+            else publish_serving_release
+        )
+        return publisher(
+            models_path=models_path,
             registration=(candidate_result.registration),
             promotion=promotion,
             task_type=release_input.task_type,

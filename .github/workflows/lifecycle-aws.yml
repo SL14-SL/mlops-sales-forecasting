@@ -1,0 +1,48 @@
+name: AWS model lifecycle
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+      operation:
+        type: choice
+        options: [train, auto-retrain, rollback-model, refresh]
+        default: train
+      estimators:
+        description: Optional tree count for a smoke test; empty uses project configuration
+        type: string
+        default: ''
+  schedule:
+    - cron: '0 5 * * *'
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: aws-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+jobs:
+  lifecycle:
+    if: github.event_name == 'workflow_dispatch' || vars.AWS_RETRAINING_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    environment: ${{ inputs.environment || 'dev' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/aws-context
+        with:
+          role_arn: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          region: ${{ vars.AWS_REGION }}
+          state_bucket: ${{ vars.AWS_TF_STATE_BUCKET }}
+          environment: ${{ inputs.environment || 'dev' }}
+      - name: Run lifecycle and wait for its exit code
+        env:
+          OPERATION: ${{ inputs.operation || 'auto-retrain' }}
+          ESTIMATORS: ${{ inputs.estimators || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          arguments=("$OPERATION")
+          if [ -n "$ESTIMATORS" ]; then arguments+=(--estimators "$ESTIMATORS"); fi
+          python scripts/run_aws_task.py "${arguments[@]}"
