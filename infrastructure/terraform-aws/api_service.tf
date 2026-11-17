@@ -64,7 +64,7 @@ resource "aws_ecs_task_definition" "api" {
         },
         {
           name  = "MLFLOW_TRACKING_URI"
-          value = var.mlflow_tracking_uri
+          value = local.mlflow_tracking_uri
         },
         {
           name  = "PREFECT_API_URL"

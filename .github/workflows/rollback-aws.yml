@@ -29,6 +29,7 @@ jobs:
       TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_environment: ${{ inputs.environment }}
+      TF_VAR_mlflow_managed_enabled: ${{ vars.AWS_MANAGED_MLFLOW || 'false' }}
       TF_VAR_mlflow_tracking_uri: ${{ vars.MLFLOW_TRACKING_URI }}
       TF_VAR_prefect_api_url: ${{ vars.PREFECT_API_URL || '' }}
       TF_VAR_mlflow_token_secret_arn: ${{ vars.MLFLOW_TOKEN_SECRET_ARN || '' }}
@@ -59,6 +60,8 @@ jobs:
           training = outputs["fargate_training_image_uri"]["value"].split("@")[-1]
           with open(os.environ["GITHUB_ENV"], "a") as file:
               file.write(f"TF_VAR_fargate_training_image_digest={training}\n")
+              mlflow = (outputs.get("mlflow_image_uri", {}).get("value") or "").split("@")[-1]
+              file.write(f"TF_VAR_mlflow_image_digest={mlflow}\n")
           PY
       - name: Plan image rollback
         run: terraform -chdir=infrastructure/terraform-aws plan -input=false -out=rollback.tfplan

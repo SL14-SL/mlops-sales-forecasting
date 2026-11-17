@@ -43,9 +43,9 @@ resource "aws_ecs_task_definition" "training" {
       command = ["train"]
 
       secrets = concat(
-        var.mlflow_token_secret_arn != "" ? [{
+        local.mlflow_token_secret_arn != "" ? [{
           name      = "MLFLOW_TRACKING_TOKEN"
-          valueFrom = var.mlflow_token_secret_arn
+          valueFrom = local.mlflow_token_secret_arn
         }] : [],
         var.prefect_key_secret_arn != "" ? [{
           name      = "PREFECT_API_KEY"
@@ -57,7 +57,7 @@ resource "aws_ecs_task_definition" "training" {
         { name = "CLOUD_PROVIDER", value = "aws" },
         { name = "APP_ENV", value = var.environment },
         { name = "S3_BUCKET_NAME", value = aws_s3_bucket.training.id },
-        { name = "MLFLOW_TRACKING_URI", value = var.mlflow_tracking_uri },
+        { name = "MLFLOW_TRACKING_URI", value = local.mlflow_tracking_uri },
         { name = "PREFECT_API_URL", value = var.prefect_api_url },
         {
           name  = "AWS_DEFAULT_REGION"

@@ -29,6 +29,14 @@ The default API remains a single-instance demo. Existing Prometheus/Grafana
 configuration remains usable; this change does not provision a managed metrics
 stack on either cloud. Public AWS ingress still excludes admin and metrics routes.
 
+## Managed MLflow option
+
+This project can also provision MLflow on ECS/Fargate with RDS and S3. See
+[Managed MLflow on AWS](aws-mlflow.md). In managed mode Terraform supplies the
+endpoint and token ARN automatically; an existing external MLflow service is
+not required. The external-service setup below still applies when managed mode
+is disabled.
+
 ## Shared services
 
 The existing GCP Terraform module accepts an externally configured MLflow URI;
@@ -88,8 +96,9 @@ RunTask/DescribeTasks/StopTask, with PassRole limited to the task and execution
 roles. Its state permissions must cover Get/Put on the state object and
 Get/Put/Delete on the `.tflock` object, plus bucket listing.
 
-The account's OIDC provider, deployment role, state bucket, shared MLflow service,
-training data and secret values are prerequisites, outside this project module.
+The account's OIDC provider, deployment role, state bucket, training data and
+secret values are prerequisites outside this project module. An external shared
+MLflow service is required only when managed MLflow is disabled.
 They are not created by running the workflow. No cloud deployment was performed
 while implementing this change.
 

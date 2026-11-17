@@ -81,3 +81,5 @@ terraform.tfvars
 /infrastructure/terraform-aws/*.tfplan
 /infrastructure/terraform-aws/terraform.tfvars
 /infrastructure/terraform-aws/crash.log
+/AWS-MLFLOW-EINSPIELEN.md
+/AWS-PARITAET-EINSPIELEN.md

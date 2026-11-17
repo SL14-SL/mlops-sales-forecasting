@@ -502,6 +502,10 @@ refreshes running API tasks, and supports model and application-image rollback.
 GitHub workflows provide OIDC authentication, deployment, lifecycle execution,
 optional scheduled retraining and image rollback.
 
+Optional [managed AWS MLflow](docs/aws-mlflow.md) provisions the shared registry
+on ECS/Fargate with persistent RDS metadata, S3 artifacts and token-protected
+HTTPS access.
+
 See [AWS lifecycle and GCP parity](docs/aws-lifecycle.md) for the capability
 mapping, shared-service prerequisites, deployment steps and validation boundary.
 The new lifecycle has been tested locally with real training and MLflow; its

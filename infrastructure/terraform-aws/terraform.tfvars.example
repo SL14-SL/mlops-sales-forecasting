@@ -1,7 +1,10 @@
 aws_account_id     = "123456789012"
 aws_region         = "eu-north-1"
 environment        = "dev"
+# Use an external service (default), OR enable the managed service below.
 mlflow_tracking_uri = "https://mlflow.example.com"
+# mlflow_managed_enabled = true
+# mlflow_image_digest = "sha256:REPLACE_WITH_64_HEX_DIGITS"
 prefect_api_url     = ""
 
 # Build/push the new images; use their actual digests, never the previous smoke-test images.
