@@ -1,5 +1,10 @@
 # AWS-Parität im Forecasting-Projekt einspielen
 
+Diese Anleitung gehört zum ersten Paritäts-Patch (PR #73). Für die anschließend
+ergänzte MLflow-Bereitstellung siehe `AWS-MLFLOW-EINSPIELEN.md` und
+`docs/aws-mlflow.md`. Den ersten Patch nicht erneut auf den bereits aktualisierten
+Stand anwenden.
+
 Der Patch bezieht sich auf das hochgeladene ZIP mit Stand
 `2a0c5993ea67a74442d2636f9d27033fb59200b1`. Das ZIP enthält bereits alle Änderungen.
 Das Template ist nicht Bestandteil dieser Änderung.

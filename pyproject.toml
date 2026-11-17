@@ -37,6 +37,10 @@ aws = [
     "s3fs>=2026.9.0",
 ]
 
+mlflow-server = [
+    "psycopg2-binary>=2.9.10,<3",
+]
+
 [dependency-groups]
 dev = [
     "pip-audit==2.10.1",

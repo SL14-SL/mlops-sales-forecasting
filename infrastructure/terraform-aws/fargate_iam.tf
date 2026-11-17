@@ -33,11 +33,11 @@ resource "aws_iam_role" "fargate_execution" {
 
 data "aws_iam_policy_document" "fargate_execution" {
   dynamic "statement" {
-    for_each = length(compact([var.mlflow_token_secret_arn, var.prefect_key_secret_arn])) > 0 ? [1] : []
+    for_each = length(compact([local.mlflow_token_secret_arn, var.prefect_key_secret_arn])) > 0 ? [1] : []
     content {
       sid       = "InjectLifecycleCredentials"
       actions   = ["secretsmanager:GetSecretValue"]
-      resources = compact([var.mlflow_token_secret_arn, var.prefect_key_secret_arn])
+      resources = compact([local.mlflow_token_secret_arn, var.prefect_key_secret_arn])
     }
   }
 
