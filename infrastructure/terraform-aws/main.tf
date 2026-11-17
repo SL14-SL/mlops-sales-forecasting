@@ -1,5 +1,5 @@
 locals {
-  name_prefix = "${var.project_name}-dev"
+  name_prefix = "${var.project_name}-${var.environment}"
 }
 
 resource "aws_s3_bucket" "training" {
@@ -48,7 +48,15 @@ resource "aws_ecr_repository" "training" {
   }
 }
 
+# SageMaker uses one account/region-wide log group. Only the dev module owns it;
+# separate staging/prod stacks must not try to create the same global name.
 resource "aws_cloudwatch_log_group" "training" {
+  count             = var.environment == "dev" ? 1 : 0
   name              = "/aws/sagemaker/TrainingJobs"
   retention_in_days = 14
+}
+
+moved {
+  from = aws_cloudwatch_log_group.training
+  to   = aws_cloudwatch_log_group.training[0]
 }

@@ -93,3 +93,15 @@ output "api_service_name" {
 output "api_gateway_log_group" {
   value = aws_cloudwatch_log_group.api_gateway.name
 }
+
+output "lifecycle_raw_data_uri" {
+  value = "s3://${aws_s3_bucket.training.id}/data/raw"
+}
+
+output "serving_models_uri" {
+  value = "s3://${aws_s3_bucket.training.id}/models"
+}
+
+output "api_image_uri" {
+  value = "${aws_ecr_repository.api.repository_url}@${var.api_image_digest}"
+}

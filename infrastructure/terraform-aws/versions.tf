@@ -1,4 +1,6 @@
 terraform {
+  backend "s3" {}
+
   required_version = ">= 1.10, < 2.0"
 
   required_providers {
@@ -16,7 +18,7 @@ provider "aws" {
   default_tags {
     tags = {
       Project     = var.project_name
-      Environment = "dev"
+      Environment = var.environment
       ManagedBy   = "terraform"
     }
   }

@@ -3,6 +3,7 @@ name: Terraform
 on:
   pull_request:
     paths:
+      - "infrastructure/terraform-aws/**"
       - "infrastructure/terraform/**"
       - "infrastructure/terraform-bootstrap/**"
       - ".github/workflows/terraform.yml"
@@ -10,6 +11,7 @@ on:
     branches:
       - main
     paths:
+      - "infrastructure/terraform-aws/**"
       - "infrastructure/terraform/**"
       - "infrastructure/terraform-bootstrap/**"
       - ".github/workflows/terraform.yml"
@@ -75,3 +77,12 @@ jobs:
           terraform
           -chdir=infrastructure/terraform
           validate
+
+      - name: Check AWS formatting
+        run: terraform -chdir=infrastructure/terraform-aws fmt -check -recursive
+
+      - name: Initialize AWS module
+        run: terraform -chdir=infrastructure/terraform-aws init -backend=false -input=false
+
+      - name: Validate AWS module
+        run: terraform -chdir=infrastructure/terraform-aws validate

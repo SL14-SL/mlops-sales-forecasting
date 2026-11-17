@@ -1,0 +1,103 @@
+name: Deploy to AWS
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+      enable_serving:
+        description: Enable API ingress/tasks (bootstrap with false, train, then true)
+        type: boolean
+        default: false
+      apply_changes:
+        description: Build/push images and apply the reviewed infrastructure plan
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: aws-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    env:
+      TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_environment: ${{ inputs.environment }}
+      TF_VAR_mlflow_tracking_uri: ${{ vars.MLFLOW_TRACKING_URI }}
+      TF_VAR_prefect_api_url: ${{ vars.PREFECT_API_URL || '' }}
+      TF_VAR_mlflow_token_secret_arn: ${{ vars.MLFLOW_TOKEN_SECRET_ARN || '' }}
+      TF_VAR_prefect_key_secret_arn: ${{ vars.PREFECT_KEY_SECRET_ARN || '' }}
+      TF_VAR_api_serving_enabled: ${{ inputs.enable_serving }}
+      TF_VAR_api_desired_count: ${{ inputs.enable_serving && '1' || '0' }}
+      TF_VAR_api_image_digest: ${{ vars.AWS_API_IMAGE_DIGEST }}
+      TF_VAR_fargate_training_image_digest: ${{ vars.AWS_TRAINING_IMAGE_DIGEST }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/aws-context
+        with:
+          role_arn: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          region: ${{ vars.AWS_REGION }}
+          state_bucket: ${{ vars.AWS_TF_STATE_BUCKET }}
+          environment: ${{ inputs.environment }}
+      - name: Validate Terraform
+        run: |
+          terraform -chdir=infrastructure/terraform-aws fmt -check
+          terraform -chdir=infrastructure/terraform-aws validate
+      - name: Resolve current image digests for planning
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, subprocess
+          result = subprocess.run(["terraform", "-chdir=infrastructure/terraform-aws", "output", "-json"], capture_output=True, text=True, check=True)
+          outputs = json.loads(result.stdout)
+          fallback = "sha256:" + "0" * 64
+          mapping = {"TF_VAR_api_image_digest": "api_image_uri", "TF_VAR_fargate_training_image_digest": "fargate_training_image_uri"}
+          with open(os.environ["GITHUB_ENV"], "a") as file:
+              for variable, output in mapping.items():
+                  value = os.environ.get(variable) or outputs.get(output, {}).get("value", fallback).split("@")[-1]
+                  file.write(f"{variable}={value}\n")
+          PY
+      - name: Create image repositories
+        if: inputs.apply_changes
+        run: >-
+          terraform -chdir=infrastructure/terraform-aws apply -input=false -auto-approve
+          -target=aws_ecr_repository.api -target=aws_ecr_repository.training
+      - name: Build and push immutable API and training images
+        if: inputs.apply_changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          training_repository=$(terraform -chdir=infrastructure/terraform-aws output -raw training_repository_url)
+          api_repository=$(terraform -chdir=infrastructure/terraform-aws output -raw api_repository_url)
+          registry="${api_repository%%/*}"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+          tag="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker build --build-arg INSTALL_AWS=true -t "$api_repository:$tag" .
+          docker build -f Dockerfile.training -t "$training_repository:$tag" .
+          docker push "$api_repository:$tag"
+          docker push "$training_repository:$tag"
+          api_digest=$(aws ecr describe-images --repository-name "${api_repository#*/}" --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text)
+          training_digest=$(aws ecr describe-images --repository-name "${training_repository#*/}" --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text)
+          echo "TF_VAR_api_image_digest=$api_digest" >> "$GITHUB_ENV"
+          echo "TF_VAR_fargate_training_image_digest=$training_digest" >> "$GITHUB_ENV"
+      - name: Plan deployment
+        run: terraform -chdir=infrastructure/terraform-aws plan -input=false -out=deployment.tfplan
+      - name: Apply deployment
+        if: inputs.apply_changes
+        run: terraform -chdir=infrastructure/terraform-aws apply -input=false deployment.tfplan
+      - name: Verify serving endpoint
+        if: inputs.apply_changes && inputs.enable_serving
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint=$(terraform -chdir=infrastructure/terraform-aws output -raw api_endpoint)
+          curl --fail-with-body --retry 8 --retry-all-errors --retry-delay 10 "$endpoint/readyz"
+          status=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{}' "$endpoint/predict")
+          test "$status" = 401
