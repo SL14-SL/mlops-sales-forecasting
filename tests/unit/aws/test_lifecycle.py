@@ -67,6 +67,13 @@ def test_failed_ecs_refresh_rolls_back_then_reports_failure(monkeypatch):
 
 
 def test_ecs_circuit_breaker_is_not_mistaken_for_success(monkeypatch):
+    from mlops_sales_forecasting.aws.ecs_rollout import wait_for_rollout
+
+    monkeypatch.setattr(
+        operations,
+        "wait_for_rollout",
+        lambda **kwargs: wait_for_rollout(**kwargs, max_attempts=1, delay_seconds=0),
+    )
     for name, value in {
         "AWS_ECS_CLUSTER": "cluster",
         "AWS_API_SERVICE": "api",

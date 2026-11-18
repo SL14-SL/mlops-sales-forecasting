@@ -127,8 +127,20 @@ def test_token_initializer_preserves_existing_token(existing):
         ("new", [], False),
     ],
 )
-def test_restart_requires_completed_new_deployment_and_replaced_task(deployment_id, after, success):
+def test_restart_requires_completed_new_deployment_and_replaced_task(
+    deployment_id,
+    after,
+    success,
+    monkeypatch,
+):
     module = load_module("scripts/restart_mlflow_aws.py")
+    from mlops_sales_forecasting.aws.ecs_rollout import wait_for_rollout
+
+    monkeypatch.setattr(
+        module,
+        "wait_for_rollout",
+        lambda **kwargs: wait_for_rollout(**kwargs, max_attempts=1, delay_seconds=0),
+    )
     ecs = MagicMock()
     ecs.list_tasks.side_effect = [{"taskArns": ["old-task"]}, {"taskArns": after}]
     ecs.update_service.return_value = {
@@ -146,7 +158,7 @@ def test_restart_requires_completed_new_deployment_and_replaced_task(deployment_
     if success:
         module.restart_service(ecs=ecs, cluster="cluster", service="mlflow")
     else:
-        with pytest.raises(RuntimeError, match="restart did not complete"):
+        with pytest.raises(RuntimeError, match="rollout verification timed out"):
             module.restart_service(ecs=ecs, cluster="cluster", service="mlflow")
 
 

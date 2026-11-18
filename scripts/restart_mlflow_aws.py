@@ -5,6 +5,8 @@ import subprocess
 
 import boto3
 
+from mlops_sales_forecasting.aws.ecs_rollout import wait_for_rollout
+
 
 def restart_service(*, ecs, cluster: str, service: str) -> None:
     before = ecs.list_tasks(cluster=cluster, serviceName=service, desiredStatus="RUNNING")[
@@ -21,18 +23,13 @@ def restart_service(*, ecs, cluster: str, service: str) -> None:
         services=[service],
         WaiterConfig={"Delay": 15, "MaxAttempts": 100},
     )
-    current = ecs.describe_services(cluster=cluster, services=[service])["services"][0]
-    primary = next(item for item in current["deployments"] if item["status"] == "PRIMARY")
-    after = ecs.list_tasks(cluster=cluster, serviceName=service, desiredStatus="RUNNING")[
-        "taskArns"
-    ]
-    if (
-        primary["id"] != deployment_id
-        or primary.get("rolloutState") != "COMPLETED"
-        or not after
-        or set(before).intersection(after)
-    ):
-        raise RuntimeError("MLflow restart did not complete with new running tasks.")
+    wait_for_rollout(
+        ecs=ecs,
+        cluster=cluster,
+        service=service,
+        deployment_id=deployment_id,
+        previous_task_arns=tuple(before),
+    )
 
 
 def main() -> None:
