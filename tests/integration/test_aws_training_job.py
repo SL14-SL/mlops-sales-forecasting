@@ -415,3 +415,136 @@ def test_aws_simulation_reuses_clock_and_isolates_live_model(tmp_path, job_input
     finally:
         mlflow.end_run()
         mlflow.set_tracking_uri(previous_uri)
+
+
+def test_rollout_verifier_with_real_registry_and_failure_compensation(
+    tmp_path, job_inputs, monkeypatch
+):
+    import importlib.util
+
+    from mlops_sales_forecasting.aws.operations import rollback_model
+    from mlops_sales_forecasting.aws.training_config import build_training_job_config
+    from mlops_sales_forecasting.inference.releases.pointer import load_active_release_pointer
+    from mlops_sales_forecasting.inference.releases.portable_publisher import (
+        publish_portable_serving_release,
+    )
+    from mlops_sales_forecasting.inference.releases.repository import load_release_manifest
+    from mlops_sales_forecasting.orchestration import lifecycle_adapter
+    from mlops_sales_forecasting.pipeline.project_factory import build_project_training_pipeline
+
+    script = get_project_root() / "scripts/verify_aws_model_rollout.py"
+    spec = importlib.util.spec_from_file_location("rollout_verifier_integration", script)
+    verify = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verify)
+
+    source, inputs = job_inputs
+    config = build_training_job_config(
+        source, input_directory=inputs, work_directory=tmp_path / "work"
+    )
+    config["tracking"] = dict(
+        mlflow_tracking_uri=f"sqlite:///{tmp_path / 'registry.db'}",
+        experiment_name="rollout-test",
+        model_name="rollout-model-dev",
+        promotion={
+            "metric_name": "rmse",
+            "direction": "minimize",
+            "minimum_improvement": 0,
+            "allow_initial_champion": True,
+        },
+    )
+    client = MlflowClient(tracking_uri=config["tracking"]["mlflow_tracking_uri"])
+    client.create_experiment("rollout-test", artifact_location=(tmp_path / "mlflow").as_uri())
+    old_uri = mlflow.get_tracking_uri()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        lifecycle_adapter,
+        "run_prefect_training_pipeline",
+        lambda *, pipeline, run_id: pipeline.run(run_id=run_id),
+    )
+    monkeypatch.setattr(
+        lifecycle_adapter, "publish_serving_release", publish_portable_serving_release
+    )
+    try:
+        lifecycle_adapter.run_prefect_model_lifecycle.fn(
+            pipeline=build_project_training_pipeline(config)
+        )
+        models = config["paths"]["models"]
+        pointer = load_active_release_pointer(models_path=models)
+        original, root = load_release_manifest(models_path=models, release_id=pointer.release_id)
+        create_version = client.create_model_version
+
+        def checked_create(**kwargs):
+            if kwargs["source"].startswith("models:/m-"):
+                assert kwargs["model_id"] == kwargs["source"].removeprefix("models:/")
+            return create_version(**kwargs)
+
+        monkeypatch.setattr(client, "create_model_version", checked_create)
+        for mode in ["success", "refresh-fails", "prediction-fails", "activation-fails"]:
+            evidence = tmp_path / mode
+            evidence.mkdir()
+            duplicate = verify.prepare_duplicate(
+                models_path=models, manifest=original, release_root=root, client=client
+            )
+            assert duplicate.model.version != original.model.version
+            assert duplicate.artifacts == original.artifacts
+            assert load_active_release_pointer(models_path=models).release_id == original.release_id
+            assert (
+                str(client.get_model_version_by_alias(original.model.name, "champion").version)
+                == original.model.version
+            )
+            observed = []
+
+            def observe(manifest, *, observed=observed, mode=mode, duplicate=duplicate):
+                assert (
+                    load_active_release_pointer(models_path=models).release_id
+                    == manifest.release_id
+                )
+                assert (
+                    str(client.get_model_version_by_alias(manifest.model.name, "champion").version)
+                    == manifest.model.version
+                )
+                observed.append(manifest.release_id)
+                if mode == "prediction-fails" and manifest.release_id == duplicate.release_id:
+                    raise RuntimeError("prediction failed")
+                return {"release_id": manifest.release_id, "version": manifest.model.version}
+
+            def refresh(*, mode=mode, **kwargs):
+                if mode == "refresh-fails":
+                    raise RuntimeError("refresh failed")
+
+            with monkeypatch.context() as local:
+                local.setattr(verify, "refresh_service", refresh)
+                local.setattr(
+                    verify,
+                    "rollback_model",
+                    lambda *, config: rollback_model(config=config, refresh=False),
+                )
+                if mode == "activation-fails":
+
+                    def fail(**kwargs):
+                        raise RuntimeError("activation failed")
+
+                    local.setattr(verify, "activate_release", fail)
+                kwargs = dict(
+                    config=config,
+                    client=client,
+                    original=original,
+                    duplicate=duplicate,
+                    observe=observe,
+                    evidence=evidence,
+                )
+                if mode == "success":
+                    verify.verify_switch_and_rollback(**kwargs)
+                    assert observed == [duplicate.release_id, original.release_id]
+                    assert (evidence / "after-switch.json").is_file()
+                else:
+                    with pytest.raises(RuntimeError, match="failed"):
+                        verify.verify_switch_and_rollback(**kwargs)
+            assert load_active_release_pointer(models_path=models).release_id == original.release_id
+            assert (
+                str(client.get_model_version_by_alias(original.model.name, "champion").version)
+                == original.model.version
+            )
+    finally:
+        mlflow.end_run()
+        mlflow.set_tracking_uri(old_uri)
