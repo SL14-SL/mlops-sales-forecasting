@@ -493,26 +493,33 @@ See:
 - [Cloud deployment and rollback verification](docs/cloud-deployment-and-rollback.md)
 
 
-### AWS lifecycle support
+### Verified AWS lifecycle
 
-AWS uses the same training, MLflow registry, champion comparison, promotion
-checks and monitoring-driven retraining services as the existing lifecycle.
-ECS/Fargate publishes registered champions as complete portable S3 releases,
-refreshes running API tasks, and supports model and application-image rollback.
-GitHub workflows provide OIDC authentication, deployment, lifecycle execution,
-optional scheduled retraining and image rollback.
+The development system was verified on AWS in `eu-north-1` on November 18, 2026.
+GitHub Actions deploys the FastAPI service and MLflow to ECS/Fargate using OIDC.
+MLflow stores metadata in RDS PostgreSQL and model artifacts in S3. The API loads
+validated portable releases from S3 and serves authenticated predictions.
 
-Optional [managed AWS MLflow](docs/aws-mlflow.md) provisions the shared registry
-on ECS/Fargate with persistent RDS metadata, S3 artifacts and token-protected
-HTTPS access.
+The existing 95-day simulation ran on Fargate with the same logical-time
+cooldown and controlled promo-effect drift as the local simulator. From one
+shared initial baseline, the managed arm reduced final-window RMSE from 930.79
+to 850.07 (8.67%), with three retrainings and one champion promotion. These
+results reproduce the documented reference comparison.
 
-See [AWS lifecycle and GCP parity](docs/aws-lifecycle.md) for the capability
-mapping, shared-service prerequisites, deployment steps and validation boundary.
-The new lifecycle has been tested locally with real training and MLflow; its
-complete cloud deployment remains to be verified. The prior isolated-training
-and API-serving smoke tests remain historical evidence, not validation of the
-new lifecycle.
+A separate live API test verified registry version and release switching
+`1 -> 2 -> 1`, including authenticated predictions after the switch and rollback.
+That technical test deliberately used identical model weights. Simulation
+promotion and reloading occurred in an isolated workspace; the simulation did
+not replace the live API model.
 
+![AWS lifecycle comparison](docs/images/aws-95-day-simulation-results.png)
+
+See [AWS verification and screenshots](docs/aws-verification.md) for the
+evidence, scope and remaining operational limits.
+
+- [AWS lifecycle and GCP capability mapping](docs/aws-lifecycle.md)
+- [AWS lifecycle simulation](docs/aws-simulation.md)
+- [Managed MLflow on AWS](docs/aws-mlflow.md)
 - [AWS training](docs/aws-training.md)
 - [AWS serving](docs/aws-serving.md)
 

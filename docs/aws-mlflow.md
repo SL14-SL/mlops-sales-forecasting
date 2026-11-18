@@ -73,7 +73,8 @@ project. Update that role's inline deployment policy with the supplied revised
 service-linked roles and the MLflow token initializer require additional rights.
 The policy's total compact size remains below IAM's role-inline-policy limit.
 Validate it with IAM Access Analyzer in the target account before applying.
-That AWS-side validation and a live deployment have not been executed here.
+IAM policy validation, live provisioning and registry operations were
+completed in the target AWS account. See [AWS verification](aws-verification.md).
 
 Keep the existing environment variables:
 
@@ -199,18 +200,21 @@ snapshots alone do not contain model files.
   but unusually slow metadata/model-registration requests may still time out.
 - Preserve RDS and S3 together; test backup restoration before relying on it.
 
-## Verification completed while editing
+## Verification status
 
-Python unit/integration tests, Ruff, dependency audit, actionlint and Terraform
-formatting are run locally. New tests exercise credential handling, token
-validation/rotation/failure, token initialization, restart verification and
-loopback proxy access restrictions. The dependency audit retains the repository's
-existing MLflow advisory exception; this change does not broaden it.
+GitHub CI passed Python tests, lint, security checks and Terraform validation.
+Live deployment verified authenticated registry operations and S3 artifacts.
+The MLflow persistence workflow also verified that existing registry data and
+a model remained usable after replacing the MLflow task.
 
-Terraform installs the AWS and archive providers, but this editing environment
-blocks the Unix sockets required to start them. Thus full `terraform validate`,
-AWS plan/apply and the new container image build remain GitHub/target-account
-checks. No live AWS resources were created by the editing agent.
+During interactive UI access, the original 2 GiB task terminated with a confirmed
+`OutOfMemoryError`. Task memory was increased to 4 GiB with 1 vCPU and the new
+deployment completed successfully. Subsequent screenshots show a healthy task
+and accessible registry. This is a functional check, not a sustained-load or
+high-availability benchmark. The service runs one task and can be interrupted
+during replacement or recovery.
+
+See [AWS verification and screenshots](aws-verification.md).
 
 References: [MLflow server CLI](https://mlflow.org/docs/latest/api_reference/cli.html),
 [HTTP API Lambda authorizers](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-lambda-authorizer.html),
