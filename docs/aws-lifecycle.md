@@ -237,18 +237,29 @@ stopping the API. This removes ingress resources as documented in AWS serving.
 
 ## Validation boundary
 
-Local integration tests run real XGBoost training and a real MLflow database
-through registration, promotion, non-promotion, publication failure recovery,
-portable serving without the original artifact store, and model rollback.
-Unit tests cover S3 adapters/pointers, AWS configuration, ECS circuit fallback,
-readiness mismatch and refresh error handling. Workflow syntax is checked with
-actionlint. Terraform formatting is checked and AWS validation is added to CI.
+Local integration tests exercise real XGBoost training, MLflow registration,
+promotion, non-promotion, portable release validation and rollback. CI checks
+lint, tests, container security and Terraform validation.
 
-This implementation has not been exercised against a live AWS account or shared
-remote registry. The new cloud workflow, IAM integration, endpoint reachability
-and image build still need that cloud smoke test. Terraform provider startup in
-the editing environment is blocked by its Unix-socket restriction, so local
-`terraform validate` could not complete; GitHub CI must finish that check.
+Live AWS verification on November 18, 2026 covered OIDC deployment, real training
+from S3, registration and initial champion publication, authenticated API
+inference, MLflow persistence across task replacement, and the 95-day isolated
+static-versus-managed simulation. The simulation recorded three retrainings,
+one promotion and an 8.67% final-window RMSE improvement.
+
+A separate technical test switched the live API to a duplicate registered
+version with identical weights and then used the existing model rollback
+operation to restore the original champion. Both API releases returned verified
+predictions. This establishes the manual release-switch, ECS refresh and rollback
+path. A quality-driven promotion automatically refreshing the live API has not
+yet been verified end to end; simulation promotion reloads its in-process model.
+
+Manual `auto-retrain` invocations verified monitoring refresh and cooldown
+skips. Daily scheduled execution and the live API application-image rollback
+workflow have not been demonstrated by these tests. Prefect used a temporary
+server inside each task; no persistent central Prefect server was provisioned.
+
+See [AWS verification and screenshots](aws-verification.md).
 
 References: [MLflow server](https://mlflow.org/docs/latest/self-hosting/architecture/tracking-server/),
 [MLflow artifact stores](https://mlflow.org/docs/latest/self-hosting/architecture/artifact-store/),

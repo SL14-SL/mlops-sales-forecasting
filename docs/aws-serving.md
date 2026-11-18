@@ -50,7 +50,10 @@ version and can be rolled back together with the shared champion alias.
 
 The lifecycle refreshes running ECS tasks after promotion and verifies the
 loaded release through `/readyz`. Deployment and API image rollback workflows
-are provided. Their full cloud execution still requires verification.
+are provided. Live model release switching, ECS refresh and model rollback
+were verified on November 18, 2026 using identical model weights. Automatic
+refresh after a new quality-driven promotion and application-image rollback
+remain separate verification items. See [AWS verification](aws-verification.md).
 
 ## API image
 
@@ -92,7 +95,7 @@ API Gateway itself does not validate the application API key.
 Secrets are not stored in Terraform variables or managed secret-version
 resources. Do not print the key, commit it, or include it in screenshots.
 
-## Verified smoke test
+## Historical serving smoke test (November 16, 2026)
 
 Verified on 2026-11-16:
 
@@ -168,16 +171,16 @@ serving can create a different API Gateway URL.
 The included moved blocks preserve existing resource identities when
 migrating to the conditional configuration.
 
-## Demo cleanup status
+## Deployment history
 
-After capturing the screenshots, the serving resources and then all
-remaining resources managed by this Terraform configuration were destroyed
-on November 16, 2026. The Terraform state was verified empty.
+The earlier isolated demo was destroyed on November 16, 2026. Its screenshots
+and 20-tree model results above are historical evidence.
 
-The screenshots document a previously verified deployment. The demo
-endpoint is no longer available.
+The registry-backed development system was rebuilt and verified on November 18,
+2026. The initial champion was model version 1, release
+`release-09eb8fc0-8bda-4abe-9d80-b45f65929f99`. The authenticated Store 1 request
+for April 28, 2015 with `Promo=1` returned 4967.65. The technical release-switch
+test used duplicate version 2 and restored version 1 through model rollback.
 
-A full rebuild requires uploading the training data and container images,
-setting the API secret value, and publishing and activating a serving
-release again. Enabling the serving switch alone does not restore these
-deleted artifacts.
+These are dated verification results, not a guarantee that the demo endpoint
+will remain available. See [AWS verification and screenshots](aws-verification.md).

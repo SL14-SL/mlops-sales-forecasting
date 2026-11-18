@@ -59,5 +59,8 @@ have guaranteed reports; inspect CloudWatch when a run fails or times out.
 
 This mode has local integration coverage using real XGBoost training, an MLflow
 database, baseline restoration and retraining driven by logical time. The S3
-transport is substituted in that test. Live AWS execution must be verified by
-the workflow above.
+transport is substituted in that test. The full 95-day comparison was also
+verified on AWS on November 18, 2026: static RMSE 930.7906677968256, managed RMSE
+850.0698972047072, three retrainings and one promotion. Reports are stored under
+`artifacts/lifecycle_simulation/20261118T091458Z-1dec0c6c/` in the project bucket.
+See [AWS verification and screenshots](aws-verification.md).
