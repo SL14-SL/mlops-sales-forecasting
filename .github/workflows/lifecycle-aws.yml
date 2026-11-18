@@ -8,12 +8,21 @@ on:
         default: dev
       operation:
         type: choice
-        options: [train, auto-retrain, rollback-model, refresh]
+        options: [train, auto-retrain, rollback-model, refresh, simulate]
         default: train
       estimators:
         description: Optional tree count for a smoke test; empty uses project configuration
         type: string
         default: ''
+      simulation_days:
+        description: Simulation days, between 1 and 95
+        type: string
+        default: '95'
+      simulation_mode:
+        description: Compare static and managed runs from one initial baseline
+        type: choice
+        options: [both, managed, static]
+        default: both
   schedule:
     - cron: '0 5 * * *'
 permissions:
@@ -26,7 +35,7 @@ jobs:
   lifecycle:
     if: github.event_name == 'workflow_dispatch' || vars.AWS_RETRAINING_ENABLED == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 60
     environment: ${{ inputs.environment || 'dev' }}
     steps:
       - uses: actions/checkout@v7
@@ -40,9 +49,14 @@ jobs:
         env:
           OPERATION: ${{ inputs.operation || 'auto-retrain' }}
           ESTIMATORS: ${{ inputs.estimators || '' }}
+          SIMULATION_DAYS: ${{ inputs.simulation_days || '95' }}
+          SIMULATION_MODE: ${{ inputs.simulation_mode || 'both' }}
         shell: bash
         run: |
           set -euo pipefail
           arguments=("$OPERATION")
           if [ -n "$ESTIMATORS" ]; then arguments+=(--estimators "$ESTIMATORS"); fi
+          if [ "$OPERATION" = simulate ]; then
+            arguments+=(--maximum-days "$SIMULATION_DAYS" --simulation-mode "$SIMULATION_MODE")
+          fi
           python scripts/run_aws_task.py "${arguments[@]}"

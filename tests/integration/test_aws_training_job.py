@@ -346,3 +346,72 @@ def test_shared_lifecycle_portable_release_and_registry_rollback(
             )
     finally:
         mlflow.set_tracking_uri(old_uri)
+
+
+def test_aws_simulation_reuses_clock_and_isolates_live_model(tmp_path, job_inputs, monkeypatch):
+    """Exercise both arms, real training and logical-time retraining without AWS."""
+    import shutil
+
+    from mlops_sales_forecasting.aws import simulation
+    from mlops_sales_forecasting.orchestration import lifecycle_adapter, retraining_service
+
+    run_lifecycle = lifecycle_adapter.run_prefect_model_lifecycle.fn
+    monkeypatch.setattr(simulation.cli, "run_prefect_model_lifecycle", run_lifecycle)
+    monkeypatch.setattr(retraining_service, "run_prefect_model_lifecycle", run_lifecycle)
+    monkeypatch.setattr(
+        lifecycle_adapter,
+        "run_prefect_training_pipeline",
+        lambda *, pipeline, run_id: pipeline.run(run_id=run_id),
+    )
+    from mlops_sales_forecasting.data.raw.ingest import create_simulation_split
+
+    config_path, inputs = job_inputs
+    config = yaml.safe_load(config_path.read_text())
+    config["environment"] = "dev"
+    config["paths"]["raw_data"] = "s3://test-bucket/data/raw"
+    config["tracking"]["mlflow_tracking_uri"] = f"sqlite:///{tmp_path / 'simulation.db'}"
+    config["monitoring"]["retraining"].update(cooldown_hours=24, minimum_new_training_rows=1)
+    config["monitoring"]["retraining"]["performance"]["minimum_samples"] = 1
+    config["simulation"]["scheduled_interval_hours"] = 48
+    config["simulation"]["retraining_triggers"] = {"scheduled_refresh": True}
+    _, pool = create_simulation_split(pd.read_csv(inputs / "train.csv", parse_dates=["Date"]))
+    pool.to_csv(inputs / "simulation_ground_truth.csv", index=False)
+    destination = tmp_path / "uploaded"
+    destination.mkdir()
+    downloaded = []
+    uploaded = []
+
+    class S3:
+        def download_file(self, bucket, key, filename):
+            downloaded.append((bucket, key))
+            shutil.copyfile(inputs / Path(key).name, filename)
+
+        def upload_file(self, filename, bucket, key):
+            uploaded.append((bucket, key))
+            shutil.copyfile(filename, destination / Path(key).name)
+
+    monkeypatch.setattr(simulation.boto3, "client", lambda service: S3())
+    monkeypatch.setattr(simulation, "load_aws_lifecycle_config", lambda **kwargs: config)
+    monkeypatch.chdir(tmp_path)
+    previous_uri = mlflow.get_tracking_uri()
+    try:
+        report = simulation.run_aws_simulation(maximum_days=4)
+        assert report["final_day"] == 4
+        assert report["retraining_events"] >= 1
+        assert report["model_name"] != config["tracking"]["model_name"]
+        assert report["model_name"].endswith("-simulation")
+        assert config["paths"]["raw_data"] == "s3://test-bucket/data/raw"
+        assert len(downloaded) == 3
+        assert all(key.startswith("artifacts/lifecycle_simulation/") for _, key in uploaded)
+        assert json.loads((destination / "summary.json").read_text()) == report
+        for name in ("with_retraining", "without_retraining"):
+            assert len(pd.read_csv(destination / f"{name}.csv")) == 4
+            assert (destination / f"{name}_evaluation.parquet").is_file()
+        client = MlflowClient(tracking_uri=config["tracking"]["mlflow_tracking_uri"])
+        assert not any(
+            model.name == config["tracking"]["model_name"]
+            for model in client.search_registered_models()
+        )
+    finally:
+        mlflow.end_run()
+        mlflow.set_tracking_uri(previous_uri)
