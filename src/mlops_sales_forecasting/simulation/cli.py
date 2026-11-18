@@ -283,10 +283,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(
     argv: Sequence[str] | None = None,
+    *,
+    config: Mapping[str, Any] | None = None,
 ) -> int:
     """Run the configured lifecycle simulation."""
     args = _build_parser().parse_args(argv)
-    config = load_config(args.config)
+    config = load_config(args.config) if config is None else config
     simulation = _require_mapping(
         config,
         "simulation",

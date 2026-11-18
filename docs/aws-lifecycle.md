@@ -190,6 +190,10 @@ Large training jobs can require a longer task/workflow deadline.
 
 ## Rollback
 
+For the isolated 95-day static-versus-managed comparison on Fargate, see
+[AWS lifecycle simulation](aws-simulation.md). This uses simulation dates for
+cooldown evaluation and does not change the live API champion.
+
 **Model:** `rollback-model` validates the previous portable bundle and checks its
 registered version, then restores the `champion` alias, activates the old pointer
 and refreshes ECS. If pointer activation fails, it restores the prior alias.

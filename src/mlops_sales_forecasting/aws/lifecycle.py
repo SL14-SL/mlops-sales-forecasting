@@ -96,12 +96,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "mode",
-        choices=["train", "auto-retrain", "rollback-model", "refresh"],
+        choices=["train", "auto-retrain", "rollback-model", "refresh", "simulate"],
         nargs="?",
         default="train",
     )
     parser.add_argument("--estimators", type=int)
+    parser.add_argument("--maximum-days", type=int, default=95)
+    parser.add_argument("--simulation-mode", choices=["both", "managed", "static"], default="both")
     args = parser.parse_args()
+    if args.mode == "simulate":
+        from .simulation import run_aws_simulation
+
+        report = run_aws_simulation(
+            maximum_days=args.maximum_days, mode=args.simulation_mode, estimators=args.estimators
+        )
+        print(json.dumps(report, indent=2))
+        return
     if args.mode in {"rollback-model", "refresh"}:
         from ..inference.releases.pointer import load_active_release_pointer
         from .operations import refresh_service, rollback_model
