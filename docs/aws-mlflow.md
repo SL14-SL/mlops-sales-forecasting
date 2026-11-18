@@ -139,7 +139,13 @@ gh workflow run verify-mlflow-aws.yml --ref main -f environment=dev
 
 It creates a registered smoke model, forces an ECS replacement, verifies the
 requested deployment actually completed with a different running task, and
-loads the same existing alias/model to reproduce its prediction. The registry
+loads the same existing alias/model to reproduce its prediction. After the
+AWS `services_stable` waiter returns, it polls the exact requested deployment
+and the running task list for up to another 150 seconds. ECS can report stable
+service counts before its `rolloutState` becomes `COMPLETED`; a temporarily stale
+status is not an immediate failure. A failed requested deployment is rejected,
+and an old completed deployment or unchanged tasks cannot count as success.
+The same rollout verification is used for forecasting API refreshes. The registry
 metadata persists in RDS and the model files persist in S3.
 
 The operation briefly interrupts MLflow because the deployment intentionally

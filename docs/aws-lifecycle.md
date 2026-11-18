@@ -87,9 +87,17 @@ Scheduled retraining is opt-in: set the **repository** variable
 runs at 05:00 UTC against `dev`; its policy decides whether training is warranted.
 Other environments can run manually or receive their own configured schedule.
 
-Restrict the OIDC role trust to this repository and its GitHub environment:
-`repo:SL14-SL/mlops-sales-forecasting:environment:dev` (adapt for each environment),
-with audience `sts.amazonaws.com`. The role needs Terraform resource-management
+Restrict the OIDC role trust to this repository and its GitHub environment.
+Read the actual subject prefix before constructing the trust condition:
+
+```bash
+gh api repos/SL14-SL/mlops-sales-forecasting/actions/oidc/customization/sub \
+  --jq '.sub_claim_prefix'
+```
+
+Append `:environment:dev` to that prefix (adapt for each environment), and require
+audience `sts.amazonaws.com`. GitHub may include immutable owner/repository IDs
+in the prefix; do not assume the older name-only form. The role needs Terraform resource-management
 permissions for this module's S3, ECR, IAM, ECS, EC2 networking, ELB, API Gateway,
 CloudWatch and Secrets Manager resources. It also needs ECR push and ECS
 RunTask/DescribeTasks/StopTask, with PassRole limited to the task and execution

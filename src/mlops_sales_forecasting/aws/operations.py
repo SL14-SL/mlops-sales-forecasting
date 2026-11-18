@@ -13,6 +13,7 @@ from ..inference.model_loader import load_xgboost_model
 from ..inference.releases.contracts import TaskType
 from ..inference.releases.pointer import ReleaseOperation, load_active_release_pointer
 from ..inference.releases.repository import activate_release, load_release_manifest
+from .ecs_rollout import wait_for_rollout
 from .lifecycle import load_aws_lifecycle_config
 
 
@@ -38,12 +39,7 @@ def refresh_service(*, expected_release_id: str, ecs: Any = None) -> None:
         services=[service],
         WaiterConfig={"Delay": 15, "MaxAttempts": 80},
     )
-    current = ecs.describe_services(cluster=cluster, services=[service])["services"][0]
-    primary = next(item for item in current["deployments"] if item["status"] == "PRIMARY")
-    if primary["id"] != deployment_id or primary.get("rolloutState") != "COMPLETED":
-        raise RuntimeError(
-            "ECS did not complete the requested deployment (possible circuit rollback)."
-        )
+    wait_for_rollout(ecs=ecs, cluster=cluster, service=service, deployment_id=deployment_id)
     response = httpx.get(f"{endpoint}/readyz", timeout=30)
     response.raise_for_status()
     if response.json().get("active_release_id") != expected_release_id:
