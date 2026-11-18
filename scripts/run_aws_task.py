@@ -13,6 +13,48 @@ def aws(*arguments: str) -> dict:
     return json.loads(result.stdout)
 
 
+def print_task_logs(
+    log_group: str,
+    log_stream: str,
+    next_token: str | None,
+) -> str | None:
+    """Print new CloudWatch messages without changing the task outcome."""
+    for _ in range(20):
+        arguments = [
+            "logs",
+            "get-log-events",
+            "--log-group-name",
+            log_group,
+            "--log-stream-name",
+            log_stream,
+            "--start-from-head",
+        ]
+        if next_token is not None:
+            arguments += ["--next-token", next_token]
+
+        try:
+            response = aws(*arguments)
+        except subprocess.CalledProcessError as error:
+            # ECS may not have created the stream during task startup.
+            if "ResourceNotFoundException" not in (error.stderr or ""):
+                print(
+                    f"CloudWatch logs temporarily unavailable: {error.stderr}",
+                    flush=True,
+                )
+            return next_token
+
+        for event in response.get("events", []):
+            print(event["message"], flush=True)
+
+        new_token = response.get("nextForwardToken")
+        if new_token is None or new_token == next_token:
+            return next_token
+
+        next_token = new_token
+
+    return next_token
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["train", "auto-retrain", "rollback-model", "refresh"])
@@ -56,6 +98,10 @@ def main() -> None:
         raise RuntimeError(f"ECS could not launch the task: {response.get('failures')}")
     task_arn = response["tasks"][0]["taskArn"]
     print(f"Lifecycle task: {task_arn}", flush=True)
+    log_group = values["fargate_training_log_group"]
+    task_id = task_arn.rsplit("/", 1)[-1]
+    log_stream = f"training/training/{task_id}"
+    log_token = None
     # Training plus model validation and serving refresh may take more than 10 minutes.
     for _ in range(160):
         response = aws(
@@ -69,7 +115,12 @@ def main() -> None:
         if response.get("failures"):
             raise RuntimeError(f"ECS describe failed: {response['failures']}")
         task = response["tasks"][0]
+        log_token = print_task_logs(log_group, log_stream, log_token)
         if task["lastStatus"] == "STOPPED":
+            # Allow final CloudWatch messages to arrive after task termination.
+            for _ in range(3):
+                time.sleep(3)
+                log_token = print_task_logs(log_group, log_stream, log_token)
             containers = task.get("containers", [])
             if not containers or any(container.get("exitCode") != 0 for container in containers):
                 raise RuntimeError(f"Lifecycle failed: {task.get('stoppedReason')}; {containers}")
