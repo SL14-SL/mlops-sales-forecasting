@@ -40,6 +40,9 @@ API champion.
 
 ## Live API release switch and rollback
 
+The reusable verification script and its operational instructions are documented
+in [Dev API release-switch and rollback verification](aws-model-rollout-verification.md).
+
 A separate technical test created a tagged duplicate of the initial registered
 model with identical weights. It validated copied artifacts, activated the new
 release, refreshed ECS and checked registry alignment, readiness and an
