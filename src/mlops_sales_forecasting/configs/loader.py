@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any
 
@@ -7,7 +8,7 @@ from dotenv import load_dotenv
 from mlops_sales_forecasting.configs.environment import (
     detect_environment,
     inject_runtime_env,
-    override_gcs_bucket_paths,
+    override_storage_paths,
     resolve_env_placeholders,
 )
 from mlops_sales_forecasting.configs.paths import get_project_root
@@ -51,34 +52,40 @@ def _validate_cloud_paths(
     *,
     config_name: str,
 ) -> None:
-    """Reject unresolved or placeholder cloud paths."""
+    """Reject unresolved or incorrect cloud storage paths."""
     environment_name = Path(config_name).stem.lower()
+    provider = os.getenv("CLOUD_PROVIDER", "").strip().lower()
 
-    if environment_name not in {
-        "staging",
-        "prod",
-    }:
+    if environment_name not in {"staging", "prod"} and provider != "aws":
         return
+
+    if provider == "aws":
+        expected_scheme = "s3://"
+        bucket_variable = "S3_BUCKET_NAME"
+    else:
+        expected_scheme = "gs://"
+        bucket_variable = "GCS_BUCKET_NAME"
 
     paths = config.get("paths")
 
-    if not isinstance(paths, dict):
-        raise ValueError("Cloud config must contain a valid 'paths' section.")
+    if not isinstance(paths, dict) or not paths:
+        raise ValueError("Cloud config must contain a non-empty 'paths' section.")
 
-    invalid_paths: list[str] = []
-
-    for name, value in paths.items():
-        if not isinstance(value, str):
-            invalid_paths.append(str(name))
-            continue
-
-        if "${" in value or "replace-me" in value or not value.startswith("gs://"):
-            invalid_paths.append(str(name))
+    invalid_paths = [
+        str(name)
+        for name, value in paths.items()
+        if (
+            not isinstance(value, str)
+            or "${" in value
+            or "replace-me" in value
+            or not value.startswith(expected_scheme)
+        )
+    ]
 
     if invalid_paths:
         raise ValueError(
             "Cloud config contains unresolved or invalid "
-            "storage paths. Set GCS_BUCKET_NAME before "
+            f"storage paths. Set {bucket_variable} before "
             f"loading {config_name}. Invalid paths: "
             f"{sorted(invalid_paths)}."
         )
@@ -99,7 +106,7 @@ def load_config(
 
     config = _load_yaml(config_path)
     resolved_config = resolve_env_placeholders(config)
-    resolved_config = override_gcs_bucket_paths(resolved_config)
+    resolved_config = override_storage_paths(resolved_config)
     _validate_cloud_paths(
         resolved_config,
         config_name=filename,

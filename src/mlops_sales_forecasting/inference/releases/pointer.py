@@ -48,14 +48,11 @@ def validate_active_release_pointer(
 ) -> None:
     """Validate an active-release pointer."""
     if not isinstance(pointer, ActiveReleasePointer):
-        raise ValueError(
-            "Invalid active serving release pointer."
-        )
+        raise ValueError("Invalid active serving release pointer.")
 
     if pointer.schema_version != POINTER_SCHEMA_VERSION:
         raise ValueError(
-            "Unsupported active release pointer schema version: "
-            f"{pointer.schema_version}."
+            f"Unsupported active release pointer schema version: {pointer.schema_version}."
         )
 
     validate_release_id(pointer.release_id)
@@ -64,23 +61,15 @@ def validate_active_release_pointer(
         validate_release_id(pointer.previous_release_id)
 
     if not isinstance(pointer.operation, ReleaseOperation):
-        raise ValueError(
-            "Active release pointer has an invalid operation."
-        )
+        raise ValueError("Active release pointer has an invalid operation.")
 
     try:
-        timestamp = datetime.fromisoformat(
-            pointer.updated_at_utc.replace("Z", "+00:00")
-        )
+        timestamp = datetime.fromisoformat(pointer.updated_at_utc.replace("Z", "+00:00"))
     except (AttributeError, ValueError) as exc:
-        raise ValueError(
-            "Active release pointer has an invalid timestamp."
-        ) from exc
+        raise ValueError("Active release pointer has an invalid timestamp.") from exc
 
     if timestamp.tzinfo is None:
-        raise ValueError(
-            "Active release pointer timestamp must include a timezone."
-        )
+        raise ValueError("Active release pointer timestamp must include a timezone.")
 
 
 def parse_active_release_pointer(
@@ -88,9 +77,7 @@ def parse_active_release_pointer(
 ) -> ActiveReleasePointer:
     """Parse and validate an active-release pointer."""
     if not isinstance(payload, dict):
-        raise ValueError(
-            "Active release pointer must contain a JSON object."
-        )
+        raise ValueError("Active release pointer must contain a JSON object.")
 
     required_fields = {
         "schema_version",
@@ -102,27 +89,20 @@ def parse_active_release_pointer(
 
     if missing_fields:
         raise ValueError(
-            "Active release pointer is missing required fields: "
-            f"{sorted(missing_fields)}."
+            f"Active release pointer is missing required fields: {sorted(missing_fields)}."
         )
 
     try:
         operation = ReleaseOperation(str(payload["operation"]))
     except ValueError as exc:
-        raise ValueError(
-            "Active release pointer has an unsupported operation."
-        ) from exc
+        raise ValueError("Active release pointer has an unsupported operation.") from exc
 
     previous_release_id = payload.get("previous_release_id")
 
     pointer = ActiveReleasePointer(
         schema_version=int(payload["schema_version"]),
         release_id=str(payload["release_id"]),
-        previous_release_id=(
-            str(previous_release_id)
-            if previous_release_id is not None
-            else None
-        ),
+        previous_release_id=(str(previous_release_id) if previous_release_id is not None else None),
         operation=operation,
         updated_at_utc=str(payload["updated_at_utc"]),
     )
@@ -147,14 +127,9 @@ def load_active_release_pointer(
     pointer_path = active_pointer_path(models_path)
 
     if not file_exists(pointer_path):
-        raise FileNotFoundError(
-            "Active serving release pointer not found: "
-            f"{pointer_path}"
-        )
+        raise FileNotFoundError(f"Active serving release pointer not found: {pointer_path}")
 
-    return parse_active_release_pointer(
-        load_json(pointer_path)
-    )
+    return parse_active_release_pointer(load_json(pointer_path))
 
 
 def load_active_release_id(
@@ -162,9 +137,7 @@ def load_active_release_id(
     models_path: str,
 ) -> str:
     """Return the active serving-release identifier."""
-    return load_active_release_pointer(
-        models_path=models_path
-    ).release_id
+    return load_active_release_pointer(models_path=models_path).release_id
 
 
 @contextmanager
@@ -200,20 +173,12 @@ def _activate_release_pointer_unlocked(
     )
 
     if not file_exists(paths["manifest"]):
-        raise FileNotFoundError(
-            "Cannot activate release without manifest: "
-            f"{paths['manifest']}"
-        )
+        raise FileNotFoundError(f"Cannot activate release without manifest: {paths['manifest']}")
 
     pointer_path = paths["active_pointer"]
 
-    if (
-        previous_release_id is None
-        and file_exists(pointer_path)
-    ):
-        current_release_id = load_active_release_id(
-            models_path=models_path
-        )
+    if previous_release_id is None and file_exists(pointer_path):
+        current_release_id = load_active_release_id(models_path=models_path)
 
         if current_release_id != release_id:
             previous_release_id = current_release_id
@@ -223,10 +188,7 @@ def _activate_release_pointer_unlocked(
         release_id=release_id,
         previous_release_id=previous_release_id,
         operation=operation,
-        updated_at_utc=(
-            updated_at_utc
-            or datetime.now(UTC).isoformat()
-        ),
+        updated_at_utc=(updated_at_utc or datetime.now(UTC).isoformat()),
     )
     validate_active_release_pointer(pointer)
 
@@ -235,14 +197,10 @@ def _activate_release_pointer_unlocked(
         pointer.to_dict(),
     )
 
-    stored_pointer = load_active_release_pointer(
-        models_path=models_path
-    )
+    stored_pointer = load_active_release_pointer(models_path=models_path)
 
     if stored_pointer != pointer:
-        raise RuntimeError(
-            "Active release pointer verification failed."
-        )
+        raise RuntimeError("Active release pointer verification failed.")
 
     return stored_pointer
 
@@ -280,10 +238,7 @@ def _activate_gcs_release_pointer(
     )
 
     if not file_exists(paths["manifest"]):
-        raise FileNotFoundError(
-            "Cannot activate release without manifest: "
-            f"{paths['manifest']}"
-        )
+        raise FileNotFoundError(f"Cannot activate release without manifest: {paths['manifest']}")
 
     bucket = _gcs_bucket(models_path)
     object_name = paths["active_pointer"].removeprefix("gs://").partition("/")[2]
@@ -307,10 +262,7 @@ def _activate_gcs_release_pointer(
 
         current_pointer = parse_active_release_pointer(current_payload)
 
-        if (
-            previous_release_id is None
-            and current_pointer.release_id != release_id
-        ):
+        if previous_release_id is None and current_pointer.release_id != release_id:
             previous_release_id = current_pointer.release_id
 
     pointer = ActiveReleasePointer(
@@ -322,11 +274,14 @@ def _activate_gcs_release_pointer(
     )
     validate_active_release_pointer(pointer)
 
-    serialized = json.dumps(
-        pointer.to_dict(),
-        indent=2,
-        sort_keys=True,
-    ) + "\n"
+    serialized = (
+        json.dumps(
+            pointer.to_dict(),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
 
     try:
         bucket.blob(object_name).upload_from_string(
@@ -342,6 +297,101 @@ def _activate_gcs_release_pointer(
     return pointer
 
 
+def _s3_client() -> Any:
+    """Create an S3 client using the default credential chain."""
+    try:
+        import boto3
+    except ImportError as exc:
+        raise RuntimeError("AWS support is missing. Run: uv sync --extra aws") from exc
+
+    return boto3.client("s3")
+
+
+def _activate_s3_release_pointer(
+    *,
+    models_path: str,
+    release_id: str,
+    operation: ReleaseOperation,
+    previous_release_id: str | None,
+    updated_at_utc: str | None,
+) -> ActiveReleasePointer:
+    """Activate a release using an ETag-conditional S3 write."""
+    from botocore.exceptions import ClientError
+
+    bucket_name, separator, prefix = models_path.removeprefix("s3://").partition("/")
+
+    if not bucket_name or not separator or not prefix.strip("/"):
+        raise ValueError("S3 models path must include a bucket and prefix.")
+
+    paths = build_release_paths(
+        models_path=models_path,
+        release_id=release_id,
+    )
+
+    if not file_exists(paths["manifest"]):
+        raise FileNotFoundError(f"Cannot activate release without manifest: {paths['manifest']}")
+
+    object_name = paths["active_pointer"].removeprefix("s3://").partition("/")[2]
+    client = _s3_client()
+    condition: dict[str, Any] = {"IfNoneMatch": "*"}
+
+    try:
+        response = client.get_object(
+            Bucket=bucket_name,
+            Key=object_name,
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") != "NoSuchKey":
+            raise
+    else:
+        body = response["Body"]
+
+        try:
+            current_pointer = parse_active_release_pointer(json.loads(body.read()))
+        finally:
+            body.close()
+
+        condition = {"IfMatch": response["ETag"]}
+
+        if previous_release_id is None and current_pointer.release_id != release_id:
+            previous_release_id = current_pointer.release_id
+
+    pointer = ActiveReleasePointer(
+        schema_version=POINTER_SCHEMA_VERSION,
+        release_id=release_id,
+        previous_release_id=previous_release_id,
+        operation=operation,
+        updated_at_utc=updated_at_utc or datetime.now(UTC).isoformat(),
+    )
+    validate_active_release_pointer(pointer)
+
+    serialized = (json.dumps(pointer.to_dict(), indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+    try:
+        client.put_object(
+            Bucket=bucket_name,
+            Key=object_name,
+            Body=serialized,
+            ContentType="application/json",
+            **condition,
+        )
+    except ClientError as exc:
+        status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        code = exc.response.get("Error", {}).get("Code")
+
+        if status in {409, 412} or code in {
+            "ConditionalRequestConflict",
+            "PreconditionFailed",
+        }:
+            raise ReleaseActivationConflict(
+                "Active release changed during activation; reload before retrying."
+            ) from exc
+
+        raise
+
+    return pointer
+
+
 def activate_release_pointer(
     *,
     models_path: str,
@@ -350,9 +400,18 @@ def activate_release_pointer(
     previous_release_id: str | None = None,
     updated_at_utc: str | None = None,
 ) -> ActiveReleasePointer:
-    """Activate a release, serializing local pointer updates."""
+    """Activate a release using storage-specific concurrency protection."""
     if str(models_path).startswith("gs://"):
         return _activate_gcs_release_pointer(
+            models_path=models_path,
+            release_id=release_id,
+            operation=operation,
+            previous_release_id=previous_release_id,
+            updated_at_utc=updated_at_utc,
+        )
+
+    if str(models_path).startswith("s3://"):
+        return _activate_s3_release_pointer(
             models_path=models_path,
             release_id=release_id,
             operation=operation,

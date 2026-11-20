@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ..configs.paths import path_suffix
+from ..configs.paths import is_object_storage_path, path_suffix
 from ..storage.filesystem import (
     ensure_dir,
     file_exists,
@@ -96,29 +96,21 @@ def _parse_rolling_window(
     }
 
     if len(normalized_window) < 2:
-        raise ValueError(
-            f"Invalid rolling window: {window!r}."
-        )
+        raise ValueError(f"Invalid rolling window: {window!r}.")
 
     unit = normalized_window[-1]
     value = normalized_window[:-1]
 
     if unit not in unit_mapping:
-        raise ValueError(
-            f"Invalid rolling-window unit: {unit!r}."
-        )
+        raise ValueError(f"Invalid rolling-window unit: {unit!r}.")
 
     try:
         amount = float(value)
     except ValueError as error:
-        raise ValueError(
-            f"Invalid rolling window: {window!r}."
-        ) from error
+        raise ValueError(f"Invalid rolling window: {window!r}.") from error
 
     if amount <= 0:
-        raise ValueError(
-            "Rolling window must be positive."
-        )
+        raise ValueError("Rolling window must be positive.")
 
     return pd.to_timedelta(
         amount,
@@ -291,7 +283,7 @@ def save_metrics(
     """Persist performance metrics as CSV or Parquet."""
     output_path_string = str(output_path)
 
-    if not output_path_string.startswith("gs://"):
+    if not is_object_storage_path(output_path_string):
         ensure_dir(str(Path(output_path_string).parent))
 
     suffix = path_suffix(output_path_string)

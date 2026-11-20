@@ -163,6 +163,7 @@ def publish_serving_release(
     config_hash: str | None = None,
     git_commit: str | None = None,
     release_id: str | None = None,
+    validate_bundle: bool = False,
 ) -> PublishedServingRelease:
     """Validate, persist and activate one serving release."""
 
@@ -244,6 +245,15 @@ def publish_serving_release(
             references=references,
         )
         raise
+
+    if validate_bundle:
+        from ..bundle_loader import build_serving_bundle
+        from ..model_loader import load_xgboost_model
+
+        build_serving_bundle(
+            manifest=persisted_manifest, release_root=release_root,
+            serving_alias="champion", model_loader=load_xgboost_model,
+        )
 
     operation, previous_release_id = (
         _previous_release(

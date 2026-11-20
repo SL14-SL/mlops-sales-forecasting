@@ -40,9 +40,7 @@ def test_modified_time_returns_local_timestamp(tmp_path: Path) -> None:
     file_path = tmp_path / "example.txt"
     file_path.write_text("content", encoding="utf-8")
 
-    assert filesystem.modified_time(str(file_path)) == pytest.approx(
-        file_path.stat().st_mtime
-    )
+    assert filesystem.modified_time(str(file_path)) == pytest.approx(file_path.stat().st_mtime)
 
 
 def test_write_text_creates_parent_directories(tmp_path: Path) -> None:
@@ -90,6 +88,7 @@ def test_parse_modified_time_returns_zero_for_invalid_value() -> None:
     assert filesystem._parse_modified_time("not-a-timestamp") == 0.0
     assert filesystem._parse_modified_time(None) == 0.0
 
+
 def test_file_exists_uses_gcs_filesystem(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_filesystem = MagicMock()
     fake_filesystem.exists.return_value = True
@@ -98,9 +97,7 @@ def test_file_exists_uses_gcs_filesystem(monkeypatch: pytest.MonkeyPatch) -> Non
     result = filesystem.file_exists("gs://example-bucket/data.csv")
 
     assert result is True
-    fake_filesystem.exists.assert_called_once_with(
-        "gs://example-bucket/data.csv"
-    )
+    fake_filesystem.exists.assert_called_once_with("gs://example-bucket/data.csv")
 
 
 def test_ensure_dir_does_nothing_for_gcs(
@@ -136,9 +133,7 @@ def test_modified_time_reads_gcs_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_filesystem = MagicMock()
-    fake_filesystem.info.return_value = {
-        "updated": "2026-01-01T12:00:00Z"
-    }
+    fake_filesystem.info.return_value = {"updated": "2026-01-01T12:00:00Z"}
     monkeypatch.setattr(filesystem, "_gcs_fs", lambda: fake_filesystem)
 
     result = filesystem.modified_time("gs://example-bucket/data.csv")
@@ -166,6 +161,7 @@ def test_read_text_uses_gcs_filesystem(
     fake_filesystem.open.assert_called_once_with(
         "gs://example-bucket/example.txt",
         "r",
+        encoding="utf-8",
     )
 
 
@@ -189,6 +185,7 @@ def test_write_text_uses_gcs_filesystem(
     fake_filesystem.open.assert_called_once_with(
         "gs://example-bucket/example.txt",
         "w",
+        encoding="utf-8",
     )
     fake_file.write.assert_called_once_with("remote content")
 
@@ -202,9 +199,7 @@ def test_remove_file_removes_existing_gcs_object(
 
     filesystem.remove_file("gs://example-bucket/example.txt")
 
-    fake_filesystem.rm.assert_called_once_with(
-        "gs://example-bucket/example.txt"
-    )
+    fake_filesystem.rm.assert_called_once_with("gs://example-bucket/example.txt")
 
 
 def test_remove_file_ignores_missing_gcs_object(

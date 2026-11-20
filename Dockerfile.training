@@ -1,0 +1,56 @@
+FROM python:3.12.16-slim AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:0.12.13 \
+    /uv \
+    /uvx \
+    /bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+
+RUN uv sync \
+    --locked \
+    --no-dev \
+    --extra aws \
+    --no-install-project
+
+COPY README.md ./
+COPY src ./src
+
+RUN uv sync \
+    --locked \
+    --no-dev \
+    --extra aws \
+    --no-editable
+
+
+FROM python:3.12.16-slim AS runtime
+
+RUN apt-get update \
+    && apt-get upgrade --yes \
+    && apt-get install --yes --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HOME=/tmp
+
+WORKDIR /app
+
+COPY --from=builder /app/.venv /app/.venv
+# Installed modules locate /app through this project-root marker.
+COPY pyproject.toml ./
+COPY configs ./configs
+
+RUN mkdir -p \
+    /opt/ml/work \
+    /opt/ml/model \
+    /opt/ml/output/data
+
+ENTRYPOINT ["python", "-m", "mlops_sales_forecasting.aws.train"]

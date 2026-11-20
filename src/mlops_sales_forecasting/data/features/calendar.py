@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from mlops_sales_forecasting.configs.paths import is_object_storage_path
 from mlops_sales_forecasting.data.features.promo_calendar import (
     build_promo_calendar,
 )
@@ -338,7 +339,7 @@ def create_known_calendar_artifact(
         maximum_distance=maximum_distance,
     )
 
-    if not output_path.startswith("gs://"):
+    if not is_object_storage_path(output_path):
         Path(output_path).parent.mkdir(
             parents=True,
             exist_ok=True,

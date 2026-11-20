@@ -1,6 +1,6 @@
 [project]
 name = "mlops-sales-forecasting"
-version = "0.1.0"
+version = "1.1.0"
 description = "Production-oriented sales forecasting system"
 authors = [
     { name = "Steffen Lauterbach" },
@@ -15,7 +15,7 @@ dependencies = [
     "mlflow==3.18.0",
     "numpy==2.5.4",
     "pandas==2.3.3",
-    "pandera==0.35.0",
+    "pandera==0.36.0",
     "pillow>=13,<14",
     "plotly==6.3.0",
     "prefect>=3,<4",
@@ -29,6 +29,16 @@ dependencies = [
     "streamlit==1.67.0",
     "uvicorn==0.54.0",
     "xgboost==3.4.1",
+]
+
+[project.optional-dependencies]
+aws = [
+    "boto3>=1.43.117",
+    "s3fs>=2026.9.0",
+]
+
+mlflow-server = [
+    "psycopg2-binary>=2.9.10,<3",
 ]
 
 [dependency-groups]
