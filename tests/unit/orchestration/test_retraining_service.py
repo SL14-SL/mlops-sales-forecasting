@@ -386,3 +386,22 @@ def test_performance_trigger_uses_drift_training_config() -> None:
     )
 
     assert result["training"]["is_drift_run"] is True
+
+
+def test_failed_deployment_hook_does_not_mark_retraining_success(monkeypatch):
+    monkeypatch.setattr(retraining_service, "collect_retraining_signals", MagicMock())
+    monkeypatch.setattr(
+        retraining_service,
+        "decide_retraining",
+        lambda _: decision(RetrainingAction.TRAIN_CANDIDATE),
+    )
+    monkeypatch.setattr(retraining_service, "decision_was_processed", lambda *_, **__: False)
+    monkeypatch.setattr(retraining_service, "build_project_training_pipeline", MagicMock())
+    monkeypatch.setattr(retraining_service, "run_prefect_model_lifecycle", MagicMock())
+    record = MagicMock()
+    monkeypatch.setattr(retraining_service, "record_successful_retraining", record)
+    hook = MagicMock(side_effect=RuntimeError("ECS deployment failed"))
+    with pytest.raises(RuntimeError, match="ECS deployment failed"):
+        retraining_service.run_auto_retraining(config=config(), after_lifecycle=hook)
+    hook.assert_called_once()
+    record.assert_not_called()

@@ -94,6 +94,7 @@ data "aws_iam_policy_document" "api_task" {
     sid = "WriteInferenceMonitoring"
 
     actions = [
+      "s3:GetObject",
       "s3:PutObject",
       "s3:AbortMultipartUpload"
     ]

@@ -28,7 +28,6 @@ variable "project_name" {
 variable "fargate_training_image_digest" {
   description = "Digest of the training image containing the Fargate adapter."
   type        = string
-  default     = "sha256:8d851e70ca5dc7774dc176f0f829f4fb8094a491d61c4c7f0b26314156553c37"
 
   validation {
     condition = can(regex(
@@ -42,7 +41,6 @@ variable "fargate_training_image_digest" {
 variable "api_image_digest" {
   description = "Digest of the tested API image with AWS dependencies."
   type        = string
-  default     = "sha256:0c72b2d14caef22f9e1230871dcde1bf89c3fe0a84dcd605ed1f6f711755747f"
 
   validation {
     condition     = can(regex("^sha256:[a-f0-9]{64}$", var.api_image_digest))
@@ -59,4 +57,80 @@ variable "api_desired_count" {
     condition     = contains([0, 1], var.api_desired_count)
     error_message = "Use 0 to stop the demo API or 1 to run it."
   }
+}
+
+variable "api_serving_enabled" {
+  description = "Whether the API service, load balancer and gateway are deployed."
+  type        = bool
+  default     = false
+}
+
+variable "environment" {
+  type    = string
+  default = "dev"
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "Use dev, staging or prod."
+  }
+}
+
+variable "mlflow_tracking_uri" {
+  description = "Reachable shared MLflow tracking/registry HTTPS endpoint with a durable DB backend."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.mlflow_managed_enabled || can(regex("^https://[^/]+", var.mlflow_tracking_uri))
+    error_message = "Set the shared HTTPS MLflow endpoint; job-local SQLite is not a registry."
+  }
+}
+
+variable "prefect_api_url" {
+  description = "Optional reachable Prefect API. Empty uses an ephemeral local Prefect server."
+  type        = string
+  default     = ""
+}
+
+variable "mlflow_token_secret_arn" {
+  description = "Optional Secrets Manager ARN containing MLFLOW_TRACKING_TOKEN."
+  type        = string
+  default     = ""
+}
+
+variable "prefect_key_secret_arn" {
+  description = "Optional Secrets Manager ARN containing PREFECT_API_KEY."
+  type        = string
+  default     = ""
+}
+
+
+variable "mlflow_managed_enabled" {
+  description = "Provision MLflow, RDS PostgreSQL and an authenticated HTTPS gateway."
+  type        = bool
+  default     = false
+}
+
+variable "mlflow_image_digest" {
+  description = "Digest of Dockerfile.mlflow image; required for managed MLflow."
+  type        = string
+  default     = ""
+}
+
+variable "mlflow_desired_count" {
+  type    = number
+  default = 1
+  validation {
+    condition     = contains([0, 1], var.mlflow_desired_count)
+    error_message = "Use zero or one MLflow task; this deployment is single-instance."
+  }
+}
+
+variable "mlflow_database_deletion_protection" {
+  type    = bool
+  default = true
+}
+
+variable "mlflow_final_snapshot_identifier" {
+  description = "Unique final snapshot name when deleting the database."
+  type        = string
+  default     = ""
 }

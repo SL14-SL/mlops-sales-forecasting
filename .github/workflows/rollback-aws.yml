@@ -1,0 +1,77 @@
+name: Roll back AWS API image
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+      image_digest:
+        description: Previously tested API image digest (sha256:...)
+        type: string
+        required: true
+      apply_changes:
+        description: Apply the image rollback after planning
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: aws-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  rollback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: ${{ inputs.environment }}
+    env:
+      TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_environment: ${{ inputs.environment }}
+      TF_VAR_mlflow_managed_enabled: ${{ vars.AWS_MANAGED_MLFLOW || 'false' }}
+      TF_VAR_mlflow_tracking_uri: ${{ vars.MLFLOW_TRACKING_URI }}
+      TF_VAR_prefect_api_url: ${{ vars.PREFECT_API_URL || '' }}
+      TF_VAR_mlflow_token_secret_arn: ${{ vars.MLFLOW_TOKEN_SECRET_ARN || '' }}
+      TF_VAR_prefect_key_secret_arn: ${{ vars.PREFECT_KEY_SECRET_ARN || '' }}
+      TF_VAR_api_image_digest: ${{ inputs.image_digest }}
+      TF_VAR_api_serving_enabled: 'true'
+      TF_VAR_api_desired_count: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/aws-context
+        with:
+          role_arn: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          region: ${{ vars.AWS_REGION }}
+          state_bucket: ${{ vars.AWS_TF_STATE_BUCKET }}
+          environment: ${{ inputs.environment }}
+      - name: Keep the deployed training image and require an existing serving service
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, re, subprocess
+          digest = os.environ["TF_VAR_api_image_digest"]
+          if not re.fullmatch(r"sha256:[a-f0-9]{64}", digest):
+              raise ValueError("Expected a SHA-256 API image digest")
+          outputs = json.loads(subprocess.check_output(["terraform", "-chdir=infrastructure/terraform-aws", "output", "-json"]))
+          if not outputs.get("api_service_name", {}).get("value"):
+              raise ValueError("Image rollback requires an existing serving service")
+          training = outputs["fargate_training_image_uri"]["value"].split("@")[-1]
+          with open(os.environ["GITHUB_ENV"], "a") as file:
+              file.write(f"TF_VAR_fargate_training_image_digest={training}\n")
+              mlflow = (outputs.get("mlflow_image_uri", {}).get("value") or "").split("@")[-1]
+              file.write(f"TF_VAR_mlflow_image_digest={mlflow}\n")
+          PY
+      - name: Plan image rollback
+        run: terraform -chdir=infrastructure/terraform-aws plan -input=false -out=rollback.tfplan
+      - name: Apply image rollback
+        if: inputs.apply_changes
+        run: terraform -chdir=infrastructure/terraform-aws apply -input=false rollback.tfplan
+      - name: Check readiness
+        if: inputs.apply_changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint=$(terraform -chdir=infrastructure/terraform-aws output -raw api_endpoint)
+          curl --fail-with-body --retry 8 --retry-all-errors --retry-delay 10 "$endpoint/readyz"

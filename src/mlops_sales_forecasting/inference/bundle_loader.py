@@ -48,6 +48,8 @@ def build_serving_bundle(
 ) -> ServingBundle:
     """Load and validate a complete serving bundle."""
     validate_task_manifest(manifest)
+    for reference in manifest.artifacts.values():
+        resolve_artifact_uri(release_root=release_root, reference=reference)
     model = model_loader(manifest.model.uri)
 
 

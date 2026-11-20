@@ -44,7 +44,7 @@ resource "aws_ecs_task_definition" "api" {
       environment = [
         {
           name  = "APP_ENV"
-          value = "prod"
+          value = var.environment
         },
         {
           name  = "CLOUD_PROVIDER"
@@ -64,11 +64,11 @@ resource "aws_ecs_task_definition" "api" {
         },
         {
           name  = "MLFLOW_TRACKING_URI"
-          value = "sqlite:////app/runtime/mlflow/tracking.db"
+          value = local.mlflow_tracking_uri
         },
         {
           name  = "PREFECT_API_URL"
-          value = ""
+          value = var.prefect_api_url
         }
       ]
 
@@ -110,6 +110,7 @@ resource "aws_ecs_task_definition" "api" {
 }
 
 resource "aws_ecs_service" "api" {
+  count           = var.api_serving_enabled ? 1 : 0
   name            = "${local.name_prefix}-api"
   cluster         = aws_ecs_cluster.training.id
   task_definition = aws_ecs_task_definition.api.arn
@@ -137,7 +138,7 @@ resource "aws_ecs_service" "api" {
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.api.arn
+    target_group_arn = aws_lb_target_group.api[0].arn
     container_name   = "api"
     container_port   = 8000
   }

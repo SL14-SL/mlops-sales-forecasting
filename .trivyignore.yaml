@@ -31,3 +31,13 @@ misconfigurations:
       Internal traffic, including the application API key, is not encrypted.
       Configure TLS for the private integration before handling confidential
       data or adopting this deployment for production.
+  - id: AVD-AWS-0054
+    paths:
+      - infrastructure/terraform-aws/mlflow_gateway.tf
+    expired_at: 2026-12-15
+    statement: >-
+      Development MLflow follows the existing demo ingress topology: public
+      HTTPS and bearer-token authorization terminate at API Gateway, then
+      HTTP stays inside the VPC behind security-group-restricted VPC link,
+      internal ALB and container ports. This does not provide end-to-end TLS.
+      Configure private integration TLS before confidential/production use.

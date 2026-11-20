@@ -1,7 +1,13 @@
 terraform {
+  backend "s3" {}
+
   required_version = ">= 1.10, < 2.0"
 
   required_providers {
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.7"
+    }
     aws = {
       source  = "hashicorp/aws"
       version = "~> 6.0"
@@ -16,7 +22,7 @@ provider "aws" {
   default_tags {
     tags = {
       Project     = var.project_name
-      Environment = "dev"
+      Environment = var.environment
       ManagedBy   = "terraform"
     }
   }

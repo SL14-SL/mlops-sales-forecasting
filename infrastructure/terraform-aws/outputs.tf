@@ -83,13 +83,48 @@ output "api_task_definition_arn" {
 }
 
 output "api_endpoint" {
-  value = aws_apigatewayv2_api.api.api_endpoint
+  value = var.api_serving_enabled ? aws_apigatewayv2_api.api[0].api_endpoint : null
 }
 
 output "api_service_name" {
-  value = aws_ecs_service.api.name
+  value = var.api_serving_enabled ? aws_ecs_service.api[0].name : null
 }
 
 output "api_gateway_log_group" {
   value = aws_cloudwatch_log_group.api_gateway.name
+}
+
+output "lifecycle_raw_data_uri" {
+  value = "s3://${aws_s3_bucket.training.id}/data/raw"
+}
+
+output "serving_models_uri" {
+  value = "s3://${aws_s3_bucket.training.id}/models"
+}
+
+output "api_image_uri" {
+  value = "${aws_ecr_repository.api.repository_url}@${var.api_image_digest}"
+}
+
+
+output "mlflow_managed_enabled" {
+  value = var.mlflow_managed_enabled
+}
+output "mlflow_tracking_uri" {
+  value = local.mlflow_tracking_uri
+}
+output "mlflow_token_secret_arn" {
+  value = local.mlflow_token_secret_arn
+}
+output "mlflow_repository_url" {
+  value = var.mlflow_managed_enabled ? aws_ecr_repository.mlflow[0].repository_url : null
+}
+output "mlflow_image_uri" {
+  value = var.mlflow_managed_enabled ? "${aws_ecr_repository.mlflow[0].repository_url}@${var.mlflow_image_digest}" : null
+}
+output "mlflow_service_name" {
+  value = var.mlflow_managed_enabled ? aws_ecs_service.mlflow[0].name : null
+}
+output "mlflow_database_identifier" {
+  value = var.mlflow_managed_enabled ? aws_db_instance.mlflow[0].identifier : null
 }

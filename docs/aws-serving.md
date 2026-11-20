@@ -42,8 +42,18 @@ smoke test, this file was reconstructed from the corresponding S3 input
 `store.csv` using the project's validation function. Future training exports
 include it directly.
 
-No shared MLflow registry registration or automatic champion promotion
-is implemented in this AWS candidate-to-serving path.
+The current [AWS lifecycle](aws-lifecycle.md) registers approved candidates in
+shared MLflow, applies the existing champion comparison and promotion gates,
+and publishes complete portable releases to S3. The local smoke helper above
+remains a separate legacy path. New releases retain their registered model
+version and can be rolled back together with the shared champion alias.
+
+The lifecycle refreshes running ECS tasks after promotion and verifies the
+loaded release through `/readyz`. Deployment and API image rollback workflows
+are provided. Live model release switching, ECS refresh and model rollback
+were verified on November 18, 2026 using identical model weights. Automatic
+refresh after a new quality-driven promotion and application-image rollback
+remain separate verification items. See [AWS verification](aws-verification.md).
 
 ## API image
 
@@ -85,7 +95,7 @@ API Gateway itself does not validate the application API key.
 Secrets are not stored in Terraform variables or managed secret-version
 resources. Do not print the key, commit it, or include it in screenshots.
 
-## Verified smoke test
+## Historical serving smoke test (November 16, 2026)
 
 Verified on 2026-11-16:
 
@@ -166,3 +176,36 @@ including zero sales for the closed store.
 These screenshots document the development smoke test performed on
 November 16, 2026. The model uses 20 trees for deployment verification;
 these results are not a production model-quality benchmark.
+## Enable or disable serving
+
+Set these values in the local `infrastructure/terraform-aws/terraform.tfvars`
+file to deploy the API:
+
+```hcl
+api_serving_enabled = true
+api_desired_count   = 1
+```
+
+Set `api_serving_enabled = false` to remove the ECS service, load balancer,
+and API Gateway resources while retaining storage, images, secrets, logs,
+IAM roles, and networking. This is the default.
+
+Review a Terraform plan before applying either configuration. Re-enabling
+serving can create a different API Gateway URL.
+
+The included moved blocks preserve existing resource identities when
+migrating to the conditional configuration.
+
+## Deployment history
+
+The earlier isolated demo was destroyed on November 16, 2026. Its screenshots
+and 20-tree model results above are historical evidence.
+
+The registry-backed development system was rebuilt and verified on November 18,
+2026. The initial champion was model version 1, release
+`release-09eb8fc0-8bda-4abe-9d80-b45f65929f99`. The authenticated Store 1 request
+for April 28, 2015 with `Promo=1` returned 4967.65. The technical release-switch
+test used duplicate version 2 and restored version 1 through model rollback.
+
+These are dated verification results, not a guarantee that the demo endpoint
+will remain available. See [AWS verification and screenshots](aws-verification.md).
