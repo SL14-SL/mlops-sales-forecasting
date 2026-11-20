@@ -32,6 +32,15 @@ resource "aws_iam_role" "fargate_execution" {
 }
 
 data "aws_iam_policy_document" "fargate_execution" {
+  dynamic "statement" {
+    for_each = length(compact([local.mlflow_token_secret_arn, var.prefect_key_secret_arn])) > 0 ? [1] : []
+    content {
+      sid       = "InjectLifecycleCredentials"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = compact([local.mlflow_token_secret_arn, var.prefect_key_secret_arn])
+    }
+  }
+
   statement {
     sid       = "AuthenticateToEcr"
     actions   = ["ecr:GetAuthorizationToken"]
@@ -74,6 +83,34 @@ resource "aws_iam_role" "fargate_task" {
 }
 
 data "aws_iam_policy_document" "fargate_task" {
+  statement {
+    sid       = "ListLifecycleArtifacts"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.training.arn]
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["data", "data/*", "models", "models/*", "artifacts", "artifacts/*", "mlflow", "mlflow/*"]
+    }
+  }
+
+  statement {
+    sid     = "ManageLifecycleArtifacts"
+    actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"]
+    resources = [
+      "${aws_s3_bucket.training.arn}/data/*",
+      "${aws_s3_bucket.training.arn}/models/*",
+      "${aws_s3_bucket.training.arn}/artifacts/*",
+      "${aws_s3_bucket.training.arn}/mlflow/*"
+    ]
+  }
+
+  statement {
+    sid       = "RefreshApiService"
+    actions   = ["ecs:DescribeServices", "ecs:UpdateService"]
+    resources = ["arn:aws:ecs:${var.aws_region}:${var.aws_account_id}:service/${aws_ecs_cluster.training.name}/${local.name_prefix}-api"]
+  }
+
   statement {
     sid       = "ReadBucketLocation"
     actions   = ["s3:GetBucketLocation"]

@@ -37,7 +37,7 @@ This project implements that complete lifecycle:
 - reproduce lifecycle behavior through an isolated simulation;
 - deploy the API using Terraform and keyless GitHub Actions authentication.
 
-[Download the one-page sales forecasting case study (PDF)](docs/sales_forecasting_case_study_en.pdf)
+[Download the one-page sales forecasting case study (PDF)](docs/sales-forecasting-case-study-en.pdf)
 
 ## Key Result
 
@@ -493,20 +493,35 @@ See:
 - [Cloud deployment and rollback verification](docs/cloud-deployment-and-rollback.md)
 
 
-### AWS training support
+### Verified AWS lifecycle
 
-The project supports isolated training on Amazon ECS with AWS Fargate.
-A cloud smoke test has verified S3 input download, training, evaluation,
-artifact upload, and successful task termination. The exported model was
-downloaded from S3 and loaded locally.
+The development system was verified on AWS in `eu-north-1` on November 18, 2026.
+GitHub Actions deploys the FastAPI service and MLflow to ECS/Fargate using OIDC.
+MLflow stores metadata in RDS PostgreSQL and model artifacts in S3. The API loads
+validated portable releases from S3 and serves authenticated predictions.
 
-Amazon SageMaker AI remains an additional prepared execution option.
-Its first cloud training run is pending quota approval.
+The existing 95-day simulation ran on Fargate with the same logical-time
+cooldown and controlled promo-effect drift as the local simulator. From one
+shared initial baseline, the managed arm reduced final-window RMSE from 930.79
+to 850.07 (8.67%), with three retrainings and one champion promotion. These
+results reproduce the documented reference comparison.
 
-Both execution paths use the same training entry point. Shared MLflow
-registry integration and AWS API deployment are not yet implemented.
+A separate live API test verified registry version and release switching
+`1 -> 2 -> 1`, including authenticated predictions after the switch and rollback.
+That technical test deliberately used identical model weights. Simulation
+promotion and reloading occurred in an isolated workspace; the simulation did
+not replace the live API model.
 
-See [AWS training](docs/aws-training.md) for setup and validation status.
+![AWS lifecycle comparison](docs/images/aws-95-day-simulation-results.png)
+
+See [AWS verification and screenshots](docs/aws-verification.md) for the
+evidence, scope and remaining operational limits.
+
+- [AWS lifecycle and GCP capability mapping](docs/aws-lifecycle.md)
+- [AWS lifecycle simulation](docs/aws-simulation.md)
+- [Managed MLflow on AWS](docs/aws-mlflow.md)
+- [AWS training](docs/aws-training.md)
+- [AWS serving](docs/aws-serving.md)
 
 ## Testing and Security
 
@@ -628,6 +643,7 @@ integration.
 - [Serving releases](docs/serving-releases.md)
 - [Cloud deployment](docs/cloud-deployment.md)
 - [AWS training: local container, infrastructure, and cloud job preparation](docs/aws-training.md)
+- [AWS serving](docs/aws-serving.md)
 - [Cloud teardown](docs/cloud-teardown.md)
 - [Google Cloud production demo](docs/production-demo.md)
 - [Operations runbook](docs/operations-runbook.md)

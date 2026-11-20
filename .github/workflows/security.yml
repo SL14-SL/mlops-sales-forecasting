@@ -34,13 +34,13 @@ jobs:
           cache-dependency-glob: uv.lock
 
       - name: Synchronize dependencies
-        run: uv sync --locked --extra aws
+        run: uv sync --locked --extra aws --extra mlflow-server
       
       # Remove PYSEC-2026-3865 when a patched MLflow release is available.
       - name: Audit Python dependencies
         run: |
           for attempt in 1 2 3; do
-            if uv run --locked --extra aws pip-audit \
+            if uv run --locked --extra aws --extra mlflow-server pip-audit \
               --ignore-vuln PYSEC-2026-3865; then
               exit 0
             fi
@@ -54,6 +54,12 @@ jobs:
           done
 
   repository-scan:
+    env:
+      TF_VAR_mlflow_managed_enabled: 'true'
+      TF_VAR_aws_account_id: '000000000000'
+      TF_VAR_api_image_digest: 'sha256:0000000000000000000000000000000000000000000000000000000000000000'
+      TF_VAR_fargate_training_image_digest: 'sha256:0000000000000000000000000000000000000000000000000000000000000000'
+      TF_VAR_mlflow_image_digest: 'sha256:0000000000000000000000000000000000000000000000000000000000000000'
     name: Scan repository
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -75,7 +81,11 @@ jobs:
           exit-code: "1"
 
   container-image:
-    name: Scan container image
+    name: Scan API image (aws=${{ matrix.install_aws }})
+    strategy:
+      fail-fast: false
+      matrix:
+        install_aws: ["false", "true"]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
@@ -86,6 +96,7 @@ jobs:
       - name: Build API image
         run: >-
           docker build
+          --build-arg INSTALL_AWS=${{ matrix.install_aws }}
           --tag "mlops-api-security-scan:${{ github.sha }}"
           .
 
@@ -117,11 +128,40 @@ jobs:
           --tag "mlops-training-security-scan:${{ github.sha }}"
           .
 
+      - name: Verify training entry points as the Fargate user
+        run: |
+          for module in train lifecycle; do
+            docker run --rm --network none --user 10001 --workdir /tmp \
+              --entrypoint python \
+              "mlops-training-security-scan:${{ github.sha }}" \
+              -m "mlops_sales_forecasting.aws.$module" --help
+          done
+
       - name: Scan training image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: "mlops-training-security-scan:${{ github.sha }}"
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          format: table
+          exit-code: "1"
+
+  mlflow-image:
+    name: Scan MLflow server image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build MLflow image
+        run: docker build -f Dockerfile.mlflow -t "mlops-mlflow-security-scan:${{ github.sha }}" .
+      - name: Scan MLflow image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: "mlops-mlflow-security-scan:${{ github.sha }}"
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true

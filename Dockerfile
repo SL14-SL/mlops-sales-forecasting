@@ -10,29 +10,47 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never
 
 WORKDIR /app
+ARG INSTALL_AWS=false
 
 COPY pyproject.toml uv.lock ./
 
-RUN uv sync \
-    --locked \
-    --no-dev \
-    --no-install-project
+RUN if [ "$INSTALL_AWS" = "true" ]; then \
+        uv sync \
+            --locked \
+            --no-dev \
+            --extra aws \
+            --no-install-project; \
+    else \
+        uv sync \
+            --locked \
+            --no-dev \
+            --no-install-project; \
+    fi
 
 COPY README.md ./
 COPY configs ./configs
 COPY examples ./examples
 COPY src ./src
 
-RUN uv sync \
-    --locked \
-    --no-dev \
-    --no-editable
+RUN if [ "$INSTALL_AWS" = "true" ]; then \
+        uv sync \
+            --locked \
+            --no-dev \
+            --extra aws \
+            --no-editable; \
+    else \
+        uv sync \
+            --locked \
+            --no-dev \
+            --no-editable; \
+    fi
 
 
 FROM python:3.12.16-slim AS runtime
 
 RUN apt-get update \
     && apt-get upgrade --yes \
+    && apt-get install --yes --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/app/.venv/bin:${PATH}" \

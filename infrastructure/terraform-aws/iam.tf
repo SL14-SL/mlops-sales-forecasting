@@ -94,13 +94,14 @@ data "aws_iam_policy_document" "training" {
     sid = "WriteTrainingLogs"
 
     actions = [
+      "logs:CreateLogGroup",
       "logs:CreateLogStream",
       "logs:DescribeLogStreams",
       "logs:PutLogEvents"
     ]
 
     resources = [
-      "${aws_cloudwatch_log_group.training.arn}:*"
+      "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/sagemaker/TrainingJobs:*"
     ]
   }
 }

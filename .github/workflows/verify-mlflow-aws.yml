@@ -1,0 +1,37 @@
+name: Verify AWS MLflow persistence
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: aws-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/aws-context
+        with:
+          role_arn: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          region: ${{ vars.AWS_REGION }}
+          state_bucket: ${{ vars.AWS_TF_STATE_BUCKET }}
+          environment: ${{ inputs.environment }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.13"
+          enable-cache: true
+      - name: Create and verify a registry model before restart
+        run: uv run --locked --extra aws python scripts/smoke_mlflow_aws.py
+      - name: Restart the single MLflow task and verify the new deployment
+        run: uv run --locked --extra aws python scripts/restart_mlflow_aws.py
+      - name: Verify existing registry data and model after restart
+        run: uv run --locked --extra aws python scripts/smoke_mlflow_aws.py --verify-existing

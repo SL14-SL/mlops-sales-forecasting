@@ -29,24 +29,36 @@ resource "aws_ecs_task_definition" "training" {
       user             = "10001:10001"
       workingDirectory = "/tmp"
 
+      mountPoints    = []
+      portMappings   = []
+      systemControls = []
+      volumesFrom    = []
+
       entryPoint = [
         "python",
         "-m",
-        "mlops_sales_forecasting.aws.fargate_train"
+        "mlops_sales_forecasting.aws.lifecycle"
       ]
 
-      command = [
-        "--config",
-        "/app/configs/dev.yaml",
-        "--input-uri",
-        "s3://${aws_s3_bucket.training.id}/training/input/rossmann-v1/",
-        "--output-uri",
-        "s3://${aws_s3_bucket.training.id}/training/output",
-        "--estimators",
-        "20"
-      ]
+      command = ["train"]
 
-      environment = [
+      secrets = concat(
+        local.mlflow_token_secret_arn != "" ? [{
+          name      = "MLFLOW_TRACKING_TOKEN"
+          valueFrom = local.mlflow_token_secret_arn
+        }] : [],
+        var.prefect_key_secret_arn != "" ? [{
+          name      = "PREFECT_API_KEY"
+          valueFrom = var.prefect_key_secret_arn
+        }] : []
+      )
+
+      environment = concat([
+        { name = "CLOUD_PROVIDER", value = "aws" },
+        { name = "APP_ENV", value = var.environment },
+        { name = "S3_BUCKET_NAME", value = aws_s3_bucket.training.id },
+        { name = "MLFLOW_TRACKING_URI", value = local.mlflow_tracking_uri },
+        { name = "PREFECT_API_URL", value = var.prefect_api_url },
         {
           name  = "AWS_DEFAULT_REGION"
           value = var.aws_region
@@ -59,10 +71,15 @@ resource "aws_ecs_task_definition" "training" {
           name  = "HOME"
           value = "/tmp"
         }
-      ]
+        ], var.api_serving_enabled ? [
+        { name = "AWS_ECS_CLUSTER", value = aws_ecs_cluster.training.arn },
+        { name = "AWS_API_SERVICE", value = "${local.name_prefix}-api" },
+        { name = "AWS_API_ENDPOINT", value = aws_apigatewayv2_api.api[0].api_endpoint }
+      ] : [])
 
       linuxParameters = {
         capabilities = {
+          add  = []
           drop = ["ALL"]
         }
       }

@@ -43,7 +43,7 @@ def create_app(
 
     app = FastAPI(
         title=title,
-        version="0.1.0",
+        version="1.1.0",
         lifespan=lifespan,
     )
     app.state.model_manager = model_manager

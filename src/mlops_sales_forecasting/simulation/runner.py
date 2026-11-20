@@ -392,6 +392,13 @@ def run_lifecycle_simulation(
         )
         results.append(result)
 
+        print(
+            f"Simulation day {day}/{selected_days} | "
+            f"date={batch.date} | rmse={result.rmse} | "
+            f"event={result.event} | champion_promoted={result.champion_promoted}",
+            flush=True,
+        )
+
         write_lifecycle_results(
             results,
             output_path,
