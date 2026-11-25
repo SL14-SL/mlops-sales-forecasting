@@ -18,6 +18,10 @@ from mlops_sales_forecasting.configs.paths import (
 from mlops_sales_forecasting.monitoring.costs import (
     build_training_cost_report,
 )
+from mlops_sales_forecasting.monitoring.theme import (
+    PERFORMANCE_COLORS,
+    apply_chart_theme,
+)
 from mlops_sales_forecasting.storage.filesystem import (
     file_exists,
 )
@@ -117,9 +121,9 @@ def build_performance_chart(
     figure = go.Figure()
 
     for column, label, color in (
-        ("rmse", "RMSE", "#636EFA"),
-        ("mae", "MAE", "#EF553B"),
-        ("bias", "Bias", "#00CC96"),
+        ("rmse", "RMSE", PERFORMANCE_COLORS["rmse"]),
+        ("mae", "MAE", PERFORMANCE_COLORS["mae"]),
+        ("bias", "Bias", PERFORMANCE_COLORS["bias"]),
     ):
         figure.add_trace(
             go.Scatter(
@@ -145,7 +149,7 @@ def build_performance_chart(
         },
     )
 
-    return figure
+    return apply_chart_theme(figure)
 
 
 def build_drift_chart(
@@ -201,7 +205,7 @@ def build_drift_chart(
         yaxis_title="Drift score",
     )
 
-    return figure
+    return apply_chart_theme(figure)
 
 
 def _metric_value(

@@ -3,6 +3,17 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 
+from mlops_sales_forecasting.monitoring.theme import (
+    CHART_VALUE_FONT_SIZE,
+    GREEN,
+    LIFECYCLE_COLORS,
+    MINT,
+    MUTED_GREEN,
+    REJECTED,
+    TEXT,
+    WHITE,
+    apply_chart_theme,
+)
 from mlops_sales_forecasting.simulation.reporting import (
     summarize_simulation_comparison,
 )
@@ -181,7 +192,7 @@ def _add_drift_regions(
                 full_drift_day,
                 maximum_day + 0.5,
             ),
-            fillcolor="#FECB52",
+            fillcolor=MINT,
             opacity=0.12,
             layer="below",
             line_width=0,
@@ -193,7 +204,7 @@ def _add_drift_regions(
         figure.add_vrect(
             x0=full_drift_day,
             x1=maximum_day + 0.5,
-            fillcolor="#EF553B",
+            fillcolor=REJECTED,
             opacity=0.06,
             layer="below",
             line_width=0,
@@ -231,8 +242,8 @@ def build_lifecycle_metric_chart(
             mode="lines",
             name="With retraining",
             line={
-                "color": "#00CC96",
-                "width": 2.5,
+                "color": LIFECYCLE_COLORS["with_retraining"],
+                "width": 3,
             },
             legendrank=2,
         )
@@ -244,8 +255,8 @@ def build_lifecycle_metric_chart(
             mode="lines",
             name="Without retraining",
             line={
-                "color": "#EF553B",
-                "width": 3,
+                "color": LIFECYCLE_COLORS["without_retraining"],
+                "width": 3.5,
                 "dash": "dash",
             },
             legendrank=1,
@@ -265,8 +276,8 @@ def build_lifecycle_metric_chart(
                     mode="markers",
                     name="Retraining event",
                     marker={
-                        "color": "#AB63FA",
-                        "size": 9,
+                        "color": LIFECYCLE_COLORS["retraining_event"],
+                        "size": 12,
                         "symbol": "diamond",
                     },
                     text=events["event"].astype(str),
@@ -289,11 +300,11 @@ def build_lifecycle_metric_chart(
                     mode="markers",
                     name="Challenger promoted",
                     marker={
-                        "color": "#FFA15A",
-                        "size": 17,
+                        "color": LIFECYCLE_COLORS["champion_promoted"],
+                        "size": 21,
                         "symbol": "star",
                         "line": {
-                            "color": "#FFFFFF",
+                            "color": WHITE,
                             "width": 1,
                         },
                     },
@@ -307,19 +318,22 @@ def build_lifecycle_metric_chart(
                 )
             )
     figure.update_layout(
-        height=480,
+        height=600,
         hovermode="x unified",
         xaxis_title="Simulation day",
         yaxis_title=supported_metrics[metric],
         legend={
             "orientation": "h",
-            "y": 1.12,
+            "y": 1.15,
+            "yanchor": "bottom",
+            "x": 0,
+            "xanchor": "left",
         },
         margin={
-            "l": 40,
-            "r": 20,
-            "t": 30,
-            "b": 40,
+            "l": 75,
+            "r": 30,
+            "t": 110,
+            "b": 65,
         },
     )
 
@@ -327,10 +341,10 @@ def build_lifecycle_metric_chart(
         figure.add_hline(
             y=0.0,
             line_dash="dash",
-            line_color="#7F7F7F",
+            line_color=MUTED_GREEN,
         )
 
-    return figure
+    return apply_chart_theme(figure)
 
 
 def build_segment_chart(
@@ -349,6 +363,14 @@ def build_segment_chart(
     if metric not in supported_metrics:
         raise ValueError(f"Unsupported segment metric: {metric}.")
 
+    variant_colors = {
+        "Static baseline": REJECTED,
+        "Static model": REJECTED,
+        "Without retraining": REJECTED,
+        "Managed lifecycle": GREEN,
+        "With retraining": GREEN,
+    }
+
     figure = go.Figure()
 
     for model_variant, rows in segment_metrics.groupby(
@@ -360,31 +382,81 @@ def build_segment_chart(
                 name=str(model_variant),
                 x=rows["segment"],
                 y=rows[metric],
+                marker_color=variant_colors.get(
+                    str(model_variant),
+                    MUTED_GREEN,
+                ),
+                text=rows[metric],
+                texttemplate=("%{text:.1f}" if metric == "wmape_percent" else "%{text:.0f}"),
+                textposition="outside",
+                textangle=0,
+                textfont={
+                    "size": CHART_VALUE_FONT_SIZE,
+                    "color": TEXT,
+                },
+                cliponaxis=False,
+                constraintext="none",
             )
         )
 
     figure.update_layout(
-        height=460,
+        height=560,
         barmode="group",
         xaxis_title="Store segment",
         yaxis_title=supported_metrics[metric],
         legend={
             "orientation": "h",
-            "y": 1.12,
+            "y": 1.08,
+            "x": 0,
         },
         margin={
-            "l": 40,
-            "r": 20,
-            "t": 30,
-            "b": 40,
+            "l": 75,
+            "r": 30,
+            "t": 80,
+            "b": 65,
         },
+        uniformtext_minsize=CHART_VALUE_FONT_SIZE,
+        uniformtext_mode="show",
+    )
+
+    figure.update_xaxes(
+        tickvals=[
+            "All open stores",
+            "Promo stores",
+            "Non-promo stores",
+        ],
+        ticktext=[
+            "All stores",
+            "Promo",
+            "Non-promo",
+        ],
+    )
+
+    minimum = min(
+        0.0,
+        float(segment_metrics[metric].min()),
+    )
+    maximum = max(
+        0.0,
+        float(segment_metrics[metric].max()),
+    )
+    padding = max(
+        (maximum - minimum) * 0.15,
+        1.0,
+    )
+
+    figure.update_yaxes(
+        range=[
+            minimum - padding if minimum < 0 else 0,
+            maximum + padding,
+        ],
     )
 
     if metric == "bias":
         figure.add_hline(
             y=0.0,
             line_dash="dash",
-            line_color="#7F7F7F",
+            line_color=MUTED_GREEN,
         )
 
-    return figure
+    return apply_chart_theme(figure)

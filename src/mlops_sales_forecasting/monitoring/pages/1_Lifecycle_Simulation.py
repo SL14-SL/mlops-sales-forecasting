@@ -32,7 +32,7 @@ def main() -> None:
     )
 
     st.title("Rossmann Lifecycle Simulation")
-    st.caption(
+    st.markdown(
         "Comparison of a static forecasting model with the policy-controlled retraining lifecycle."
     )
 
@@ -89,18 +89,24 @@ def main() -> None:
         summary["promotion_events"],
     )
 
-    st.info(
-        "The simulated promotion-aware lifecycle reduces the "
-        "final RMSE by "
-        f"{summary['relative_rmse_improvement']:.1%} "
-        "relative to the static-model scenario."
+    relative_improvement = summary["relative_rmse_improvement"]
+
+    message = (
+        f"Relative final RMSE improvement of the managed lifecycle: {relative_improvement:.1%}."
     )
+
+    if relative_improvement > 0:
+        st.success(message)
+    elif relative_improvement < 0:
+        st.warning(message)
+    else:
+        st.info(message)
 
     st.subheader("Performance over the simulation")
 
     promo_multiplier = 1.0 + float(drift["maximum_promo_uplift"])
 
-    st.caption(
+    st.markdown(
         "Controlled concept-drift scenario: "
         f"promotional Ground Truth begins changing on day "
         f"{drift['drift_start_day']}, reaches its full effect on day "
@@ -130,33 +136,37 @@ def main() -> None:
     )
     st.plotly_chart(
         lifecycle_figure,
-        use_container_width=True,
+        width="stretch",
+        theme=None,
     )
 
     with st.expander("How to read the lifecycle comparison"):
         st.markdown(
             f"""
-- **Without retraining** keeps the original champion active for all
-  {summary["final_day"]} simulation days.
-- **With retraining** evaluates policy signals, trains challengers and
-  promotes only candidates that pass overall and segment-level guardrails.
-- The **yellow region** starts on day
-  {drift["drift_start_day"]} and shows the
-  {drift["drift_duration_days"]}-day drift ramp.
-- During the ramp, promotional Ground Truth is reduced linearly from its
-  original value to a multiplier of **{promo_multiplier:.2f}**.
-- The **red region** begins on day {drift["full_drift_day"]} and marks
-  the period with the full promotional effect.
-- Non-promotional Ground Truth is unchanged by the controlled scenario.
-- Each prediction is produced **before** that day's Ground Truth is persisted
-  and used for monitoring or state updates. This prevents target leakage.
-- Purple diamonds mark completed retraining events.
-- The orange star marks the challenger that passed the paired promotion
-  checks and became champion.
-- Retrained challengers without a promotion did not replace the active
-  champion.
-- Bias values near zero indicate more balanced over- and under-forecasting.
-"""
+    - **Without retraining (terracotta dashed line)** keeps the original
+    champion active for all {summary["final_day"]} simulation days.
+    - **With retraining (green solid line)** evaluates policy signals,
+    trains challengers and promotes only candidates that pass overall
+    and segment-level guardrails.
+    - The **mint-shaded region** starts on day
+    {drift["drift_start_day"]} and shows the
+    {drift["drift_duration_days"]}-day drift ramp.
+    - During the ramp, promotional Ground Truth is reduced linearly from its
+    original value to a multiplier of **{promo_multiplier:.2f}**.
+    - The **terracotta-shaded region** begins on day
+    {drift["full_drift_day"]} and marks the period with the full
+    promotional effect.
+    - Non-promotional Ground Truth is unchanged by the controlled scenario.
+    - Each prediction is produced **before** that day's Ground Truth is
+    persisted and used for monitoring or state updates. This prevents
+    target leakage.
+    - **Dark green diamonds** mark completed retraining events.
+    - The **mint-colored star** marks the challenger that passed the paired
+    promotion checks and became champion.
+    - Retrained challengers without a promotion did not replace the active
+    champion.
+    - Bias values near zero indicate more balanced over- and under-forecasting.
+    """
         )
 
     st.subheader("Segment performance")
@@ -177,92 +187,21 @@ def main() -> None:
         }.get,
     )
 
-    presentation_mode = st.checkbox(
-        "Presentation mode (light theme, larger labels)",
-        value=False,
-    )
-
     segment_figure = build_segment_chart(
         segment_metrics,
         metric=segment_metric,
     )
 
-    if presentation_mode:
-        segment_figure.update_layout(
-            template="plotly_white",
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            height=520,
-            font={
-                "size": 22,
-                "color": "#24342D",
-            },
-            legend={
-                "orientation": "h",
-                "y": 1.12,
-                "x": 0,
-                "font": {"size": 22},
-                "entrywidth": 300,
-                "entrywidthmode": "pixels",
-            },
-            margin={"l": 80, "r": 30, "t": 90, "b": 85},
-            uniformtext_minsize=22,
-            uniformtext_mode="show",
-        )
-
-        segment_figure.update_xaxes(
-            title_text=None,
-            tickfont={"size": 22},
-            tickvals=[
-                "All open stores",
-                "Promo stores",
-                "Non-promo stores",
-            ],
-            ticktext=[
-                "All stores",
-                "Promo",
-                "Non-promo",
-            ],
-        )
-
-        segment_figure.update_yaxes(
-            title_font={"size": 22},
-            tickfont={"size": 20},
-            gridcolor="#E1E7E3",
-            zerolinecolor="#CDD5CF",
-        )
-
-        segment_figure.update_traces(
-            texttemplate=(
-                "%{y:.1f}"
-                if segment_metric == "wmape_percent"
-                else "%{y:.0f}"
-            ),
-            textposition="outside",
-            textfont={"size": 24},
-            cliponaxis=False,
-            selector={"type": "bar"},
-        )
-
-        for trace in segment_figure.data:
-            if trace.name == "Without retraining":
-                trace.name = "Static model"
-            elif trace.name in {
-                "Managed lifecycle",
-                "With retraining",
-            }:
-                trace.name = "Managed lifecycle"
-
     st.plotly_chart(
         segment_figure,
-        use_container_width=True,
-        theme=None if presentation_mode else "streamlit",
+        width="stretch",
+        theme=None,
         config={
             "toImageButtonOptions": {
                 "format": "png",
                 "filename": "lifecycle-segment-performance",
                 "width": 1200,
-                "height": 520,
+                "height": 560,
                 "scale": 2,
             },
         },
@@ -274,7 +213,7 @@ def main() -> None:
     ):
         st.dataframe(
             segment_metrics,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -292,14 +231,14 @@ def main() -> None:
         with tab_without:
             st.dataframe(
                 without_retraining,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
         with tab_with:
             st.dataframe(
                 with_retraining,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
