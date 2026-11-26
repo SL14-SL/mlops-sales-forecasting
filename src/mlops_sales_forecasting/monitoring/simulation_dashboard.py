@@ -9,7 +9,7 @@ from mlops_sales_forecasting.monitoring.theme import (
     LIFECYCLE_COLORS,
     MINT,
     MUTED_GREEN,
-    REJECTED,
+    TERRACOTTA,
     TEXT,
     WHITE,
     apply_chart_theme,
@@ -204,7 +204,7 @@ def _add_drift_regions(
         figure.add_vrect(
             x0=full_drift_day,
             x1=maximum_day + 0.5,
-            fillcolor=REJECTED,
+            fillcolor=TERRACOTTA,
             opacity=0.06,
             layer="below",
             line_width=0,
@@ -364,9 +364,9 @@ def build_segment_chart(
         raise ValueError(f"Unsupported segment metric: {metric}.")
 
     variant_colors = {
-        "Static baseline": REJECTED,
-        "Static model": REJECTED,
-        "Without retraining": REJECTED,
+        "Static baseline": TERRACOTTA,
+        "Static model": TERRACOTTA,
+        "Without retraining": TERRACOTTA,
         "Managed lifecycle": GREEN,
         "With retraining": GREEN,
     }
