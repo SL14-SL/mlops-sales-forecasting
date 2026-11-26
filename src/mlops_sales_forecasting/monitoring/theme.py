@@ -10,13 +10,13 @@ MUTED_GREEN = "#C5CECA"
 BACKGROUND = "#F2F6F4"
 WHITE = "#FFFFFF"
 TEXT = DARK_GREEN
-REJECTED = "#BF735F"
+TERRACOTTA = "#BF735F"
 
 CHART_COLORS = (
     GREEN,
     MINT,
     DARK_GREEN,
-    REJECTED,
+    TERRACOTTA,
     MUTED_GREEN,
 )
 
@@ -28,7 +28,7 @@ PERFORMANCE_COLORS = {
 
 LIFECYCLE_COLORS = {
     "with_retraining": GREEN,
-    "without_retraining": REJECTED,
+    "without_retraining": TERRACOTTA,
     "retraining_event": DARK_GREEN,
     "champion_promoted": MINT,
 }
