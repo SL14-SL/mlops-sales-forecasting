@@ -13,7 +13,7 @@ dependencies = [
     "google-cloud-storage>=3,<4",
     "httpx2>=2.12.0",
     "mlflow==3.18.0",
-    "numpy==2.5.4",
+    "numpy==2.5.5",
     "pandas==2.3.3",
     "pandera==0.36.0",
     "pillow>=13,<14",
